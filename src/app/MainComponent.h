@@ -23,7 +23,6 @@ namespace jamstudio::app
 
 class MainComponent : public juce::Component,
                       public juce::ChangeListener,
-                      public juce::MenuBarModel,
                       public juce::DarkModeSettingListener
 {
 public:
@@ -33,11 +32,11 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
     void changeListenerCallback (juce::ChangeBroadcaster* source) override;
-
-    juce::StringArray getMenuBarNames() override;
-    juce::PopupMenu getMenuForIndex (int topLevelMenuIndex, const juce::String& menuName) override;
-    void menuItemSelected (int menuItemID, int topLevelMenuIndex) override;
     void darkModeSettingChanged() override;
+
+    [[nodiscard]] juce::StringArray buildMenuBarNames();
+    [[nodiscard]] juce::PopupMenu buildMenuForIndex (int topLevelMenuIndex, const juce::String& menuName);
+    void handleMenuCommand (int menuItemID, int topLevelMenuIndex);
 
 private:
     enum MenuCommand

@@ -17,6 +17,7 @@ juce_add_gui_app(JamStudio
 juce_generate_juce_header(JamStudio)
 
 target_sources(JamStudio PRIVATE
+    src/app/AppMenuBar.cpp
     src/app/Main.cpp
     src/app/MainWindow.cpp
     src/app/MainComponent.cpp

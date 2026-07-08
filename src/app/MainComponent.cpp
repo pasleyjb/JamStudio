@@ -76,6 +76,7 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
 
 MainComponent::~MainComponent()
 {
+    fileChooser.reset();
     audioRecorder.stopRecording();
     audioDeviceManager.removeAudioCallback (&audioRecorder);
     demucsSeparator.cancel();
@@ -134,12 +135,12 @@ void MainComponent::resized()
     }
 }
 
-juce::StringArray MainComponent::getMenuBarNames()
+juce::StringArray MainComponent::buildMenuBarNames()
 {
     return { "File", "Project", "Stems", "Notation", "Lyrics", "Transport", "Help" };
 }
 
-juce::PopupMenu MainComponent::getMenuForIndex (const int topLevelMenuIndex, const juce::String& menuName)
+juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, const juce::String& menuName)
 {
     juce::PopupMenu menu;
 
@@ -182,7 +183,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (const int topLevelMenuIndex, con
     return menu;
 }
 
-void MainComponent::menuItemSelected (const int menuItemID, const int /*topLevelMenuIndex*/)
+void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLevelMenuIndex*/)
 {
     switch (menuItemID)
     {
@@ -208,7 +209,11 @@ void MainComponent::menuItemSelected (const int menuItemID, const int /*topLevel
 
 void MainComponent::darkModeSettingChanged()
 {
-    refreshTheme();
+    juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<MainComponent> (this)]
+    {
+        if (safeThis != nullptr)
+            safeThis->refreshTheme();
+    });
 }
 
 void MainComponent::refreshTheme()

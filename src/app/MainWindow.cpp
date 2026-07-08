@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "AppMenuBar.h"
 #include "../ui/JamStudioTheme.h"
 
 namespace jamstudio::app
@@ -14,16 +15,23 @@ MainWindow::MainWindow (juce::AudioDeviceManager& deviceManager)
 
     auto* content = new MainComponent (deviceManager);
     setContentOwned (content, true);
-    setMenuBar (content);
+
+    menuBarModel = std::make_unique<AppMenuBar> (juce::Component::SafePointer<MainComponent> (content));
+    setMenuBar (menuBarModel.get());
 
     setResizable (true, true);
     centreWithSize (getWidth(), getHeight());
     setVisible (true);
 }
 
-void MainWindow::closeButtonPressed()
+MainWindow::~MainWindow()
 {
     setMenuBar (nullptr);
+    menuBarModel.reset();
+}
+
+void MainWindow::closeButtonPressed()
+{
     juce::JUCEApplication::getInstance()->systemRequestedQuit();
 }
 
