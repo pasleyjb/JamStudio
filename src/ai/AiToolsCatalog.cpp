@@ -14,8 +14,8 @@ juce::Array<AiToolInfo> AiToolsCatalog::getToolStatuses (const DemucsSeparator& 
         "Demucs",
         "Stem separation (vocals, drums, bass, other)",
         demucs.isAvailable(),
-        "pipx install demucs",
-        "First run downloads PyTorch models and may take several minutes."
+        "pipx install demucs && pipx inject demucs torchcodec",
+        "First run downloads PyTorch models. If separation fails on save, run: pipx inject demucs torchcodec"
     });
 
     tools.add ({

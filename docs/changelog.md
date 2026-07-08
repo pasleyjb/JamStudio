@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.4] — 2026-07-08
+
+### Fixed
+
+- Demucs setup docs and error hint for missing `torchcodec` dependency (required by recent torchaudio)
+
 ## [0.9.3] — 2026-07-08
 
 ### Added

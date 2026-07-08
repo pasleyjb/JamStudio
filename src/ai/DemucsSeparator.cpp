@@ -153,6 +153,11 @@ void DemucsSeparator::separateAsync (const juce::File& inputFile,
             else
                 result.errorMessage = "Demucs failed with exit code " + juce::String (process.getExitCode());
 
+            if (accumulatedOutput.containsIgnoreCase ("torchcodec"))
+            {
+                result.errorMessage += " Install the missing dependency with: pipx inject demucs torchcodec";
+            }
+
             juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
             return;
         }

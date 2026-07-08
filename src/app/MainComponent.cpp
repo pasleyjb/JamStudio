@@ -223,7 +223,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
-                                                    "JamStudio v0.9.3\nStem separation, synced notation, lyrics, and recording.");
+                                                    "JamStudio v0.9.4\nStem separation, synced notation, lyrics, and recording.");
             break;
         default: break;
     }
