@@ -1,5 +1,7 @@
 #include "DemucsSeparator.h"
 
+#include "CommandUtils.h"
+
 namespace jamstudio::ai
 {
 
@@ -37,37 +39,11 @@ float parseProgressFromOutput (const juce::String& output)
 
     return -1.0f;
 }
-
-bool commandExists (const juce::String& command)
-{
-    juce::ChildProcess process;
-    juce::StringArray args;
-
-   #if JUCE_WINDOWS
-    args.add ("where");
-    args.add (command);
-   #else
-    args.add ("sh");
-    args.add ("-c");
-    args.add ("command -v " + command);
-   #endif
-
-    if (! process.start (args, juce::ChildProcess::wantStdOut))
-        return false;
-
-    process.waitForProcessToFinish (5000);
-    return process.getExitCode() == 0;
-}
 } // namespace
 
 DemucsSeparator::DemucsSeparator()
 {
-    if (commandExists ("demucs"))
-        demucsExecutable = "demucs";
-    else if (commandExists ("python3"))
-        demucsExecutable = "python3 -m demucs";
-    else if (commandExists ("python"))
-        demucsExecutable = "python -m demucs";
+    demucsExecutable = findWorkingExecutable ({ "demucs", "python3 -m demucs", "python -m demucs" });
 }
 
 DemucsSeparator::~DemucsSeparator()
@@ -170,7 +146,13 @@ void DemucsSeparator::separateAsync (const juce::File& inputFile,
 
         if (process.getExitCode() != 0)
         {
-            result.errorMessage = "Demucs failed with exit code " + juce::String (process.getExitCode());
+            const auto summary = extractProcessErrorSummary (accumulatedOutput);
+
+            if (summary.isNotEmpty())
+                result.errorMessage = "Demucs failed: " + summary;
+            else
+                result.errorMessage = "Demucs failed with exit code " + juce::String (process.getExitCode());
+
             juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
             return;
         }

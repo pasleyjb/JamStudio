@@ -8,12 +8,7 @@ namespace jamstudio::ai
 
 BasicPitchTranscriber::BasicPitchTranscriber()
 {
-    if (commandExists ("basic-pitch"))
-        basicPitchExecutable = "basic-pitch";
-    else if (commandExists ("python3"))
-        basicPitchExecutable = "python3 -m basic_pitch";
-    else if (commandExists ("python"))
-        basicPitchExecutable = "python -m basic_pitch";
+    basicPitchExecutable = findWorkingExecutable ({ "basic-pitch", "python3 -m basic_pitch", "python -m basic_pitch" });
 }
 
 bool BasicPitchTranscriber::isAvailable() const
@@ -113,9 +108,17 @@ void BasicPitchTranscriber::transcribeAsync (const juce::File& audioFile,
             juce::Thread::sleep (500);
         }
 
+        const auto processOutput = process.readAllProcessOutput();
+
         if (process.getExitCode() != 0)
         {
-            result.errorMessage = "basic-pitch failed with exit code " + juce::String (process.getExitCode());
+            const auto summary = extractProcessErrorSummary (processOutput);
+
+            if (summary.isNotEmpty())
+                result.errorMessage = "basic-pitch failed: " + summary;
+            else
+                result.errorMessage = "basic-pitch failed with exit code " + juce::String (process.getExitCode());
+
             juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
             return;
         }

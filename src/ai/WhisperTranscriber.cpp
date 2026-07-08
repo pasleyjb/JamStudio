@@ -7,12 +7,7 @@ namespace jamstudio::ai
 
 WhisperTranscriber::WhisperTranscriber()
 {
-    if (commandExists ("whisper"))
-        whisperExecutable = "whisper";
-    else if (commandExists ("python3"))
-        whisperExecutable = "python3 -m whisper";
-    else if (commandExists ("python"))
-        whisperExecutable = "python -m whisper";
+    whisperExecutable = findWorkingExecutable ({ "whisper", "python3 -m whisper", "python -m whisper" });
 }
 
 bool WhisperTranscriber::isAvailable() const
@@ -122,9 +117,17 @@ void WhisperTranscriber::transcribeAsync (const juce::File& audioFile,
             juce::Thread::sleep (500);
         }
 
+        const auto processOutput = process.readAllProcessOutput();
+
         if (process.getExitCode() != 0)
         {
-            result.errorMessage = "Whisper failed with exit code " + juce::String (process.getExitCode());
+            const auto summary = extractProcessErrorSummary (processOutput);
+
+            if (summary.isNotEmpty())
+                result.errorMessage = "Whisper failed: " + summary;
+            else
+                result.errorMessage = "Whisper failed with exit code " + juce::String (process.getExitCode());
+
             juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
             return;
         }
