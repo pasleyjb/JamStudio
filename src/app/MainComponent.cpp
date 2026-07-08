@@ -223,7 +223,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
-                                                    "JamStudio v0.9.1\nStem separation, synced notation, lyrics, and recording.");
+                                                    "JamStudio v0.9.2\nStem separation, synced notation, lyrics, and recording.");
             break;
         default: break;
     }
@@ -359,6 +359,14 @@ void MainComponent::loadProjectFile (const juce::File& file)
     else
         lyricsView.clear();
 
+    recordingTakeManager.clear();
+
+    for (const auto& stemState : data.stems)
+    {
+        if (stemState.name.startsWith ("Take "))
+            recordingTakeManager.addRestoredTake (juce::File (stemState.filePath), stemState.name);
+    }
+
     rebuildStemStrips();
     resized();
     juce::StringArray loadedParts;
@@ -439,6 +447,7 @@ void MainComponent::openSong()
             return;
 
         currentSongFile = file;
+        recordingTakeManager.clear();
         transportController.stop();
         waveformDisplay.setSourceFile (file);
 
@@ -738,7 +747,12 @@ void MainComponent::toggleRecording()
         }
 
         const auto exportResult = recordingExporter.exportRecording (savedFile);
-        loadRecordingAsStem (savedFile);
+        const auto takeResult = recordingTakeManager.addTake (savedFile);
+
+        for (const auto& pruned : takeResult.prunedFiles)
+            transportController.getStemMixer().removeStemByFile (pruned);
+
+        loadRecordingAsStem (savedFile, takeResult.take.displayName);
 
         juce::StringArray exportedPaths;
         exportedPaths.add (savedFile.getFullPathName());
@@ -749,7 +763,8 @@ void MainComponent::toggleRecording()
         if (exportResult.mp3File.existsAsFile())
             exportedPaths.add (exportResult.mp3File.getFullPathName());
 
-        setStatus ("Recording added as stem. Exported: " + exportedPaths.joinIntoString (", "));
+        const auto takeLabel = takeResult.take.displayName;
+        setStatus (takeLabel + " added to mixer. Exported: " + exportedPaths.joinIntoString (", "));
         return;
     }
 
@@ -766,17 +781,29 @@ void MainComponent::toggleRecording()
     }
 }
 
-void MainComponent::loadRecordingAsStem (const juce::File& recordingFile)
+void MainComponent::loadRecordingAsStem (const juce::File& recordingFile,
+                                           const juce::String& displayName)
 {
     if (! recordingFile.existsAsFile())
         return;
 
-    if (transportController.getStemMixer().loadStem (recordingFile))
-        rebuildStemStrips();
+    auto& mixer = transportController.getStemMixer();
+
+    if (! mixer.loadStem (recordingFile))
+        return;
+
+    if (auto* stem = mixer.getStem (mixer.getNumStems() - 1))
+    {
+        stem->setType (jamstudio::audio::StemType::recording);
+        stem->setName (displayName);
+    }
+
+    rebuildStemStrips();
 }
 
 void MainComponent::loadStemsIntoMixer (const juce::Array<juce::File>& stemFiles)
 {
+    recordingTakeManager.clear();
     transportController.stop();
     transportController.getStemMixer().loadStems (stemFiles);
 

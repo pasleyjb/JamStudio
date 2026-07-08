@@ -49,7 +49,7 @@ practice with a metronome.
 | Audio input monitoring | Done |
 | Record over backing stems | Done |
 | Export recording (WAV, OGG, MP3) | Done |
-| Overdub and multi-take support | Planned |
+| Overdub and multi-take support | Done |
 
 ## Phase 4 — Smart Transcription
 

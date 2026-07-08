@@ -19,6 +19,8 @@ public:
     [[nodiscard]] StemType getType() const noexcept { return type; }
     [[nodiscard]] juce::File getFile() const noexcept { return sourceFile; }
 
+    void setName (const juce::String& newName) noexcept { name = newName; }
+    void setType (StemType newType) noexcept { type = newType; }
     void setMuted (bool shouldMute) noexcept { muted = shouldMute; }
     void setSolo (bool shouldSolo) noexcept { solo = shouldSolo; }
     void setVolume (float newVolume) noexcept { volume = juce::jlimit (0.0f, 1.0f, newVolume); }

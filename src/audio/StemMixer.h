@@ -23,6 +23,8 @@ public:
     void setStemMuted (int index, bool muted);
     void setStemSolo (int index, bool solo);
     void setStemVolume (int index, float volume);
+    void setStemName (int index, const juce::String& name);
+    bool removeStemByFile (const juce::File& file);
 
     void setMasterVolume (float volume) noexcept;
     [[nodiscard]] float getMasterVolume() const noexcept { return masterVolume; }

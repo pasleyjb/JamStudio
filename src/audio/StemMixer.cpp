@@ -87,6 +87,38 @@ void StemMixer::setStemVolume (const int index, const float volume)
     }
 }
 
+void StemMixer::setStemName (const int index, const juce::String& name)
+{
+    if (auto* stem = getStem (index))
+    {
+        stem->setName (name);
+        sendChangeMessage();
+    }
+}
+
+bool StemMixer::removeStemByFile (const juce::File& file)
+{
+    const auto targetPath = file.getFullPathName();
+
+    for (auto it = stems.begin(); it != stems.end(); ++it)
+    {
+        if ((*it)->getFile().getFullPathName() == targetPath)
+        {
+            stems.erase (it);
+            totalSamples = 0;
+
+            for (const auto& stem : stems)
+                if (const auto* reader = stem->getReader())
+                    totalSamples = juce::jmax (totalSamples, reader->lengthInSamples);
+
+            sendChangeMessage();
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void StemMixer::setMasterVolume (const float volume) noexcept
 {
     masterVolume = juce::jlimit (0.0f, 1.0f, volume);

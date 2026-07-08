@@ -57,3 +57,5 @@
 - [x] Record over backing
 - [x] Export recording (WAV, OGG, MP3 via LAME)
 - [x] Load recording as stem track
+- [x] Multi-take list with named/timestamped takes
+- [x] Overdub without replacing previous takes

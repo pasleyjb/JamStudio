@@ -232,6 +232,9 @@ bool ProjectManager::applyState (const ProjectData& data,
         mixer.setStemMuted (i, stemState.muted);
         mixer.setStemSolo (i, stemState.solo);
         mixer.setStemVolume (i, stemState.volume);
+
+        if (stemState.name.isNotEmpty())
+            mixer.setStemName (i, stemState.name);
     }
 
     if (data.songFilePath.isNotEmpty())

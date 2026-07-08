@@ -6,6 +6,7 @@
 #include "../ai/WhisperTranscriber.h"
 #include "../audio/AudioRecorder.h"
 #include "../audio/RecordingExporter.h"
+#include "../audio/RecordingTakeManager.h"
 #include "../audio/TransportController.h"
 #include "../notation/LyricsView.h"
 #include "../notation/LyricsTrack.h"
@@ -71,7 +72,7 @@ private:
     void toggleRecording();
     [[nodiscard]] juce::File findStemFileForType (jamstudio::audio::StemType preferredType);
     [[nodiscard]] juce::File findMelodicStemFile();
-    void loadRecordingAsStem (const juce::File& recordingFile);
+    void loadRecordingAsStem (const juce::File& recordingFile, const juce::String& displayName);
     void loadStemsIntoMixer (const juce::Array<juce::File>& stemFiles);
     void rebuildStemStrips();
     void setStatus (const juce::String& message);
@@ -87,6 +88,7 @@ private:
     jamstudio::audio::TransportController transportController;
     jamstudio::audio::AudioRecorder audioRecorder;
     jamstudio::audio::RecordingExporter recordingExporter;
+    jamstudio::audio::RecordingTakeManager recordingTakeManager;
     jamstudio::ai::DemucsSeparator demucsSeparator;
     jamstudio::ai::WhisperTranscriber whisperTranscriber;
     jamstudio::ai::BasicPitchTranscriber basicPitchTranscriber;

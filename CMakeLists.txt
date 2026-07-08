@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(JamStudio VERSION 0.9.1 LANGUAGES C CXX)
+project(JamStudio VERSION 0.9.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,6 +28,7 @@ target_sources(JamStudio PRIVATE
     src/audio/TempoDetector.cpp
     src/audio/AudioRecorder.cpp
     src/audio/RecordingExporter.cpp
+    src/audio/RecordingTakeManager.cpp
     src/ai/CommandUtils.cpp
     src/ai/DemucsSeparator.cpp
     src/ai/WhisperTranscriber.cpp

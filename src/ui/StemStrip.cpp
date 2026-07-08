@@ -15,7 +15,10 @@ StemStrip::StemStrip (const int stemIndex,
       miniWaveform (formatManager, thumbnailCache, transport, track.getFile()),
       onStemChanged (std::move (onChanged))
 {
-    nameLabel.setText (jamstudio::audio::stemTypeToString (track.getType()), juce::dontSendNotification);
+    const auto labelText = track.getType() == jamstudio::audio::StemType::recording
+                             ? track.getName()
+                             : jamstudio::audio::stemTypeToString (track.getType());
+    nameLabel.setText (labelText, juce::dontSendNotification);
     nameLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (nameLabel);
 
@@ -70,7 +73,7 @@ void StemStrip::resized()
     bounds.removeFromLeft (3);
     soloButton.setBounds (bounds.removeFromLeft (36));
     bounds.removeFromLeft (6);
-    nameLabel.setBounds (bounds.removeFromLeft (68));
+    nameLabel.setBounds (bounds.removeFromLeft (96));
     bounds.removeFromLeft (6);
     volumeSlider.setBounds (bounds.removeFromRight (64));
     bounds.removeFromRight (6);

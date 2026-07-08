@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.2] — 2026-07-08
+
+### Added
+
+- Multi-take recording: each take is named (e.g. "Take 1 — 14:32:05") and kept in the mixer
+- Overdub support — previous takes stay audible while recording new ones
+- Automatic pruning of oldest takes beyond 8 per session/project
+
 ## [0.9.1] — 2026-07-08
 
 ### Added
