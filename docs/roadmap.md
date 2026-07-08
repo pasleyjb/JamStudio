@@ -35,8 +35,8 @@ practice with a metronome.
 | Playback-synced scroll and highlight | Done |
 | Synced lyrics from MusicXML | Done |
 | Imported LRC lyrics | Done |
-| AI-generated lyrics from vocals | Planned |
-| Karaoke-style word highlighting | Planned |
+| AI-generated lyrics from vocals | Done |
+| Karaoke-style word highlighting | Done |
 | Per-instrument notation views | Planned |
 | Manual notation editing | Planned |
 
@@ -59,10 +59,10 @@ practice with a metronome.
 |---|---|
 | Pitch and onset detection from stems | Planned |
 | MIDI extraction per instrument | Planned |
-| Auto-generate guitar tab | Planned |
+| Auto-generate guitar tab | Done |
 | Auto-generate standard notation | Planned |
-| Auto-transcribe vocals to lyrics | Planned |
-| Transcription correction UI | Planned |
+| Auto-transcribe vocals to lyrics | Done |
+| Transcription correction UI | Done |
 
 ## Future (beyond initial product)
 

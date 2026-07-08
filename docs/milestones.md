@@ -49,6 +49,7 @@
 - [x] Synced lyrics from MusicXML (syllable highlight)
 - [x] LRC / external lyrics import
 - [x] AI vocal transcription to lyrics
+- [x] Transcription correction UI (AI lyrics and tab)
 - [ ] Manual notation editing
 
 ## M8 — Record (Phase 3)

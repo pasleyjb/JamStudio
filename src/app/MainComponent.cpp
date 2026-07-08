@@ -223,7 +223,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
-                                                    "JamStudio v0.9.2\nStem separation, synced notation, lyrics, and recording.");
+                                                    "JamStudio v0.9.3\nStem separation, synced notation, lyrics, and recording.");
             break;
         default: break;
     }
@@ -633,12 +633,16 @@ void MainComponent::transcribeLyrics()
                 return;
             }
 
-            currentLyricsFile = juce::File();
-            currentLyrics = result.lyrics;
-            lyricsView.setLyrics (currentLyrics);
+            jamstudio::ui::TranscriptionCorrectionDialog::showLyrics (this, result.lyrics,
+                [this] (const jamstudio::notation::LyricsTrack& corrected)
+                {
+                    currentLyricsFile = juce::File();
+                    currentLyrics = corrected;
+                    lyricsView.setLyrics (currentLyrics);
 
-            const auto wordInfo = currentLyrics.hasWordTimings() ? " with word-level timing" : "";
-            setStatus ("AI lyrics ready: " + juce::String (currentLyrics.getNumLines()) + " lines" + wordInfo + ".");
+                    const auto wordInfo = currentLyrics.hasWordTimings() ? " with word-level timing" : "";
+                    setStatus ("AI lyrics applied: " + juce::String (currentLyrics.getNumLines()) + " lines" + wordInfo + ".");
+                });
         },
         [this] (const float progress, const juce::String& message)
         {
@@ -679,12 +683,16 @@ void MainComponent::transcribeTab()
                 return;
             }
 
-            currentScoreFile = juce::File();
-            currentScore = result.score;
-            notationView.setScore (currentScore);
-            transportController.getMetronome().setBpm (currentScore.getTempo());
-            setStatus ("AI tab ready: " + juce::String (currentScore.getNumMeasures()) + " measures.");
-            resized();
+            jamstudio::ui::TranscriptionCorrectionDialog::showScore (this, result.score,
+                [this] (const jamstudio::notation::Score& corrected)
+                {
+                    currentScoreFile = juce::File();
+                    currentScore = corrected;
+                    notationView.setScore (currentScore);
+                    transportController.getMetronome().setBpm (currentScore.getTempo());
+                    setStatus ("AI tab applied: " + juce::String (currentScore.getNumMeasures()) + " measures.");
+                    resized();
+                });
         },
         [this] (const float progress, const juce::String& message)
         {

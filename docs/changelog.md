@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.3] — 2026-07-08
+
+### Added
+
+- Transcription correction dialog after AI lyrics and AI tab generation
+- Edit lyric lines (timestamps preserved) before applying to the project
+- Edit tab title, tempo, and per-measure fret/string notes before saving
+
 ## [0.9.2] — 2026-07-08
 
 ### Added

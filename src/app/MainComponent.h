@@ -16,6 +16,7 @@
 #include "../ui/SeparationProgressBar.h"
 #include "../ui/StemStrip.h"
 #include "../ui/ToolbarTabs.h"
+#include "../ui/TranscriptionCorrectionDialog.h"
 #include "../ui/TransportBar.h"
 #include "../project/RecentProjects.h"
 #include "../ui/WaveformDisplay.h"
