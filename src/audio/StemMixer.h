@@ -24,6 +24,9 @@ public:
     void setStemSolo (int index, bool solo);
     void setStemVolume (int index, float volume);
 
+    void setMasterVolume (float volume) noexcept;
+    [[nodiscard]] float getMasterVolume() const noexcept { return masterVolume; }
+
     void play();
     void pause();
     void stop();
@@ -48,6 +51,7 @@ private:
     int64 currentSamplePosition = 0;
     int64 totalSamples = 0;
     bool playing = false;
+    float masterVolume = 1.0f;
 };
 
 } // namespace jamstudio::audio

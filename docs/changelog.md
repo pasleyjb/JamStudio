@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.9.1] — 2026-07-08
+
+### Added
+
+- Per-stem mini waveforms with playback cursor in the mixer strip
+- Master output volume slider in the transport bar
+- Tempo detection from audio (auto on song load, manual via Transport → Detect Tempo)
+- `masterVolume` persisted in project files (backward compatible)
+
+## [0.9.0] — 2026-07-08
+
+### Added
+
+- Help → AI Tools Setup dialog with install guidance for Demucs, Whisper, and basic-pitch
+- Embedded AI lyrics and scores in `.jamstudio` when no external file is linked
+- Cancel button on separation and AI job progress bars
+
+### Fixed
+
+- AI tool availability now verified with `--help` probe (fixes false-positive `python3` detection)
+- Menu bar crash on window close (separate `AppMenuBar` component)
+
+## [0.8.0] — 2026-07-08
+
+### Added
+
+- Audacity-style UI with system light/dark theme
+- Tabbed toolbar and 3D LED indicator buttons
+- Scrolling lyrics viewport
+
+## [0.7.0] — 2026-07-08
+
+### Added
+
+- AI lyrics from vocals (Whisper subprocess)
+- Word-level karaoke highlighting
+- AI guitar tab generation (basic-pitch subprocess)
+
 ## [0.6.0] — 2026-07-08
 
 ### Added

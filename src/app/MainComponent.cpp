@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include "../audio/StemType.h"
+#include "../audio/TempoDetector.h"
 #include "../ui/AiToolsSetupDialog.h"
 #include "../ui/JamStudioLookAndFeel.h"
 #include "../notation/LrcParser.h"
@@ -73,6 +74,16 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
 
     transportController.getStemMixer().addChangeListener (this);
     transportController.addChangeListener (this);
+
+    transportBar.setDetectTempoCallback ([this]
+    {
+        if (currentSongFile.existsAsFile())
+            detectTempoFromSong (currentSongFile, true);
+        else if (transportController.getStemMixer().getNumStems() > 0)
+            detectTempoFromSong (transportController.getStemMixer().getStem (0)->getFile(), true);
+        else
+            setStatus ("Open a song before detecting tempo.");
+    });
 }
 
 MainComponent::~MainComponent()
@@ -119,7 +130,7 @@ void MainComponent::resized()
 
     stemViewport.setBounds (bounds);
 
-    constexpr int stripHeight = 40;
+    constexpr int stripHeight = 48;
     const auto containerWidth = juce::jmax (stemViewport.getMaximumVisibleWidth(), stemViewport.getWidth());
     stemContainer.setSize (containerWidth, stemContainer.getNumChildComponents() * stripHeight + 4);
 
@@ -173,6 +184,7 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     }
     else if (menuName == "Transport")
     {
+        menu.addItem (detectTempoCmd, "Detect Tempo", true, false);
         menu.addItem (recordCmd, "Record / Stop", true, false);
     }
     else if (menuName == "Help")
@@ -200,12 +212,18 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case aiTabCmd: transcribeTab(); break;
         case importLyricsCmd: importLyrics(); break;
         case aiLyricsCmd: transcribeLyrics(); break;
+        case detectTempoCmd:
+            if (currentSongFile.existsAsFile())
+                detectTempoFromSong (currentSongFile, true);
+            else
+                setStatus ("Open a song before detecting tempo.");
+            break;
         case recordCmd: toggleRecording(); break;
         case aiToolsCmd: showAiToolsSetup(); break;
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
-                                                    "JamStudio v0.9.0\nStem separation, synced notation, lyrics, and recording.");
+                                                    "JamStudio v0.9.1\nStem separation, synced notation, lyrics, and recording.");
             break;
         default: break;
     }
@@ -426,7 +444,9 @@ void MainComponent::openSong()
 
         if (transportController.getStemMixer().loadStems ({ file }))
         {
-            setStatus ("Loaded: " + file.getFileName());
+            detectTempoFromSong (file, false);
+            setStatus ("Loaded: " + file.getFileName()
+                       + " @ " + juce::String (static_cast<int> (transportBar.getBpm())) + " BPM");
             rebuildStemStrips();
             resized();
         }
@@ -523,6 +543,33 @@ juce::Array<jamstudio::ai::AiToolInfo> MainComponent::getAiToolStatuses() const
 void MainComponent::showAiToolsSetup()
 {
     jamstudio::ui::AiToolsSetupDialog::show (this, getAiToolStatuses());
+}
+
+void MainComponent::detectTempoFromSong (const juce::File& audioFile, const bool announceResult)
+{
+    if (! audioFile.existsAsFile())
+    {
+        if (announceResult)
+            setStatus ("No audio file available for tempo detection.");
+
+        return;
+    }
+
+    double detectedBpm = 0.0;
+
+    if (jamstudio::audio::TempoDetector::detectFromFile (audioFile,
+                                                        transportController.getFormatManager(),
+                                                        detectedBpm))
+    {
+        transportBar.setBpm (detectedBpm);
+
+        if (announceResult)
+            setStatus ("Detected tempo: " + juce::String (static_cast<int> (detectedBpm)) + " BPM");
+    }
+    else if (announceResult)
+    {
+        setStatus ("Could not detect tempo. Adjust BPM manually.");
+    }
 }
 
 void MainComponent::beginBackgroundTask (const juce::String& message, std::function<void()> onCancel)
@@ -734,7 +781,14 @@ void MainComponent::loadStemsIntoMixer (const juce::Array<juce::File>& stemFiles
     transportController.getStemMixer().loadStems (stemFiles);
 
     if (stemFiles.size() > 0)
+    {
         waveformDisplay.setSourceFile (stemFiles.getReference (0));
+
+        if (currentSongFile.existsAsFile())
+            detectTempoFromSong (currentSongFile, false);
+        else
+            detectTempoFromSong (stemFiles.getReference (0), false);
+    }
 
     rebuildStemStrips();
     resized();
@@ -752,6 +806,9 @@ void MainComponent::rebuildStemStrips()
         {
             auto strip = std::make_unique<jamstudio::ui::StemStrip> (
                 i, *stem,
+                transportController.getFormatManager(),
+                thumbnailCache,
+                transportController,
                 [this] (const int index, const bool muted, const bool solo, const float volume)
                 {
                     auto& stemMixer = transportController.getStemMixer();

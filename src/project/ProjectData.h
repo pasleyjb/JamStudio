@@ -26,6 +26,7 @@ struct ProjectData
     bool metronomeEnabled = false;
     double metronomeBpm = 120.0;
     double transportPosition = 0.0;
+    float masterVolume = 1.0f;
 
     bool hasEmbeddedScore = false;
     bool hasEmbeddedLyrics = false;

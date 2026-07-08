@@ -25,13 +25,13 @@
 
 - [x] Per-stem mute, solo, volume
 - [x] Play any combination of stems
-- [ ] Master output level
+- [x] Master output level
 - [x] Stem labels (vocals, drums, bass, other)
 
 ## M5 — Metronome
 
 - [x] Click track on beat grid
-- [ ] Tempo from song detection or manual BPM
+- [x] Tempo from song detection or manual BPM
 - [x] Enable / disable during playback
 - [x] Accent on downbeats
 
@@ -48,7 +48,7 @@
 - [x] Synced scroll during playback
 - [x] Synced lyrics from MusicXML (syllable highlight)
 - [x] LRC / external lyrics import
-- [ ] AI vocal transcription to lyrics
+- [x] AI vocal transcription to lyrics
 - [ ] Manual notation editing
 
 ## M8 — Record (Phase 3)

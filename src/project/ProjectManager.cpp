@@ -71,6 +71,7 @@ ProjectData ProjectManager::captureState (const juce::File& songFile,
     data.metronomeEnabled = transportBar.isMetronomeEnabled();
     data.metronomeBpm = transportBar.getBpm();
     data.transportPosition = transport.getPosition();
+    data.masterVolume = transportBar.getMasterVolume();
 
     auto& mixer = transport.getStemMixer();
 
@@ -101,6 +102,7 @@ bool ProjectManager::saveProject (const juce::File& projectFile, const ProjectDa
     root->setProperty ("metronomeEnabled", data.metronomeEnabled);
     root->setProperty ("metronomeBpm", data.metronomeBpm);
     root->setProperty ("transportPosition", data.transportPosition);
+    root->setProperty ("masterVolume", data.masterVolume);
 
     juce::Array<juce::var> stemArray;
 
@@ -156,6 +158,8 @@ bool ProjectManager::loadProject (const juce::File& projectFile,
     data.metronomeEnabled = static_cast<bool> (root->getProperty ("metronomeEnabled"));
     data.metronomeBpm = static_cast<double> (root->getProperty ("metronomeBpm"));
     data.transportPosition = static_cast<double> (root->getProperty ("transportPosition"));
+    if (root->hasProperty ("masterVolume"))
+        data.masterVolume = static_cast<float> (static_cast<double> (root->getProperty ("masterVolume")));
     data.stems.clear();
 
     if (const auto* stems = root->getProperty ("stems").getArray())
@@ -282,6 +286,7 @@ bool ProjectManager::applyState (const ProjectData& data,
 
     transportBar.setMetronomeEnabled (data.metronomeEnabled);
     transportBar.setBpm (data.metronomeBpm);
+    transportBar.setMasterVolume (data.masterVolume);
     transport.getMetronome().setEnabled (data.metronomeEnabled);
     transport.getMetronome().setBpm (data.metronomeBpm);
     transport.setPosition (data.transportPosition);

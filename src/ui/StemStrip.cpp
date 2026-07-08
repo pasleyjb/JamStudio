@@ -7,8 +7,12 @@ namespace jamstudio::ui
 
 StemStrip::StemStrip (const int stemIndex,
                       const jamstudio::audio::StemTrack& track,
+                      juce::AudioFormatManager& formatManager,
+                      juce::AudioThumbnailCache& thumbnailCache,
+                      jamstudio::audio::TransportController& transport,
                       StemChangedCallback onChanged)
     : index (stemIndex),
+      miniWaveform (formatManager, thumbnailCache, transport, track.getFile()),
       onStemChanged (std::move (onChanged))
 {
     nameLabel.setText (jamstudio::audio::stemTypeToString (track.getType()), juce::dontSendNotification);
@@ -26,6 +30,8 @@ StemStrip::StemStrip (const int stemIndex,
     soloButton.setIndicatorColour (JamStudioTheme::getColours().indicatorSolo);
     soloButton.onClick = [this] { notifyChanged(); updateIndicators(); };
     addAndMakeVisible (soloButton);
+
+    addAndMakeVisible (miniWaveform);
 
     volumeSlider.setRange (0.0, 1.0, 0.01);
     volumeSlider.setValue (track.getVolume(), juce::dontSendNotification);
@@ -60,13 +66,15 @@ void StemStrip::resized()
 {
     auto bounds = getLocalBounds().reduced (4, 2);
 
-    muteButton.setBounds (bounds.removeFromLeft (40));
-    bounds.removeFromLeft (4);
-    soloButton.setBounds (bounds.removeFromLeft (40));
-    bounds.removeFromLeft (8);
-    nameLabel.setBounds (bounds.removeFromLeft (90));
-    bounds.removeFromLeft (8);
-    volumeSlider.setBounds (bounds);
+    muteButton.setBounds (bounds.removeFromLeft (36));
+    bounds.removeFromLeft (3);
+    soloButton.setBounds (bounds.removeFromLeft (36));
+    bounds.removeFromLeft (6);
+    nameLabel.setBounds (bounds.removeFromLeft (68));
+    bounds.removeFromLeft (6);
+    volumeSlider.setBounds (bounds.removeFromRight (64));
+    bounds.removeFromRight (6);
+    miniWaveform.setBounds (bounds);
 }
 
 } // namespace jamstudio::ui

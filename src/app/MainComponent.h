@@ -53,6 +53,7 @@ private:
         importLyricsCmd,
         aiLyricsCmd,
         recordCmd,
+        detectTempoCmd,
         aboutCmd,
         aiToolsCmd
     };
@@ -76,6 +77,7 @@ private:
     void setStatus (const juce::String& message);
     void refreshTheme();
     void showAiToolsSetup();
+    void detectTempoFromSong (const juce::File& audioFile, bool announceResult);
     void beginBackgroundTask (const juce::String& message, std::function<void()> onCancel);
     void endBackgroundTask();
     [[nodiscard]] juce::Array<jamstudio::ai::AiToolInfo> getAiToolStatuses() const;
@@ -92,7 +94,7 @@ private:
     jamstudio::notation::Score currentScore;
     jamstudio::notation::LyricsTrack currentLyrics;
 
-    juce::AudioThumbnailCache thumbnailCache { 4 };
+    juce::AudioThumbnailCache thumbnailCache { 16 };
 
     jamstudio::ui::ToolbarTabs toolbarTabs;
     juce::Label statusLabel;

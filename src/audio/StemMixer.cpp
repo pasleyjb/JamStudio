@@ -87,6 +87,12 @@ void StemMixer::setStemVolume (const int index, const float volume)
     }
 }
 
+void StemMixer::setMasterVolume (const float volume) noexcept
+{
+    masterVolume = juce::jlimit (0.0f, 1.0f, volume);
+    sendChangeMessage();
+}
+
 void StemMixer::play()
 {
     if (stems.empty())
@@ -150,6 +156,9 @@ void StemMixer::getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToF
                               currentSamplePosition,
                               numSamples,
                               anySolo);
+
+    if (masterVolume < 0.999f)
+        bufferToFill.buffer->applyGain (bufferToFill.startSample, numSamples, masterVolume);
 
     currentSamplePosition += numSamples;
 
