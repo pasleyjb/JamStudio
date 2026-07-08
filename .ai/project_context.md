@@ -2,12 +2,13 @@
 
 ## Vision
 
-JamStudio is a professional cross-platform Digital Audio Workstation (DAW)
-designed to combine recording, editing, notation, live performance,
-and AI-assisted music production into a single application.
+JamStudio is a music practice and learning workstation. Load any song,
+split it into playable stems, read along with synced tabs or sheet music,
+practice with a metronome, and record yourself — all in one application.
 
-The goal is to eliminate the need for musicians to constantly switch
-between multiple applications.
+The long-term goal is to combine recording, editing, notation, live
+performance, and AI-assisted music production into a single application,
+eliminating the need for musicians to constantly switch between tools.
 
 ## Primary Goals
 
