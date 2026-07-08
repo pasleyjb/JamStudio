@@ -1,6 +1,8 @@
 #pragma once
 
+#include "../ai/BasicPitchTranscriber.h"
 #include "../ai/DemucsSeparator.h"
+#include "../ai/WhisperTranscriber.h"
 #include "../audio/AudioRecorder.h"
 #include "../audio/RecordingExporter.h"
 #include "../audio/TransportController.h"
@@ -37,7 +39,11 @@ private:
     void importScore();
     void importLyrics();
     void separateStems();
+    void transcribeLyrics();
+    void transcribeTab();
     void toggleRecording();
+    [[nodiscard]] juce::File findStemFileForType (jamstudio::audio::StemType preferredType);
+    [[nodiscard]] juce::File findMelodicStemFile();
     void loadRecordingAsStem (const juce::File& recordingFile);
     void loadStemsIntoMixer (const juce::Array<juce::File>& stemFiles);
     void rebuildStemStrips();
@@ -49,6 +55,8 @@ private:
     jamstudio::audio::AudioRecorder audioRecorder;
     jamstudio::audio::RecordingExporter recordingExporter;
     jamstudio::ai::DemucsSeparator demucsSeparator;
+    jamstudio::ai::WhisperTranscriber whisperTranscriber;
+    jamstudio::ai::BasicPitchTranscriber basicPitchTranscriber;
     jamstudio::project::RecentProjects recentProjects;
     jamstudio::notation::Score currentScore;
     jamstudio::notation::LyricsTrack currentLyrics;
@@ -63,6 +71,8 @@ private:
     juce::TextButton separateButton { "Separate Stems" };
     juce::TextButton importScoreButton { "Import Score..." };
     juce::TextButton importLyricsButton { "Import Lyrics..." };
+    juce::TextButton aiLyricsButton { "AI Lyrics" };
+    juce::TextButton aiTabButton { "AI Tab" };
     juce::TextButton recordButton { "Record" };
     juce::Label statusLabel;
     jamstudio::ui::SeparationProgressBar separationProgress;

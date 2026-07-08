@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(JamStudio VERSION 0.6.0 LANGUAGES C CXX)
+project(JamStudio VERSION 0.7.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,13 +26,17 @@ target_sources(JamStudio PRIVATE
     src/audio/TransportController.cpp
     src/audio/AudioRecorder.cpp
     src/audio/RecordingExporter.cpp
+    src/ai/CommandUtils.cpp
     src/ai/DemucsSeparator.cpp
+    src/ai/WhisperTranscriber.cpp
+    src/ai/BasicPitchTranscriber.cpp
     src/notation/Score.cpp
     src/notation/MusicXmlLoader.cpp
     src/notation/MusicXmlParser.cpp
     src/notation/LyricsTrack.cpp
     src/notation/LrcParser.cpp
     src/notation/LyricsView.cpp
+    src/notation/MidiScoreConverter.cpp
     src/notation/NotationView.cpp
     src/project/ProjectManager.cpp
     src/project/RecentProjects.cpp

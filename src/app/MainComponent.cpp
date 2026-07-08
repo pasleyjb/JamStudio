@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 
+#include "../audio/StemType.h"
 #include "../notation/LrcParser.h"
 #include "../notation/MusicXmlParser.h"
 #include "../project/ProjectManager.h"
@@ -45,14 +46,30 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     importLyricsButton.onClick = [this] { importLyrics(); };
     addAndMakeVisible (importLyricsButton);
 
+    aiLyricsButton.onClick = [this] { transcribeLyrics(); };
+    addAndMakeVisible (aiLyricsButton);
+
+    aiTabButton.onClick = [this] { transcribeTab(); };
+    addAndMakeVisible (aiTabButton);
+
     recordButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff8b2f2f));
     recordButton.onClick = [this] { toggleRecording(); };
     addAndMakeVisible (recordButton);
 
     statusLabel.setJustificationType (juce::Justification::centredLeft);
-    setStatus (demucsSeparator.isAvailable()
-                   ? "Ready. Open a song, import a score, or separate stems with Demucs."
-                   : "Ready. Open a song file. Install Demucs (pip install demucs) for stem separation.");
+    juce::StringArray readyHints;
+    readyHints.add ("Open a song");
+
+    if (demucsSeparator.isAvailable())
+        readyHints.add ("separate stems");
+
+    if (whisperTranscriber.isAvailable())
+        readyHints.add ("AI lyrics");
+
+    if (basicPitchTranscriber.isAvailable())
+        readyHints.add ("AI tab");
+
+    setStatus ("Ready. " + readyHints.joinIntoString (", ") + ".");
     addAndMakeVisible (statusLabel);
 
     addAndMakeVisible (separationProgress);
@@ -80,6 +97,8 @@ MainComponent::~MainComponent()
     audioRecorder.stopRecording();
     audioDeviceManager.removeAudioCallback (&audioRecorder);
     demucsSeparator.cancel();
+    whisperTranscriber.cancel();
+    basicPitchTranscriber.cancel();
     transportController.getStemMixer().removeChangeListener (this);
     transportController.removeChangeListener (this);
 }
@@ -96,6 +115,8 @@ void MainComponent::resized()
     auto header = bounds.removeFromTop (40);
     titleLabel.setBounds (header.removeFromLeft (140));
     recordButton.setBounds (header.removeFromRight (70).reduced (2));
+    aiTabButton.setBounds (header.removeFromRight (70).reduced (2));
+    aiLyricsButton.setBounds (header.removeFromRight (80).reduced (2));
     importLyricsButton.setBounds (header.removeFromRight (110).reduced (2));
     importScoreButton.setBounds (header.removeFromRight (110).reduced (2));
     separateButton.setBounds (header.removeFromRight (130).reduced (2));
@@ -379,6 +400,147 @@ void MainComponent::importScore()
         setStatus (message);
         resized();
     });
+}
+
+juce::File MainComponent::findStemFileForType (const jamstudio::audio::StemType preferredType)
+{
+    const auto& mixer = transportController.getStemMixer();
+
+    for (int i = 0; i < mixer.getNumStems(); ++i)
+    {
+        if (const auto* stem = mixer.getStem (i))
+        {
+            if (stem->getType() == preferredType && stem->getFile().existsAsFile())
+                return stem->getFile();
+        }
+    }
+
+    return {};
+}
+
+juce::File MainComponent::findMelodicStemFile()
+{
+    for (const auto stemType : { jamstudio::audio::StemType::other,
+                                 jamstudio::audio::StemType::bass,
+                                 jamstudio::audio::StemType::vocals })
+    {
+        if (const auto file = findStemFileForType (stemType); file.existsAsFile())
+            return file;
+    }
+
+    const auto& mixer = transportController.getStemMixer();
+
+    for (int i = 0; i < mixer.getNumStems(); ++i)
+    {
+        if (const auto* stem = mixer.getStem (i))
+        {
+            if (stem->getType() != jamstudio::audio::StemType::drums && stem->getFile().existsAsFile())
+                return stem->getFile();
+        }
+    }
+
+    return {};
+}
+
+void MainComponent::transcribeLyrics()
+{
+    if (! whisperTranscriber.isAvailable())
+    {
+        setStatus ("Whisper is not installed. Run: pip install openai-whisper");
+        return;
+    }
+
+    auto vocalsFile = findStemFileForType (jamstudio::audio::StemType::vocals);
+
+    if (! vocalsFile.existsAsFile())
+        vocalsFile = currentSongFile;
+
+    if (! vocalsFile.existsAsFile())
+    {
+        setStatus ("Open a song or separate stems before transcribing lyrics.");
+        return;
+    }
+
+    aiLyricsButton.setEnabled (false);
+    separationProgress.setVisible (true);
+    separationProgress.setProgress (0.0f, "Starting vocal transcription...");
+    setStatus ("Transcribing vocals with Whisper...");
+    resized();
+
+    whisperTranscriber.transcribeAsync (vocalsFile,
+        [this] (const jamstudio::ai::TranscriptionResult& result)
+        {
+            aiLyricsButton.setEnabled (true);
+            separationProgress.reset();
+            resized();
+
+            if (! result.success)
+            {
+                setStatus (result.errorMessage);
+                return;
+            }
+
+            currentLyricsFile = juce::File();
+            currentLyrics = result.lyrics;
+            lyricsView.setLyrics (currentLyrics);
+
+            const auto wordInfo = currentLyrics.hasWordTimings() ? " with word-level timing" : "";
+            setStatus ("AI lyrics ready: " + juce::String (currentLyrics.getNumLines()) + " lines" + wordInfo + ".");
+        },
+        [this] (const float progress, const juce::String& message)
+        {
+            separationProgress.setProgress (progress, message);
+            setStatus (message);
+        });
+}
+
+void MainComponent::transcribeTab()
+{
+    if (! basicPitchTranscriber.isAvailable())
+    {
+        setStatus ("basic-pitch is not installed. Run: pip install basic-pitch");
+        return;
+    }
+
+    const auto melodicFile = findMelodicStemFile();
+
+    if (! melodicFile.existsAsFile())
+    {
+        setStatus ("Open a song or separate stems before transcribing tab.");
+        return;
+    }
+
+    aiTabButton.setEnabled (false);
+    separationProgress.setVisible (true);
+    separationProgress.setProgress (0.0f, "Starting note transcription...");
+    setStatus ("Transcribing notes with basic-pitch...");
+    resized();
+
+    basicPitchTranscriber.transcribeAsync (melodicFile,
+        [this] (const jamstudio::ai::PitchTranscriptionResult& result)
+        {
+            aiTabButton.setEnabled (true);
+            separationProgress.reset();
+            resized();
+
+            if (! result.success)
+            {
+                setStatus (result.errorMessage);
+                return;
+            }
+
+            currentScoreFile = juce::File();
+            currentScore = result.score;
+            notationView.setScore (currentScore);
+            transportController.getMetronome().setBpm (currentScore.getTempo());
+            setStatus ("AI tab ready: " + juce::String (currentScore.getNumMeasures()) + " measures.");
+            resized();
+        },
+        [this] (const float progress, const juce::String& message)
+        {
+            separationProgress.setProgress (progress, message);
+            setStatus (message);
+        });
 }
 
 void MainComponent::separateStems()

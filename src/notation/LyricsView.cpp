@@ -13,6 +13,7 @@ void LyricsView::setLyrics (const LyricsTrack& newLyrics)
 {
     lyrics = newLyrics;
     lastActiveLine = -1;
+    lastActiveWord = -1;
     repaint();
 }
 
@@ -20,6 +21,7 @@ void LyricsView::clear()
 {
     lyrics.clear();
     lastActiveLine = -1;
+    lastActiveWord = -1;
     repaint();
 }
 
@@ -31,7 +33,7 @@ void LyricsView::paint (juce::Graphics& g)
     {
         g.setColour (juce::Colours::grey);
         g.setFont (juce::FontOptions (13.0f));
-        g.drawText ("Import an LRC file to display synced lyrics with any song",
+        g.drawText ("Import LRC lyrics or use AI Lyrics to transcribe vocals",
                     getLocalBounds(), juce::Justification::centred);
         return;
     }
@@ -67,9 +69,34 @@ void LyricsView::paint (juce::Graphics& g)
                 g.fillRoundedRectangle (lineBounds.toFloat().reduced (2.0f), 4.0f);
             }
 
-            g.setColour (isActive ? juce::Colours::white : juce::Colours::white.withAlpha (0.45f));
-            g.setFont (juce::FontOptions (isActive ? 18.0f : 13.0f, isActive ? juce::Font::bold : juce::Font::plain));
-            g.drawText (line->text, lineBounds, juce::Justification::centredLeft);
+            const auto fontSize = isActive ? 18.0f : 13.0f;
+            const auto fontStyle = isActive ? juce::Font::bold : juce::Font::plain;
+            g.setFont (juce::FontOptions (fontSize, fontStyle));
+
+            if (isActive && lyrics.hasWordTimings() && ! line->words.empty())
+            {
+                const auto activeWordIndex = lyrics.getActiveWordIndex (lineIndex, position);
+                auto x = static_cast<float> (lineBounds.getX() + 8);
+
+                for (int wordIndex = 0; wordIndex < static_cast<int> (line->words.size()); ++wordIndex)
+                {
+                    const auto& word = line->words[static_cast<size_t> (wordIndex)];
+                    const auto isActiveWord = wordIndex == activeWordIndex;
+
+                    g.setColour (isActiveWord ? juce::Colour (0xffffcc00) : juce::Colours::white);
+                    const auto wordWidth = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), word.text);
+                    g.drawText (word.text, static_cast<int> (x), lineBounds.getY(),
+                                juce::roundToInt (wordWidth) + 6,
+                                lineBounds.getHeight(), juce::Justification::centredLeft);
+
+                    x += wordWidth + 8.0f;
+                }
+            }
+            else
+            {
+                g.setColour (isActive ? juce::Colours::white : juce::Colours::white.withAlpha (0.45f));
+                g.drawText (line->text, lineBounds, juce::Justification::centredLeft);
+            }
         }
     }
 }
@@ -79,11 +106,16 @@ void LyricsView::timerCallback()
     if (lyrics.isEmpty())
         return;
 
-    const auto activeIndex = lyrics.getActiveLineIndex (transportController.getPosition());
+    const auto position = transportController.getPosition();
+    const auto activeIndex = lyrics.getActiveLineIndex (position);
+    const auto activeWord = lyrics.hasWordTimings()
+        ? lyrics.getActiveWordIndex (activeIndex, position)
+        : -1;
 
-    if (activeIndex != lastActiveLine)
+    if (activeIndex != lastActiveLine || activeWord != lastActiveWord)
     {
         lastActiveLine = activeIndex;
+        lastActiveWord = activeWord;
         repaint();
     }
 }

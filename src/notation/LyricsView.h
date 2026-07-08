@@ -23,6 +23,7 @@ private:
     jamstudio::audio::TransportController& transportController;
     LyricsTrack lyrics;
     int lastActiveLine = -1;
+    int lastActiveWord = -1;
 };
 
 } // namespace jamstudio::notation
