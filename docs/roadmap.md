@@ -37,6 +37,7 @@ practice with a metronome.
 | Imported LRC lyrics | Done |
 | AI-generated lyrics from vocals | Done |
 | Karaoke-style word highlighting | Done |
+| Notation mode toggle (tab / sheet) | Done |
 | Per-instrument notation views | Planned |
 | Manual notation editing | Planned |
 

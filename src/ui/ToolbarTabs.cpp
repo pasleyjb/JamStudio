@@ -37,6 +37,10 @@ ToolbarTabs::ToolbarTabs (Actions actions)
     recentProjectsButton.onClick = [this] { if (toolbarActions.showRecentProjects) toolbarActions.showRecentProjects(); };
     separateButton.onClick = [this] { if (toolbarActions.separateStems) toolbarActions.separateStems(); };
     importScoreButton.onClick = [this] { if (toolbarActions.importScore) toolbarActions.importScore(); };
+    tabViewButton.setIndicatorColour (JamStudioTheme::getColours().accent);
+    tabViewButton.onClick = [this] { if (toolbarActions.showTabView) toolbarActions.showTabView(); };
+    sheetViewButton.setIndicatorColour (JamStudioTheme::getColours().accent);
+    sheetViewButton.onClick = [this] { if (toolbarActions.showSheetView) toolbarActions.showSheetView(); };
     aiTabButton.onClick = [this] { if (toolbarActions.aiTab) toolbarActions.aiTab(); };
     importLyricsButton.onClick = [this] { if (toolbarActions.importLyrics) toolbarActions.importLyrics(); };
     aiLyricsButton.onClick = [this] { if (toolbarActions.aiLyrics) toolbarActions.aiLyrics(); };
@@ -51,6 +55,8 @@ ToolbarTabs::ToolbarTabs (Actions actions)
     stemsPanel.addAndMakeVisible (separateButton);
 
     notationPanel.addAndMakeVisible (importScoreButton);
+    notationPanel.addAndMakeVisible (tabViewButton);
+    notationPanel.addAndMakeVisible (sheetViewButton);
     notationPanel.addAndMakeVisible (aiTabButton);
 
     lyricsPanel.addAndMakeVisible (importLyricsButton);
@@ -106,7 +112,7 @@ void ToolbarTabs::resized()
     transportHint.setBounds (transportPanel.getLocalBounds().reduced (6, 2));
     layoutPanel (projectPanel, { &openSongButton, &saveProjectButton, &loadProjectButton, &recentProjectsButton });
     layoutPanel (stemsPanel, { &separateButton });
-    layoutPanel (notationPanel, { &importScoreButton, &aiTabButton });
+    layoutPanel (notationPanel, { &importScoreButton, &tabViewButton, &sheetViewButton, &aiTabButton });
     layoutPanel (lyricsPanel, { &importLyricsButton, &aiLyricsButton });
     layoutPanel (recordPanel, { &recordButton });
 }

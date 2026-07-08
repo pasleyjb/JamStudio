@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.5] — 2026-07-08
+
+### Added
+
+- Tab / Sheet toggle for notation (toolbar, menu, and header bar)
+- MusicXML lyrics auto-populate the synced lyrics panel
+- Sample demo files in `samples/` for quick notation and lyrics testing
+
 ## [0.9.4] — 2026-07-08
 
 ### Fixed

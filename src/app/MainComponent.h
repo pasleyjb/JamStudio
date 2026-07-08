@@ -12,6 +12,7 @@
 #include "../notation/LyricsTrack.h"
 #include "../notation/NotationView.h"
 #include "../notation/Score.h"
+#include "../ui/NotationHeaderBar.h"
 #include "../ui/JamStudioTheme.h"
 #include "../ui/SeparationProgressBar.h"
 #include "../ui/StemStrip.h"
@@ -51,6 +52,8 @@ private:
         quitCmd,
         separateStemsCmd,
         importScoreCmd,
+        showTabViewCmd,
+        showSheetViewCmd,
         aiTabCmd,
         importLyricsCmd,
         aiLyricsCmd,
@@ -67,6 +70,8 @@ private:
     void showRecentProjectsMenu();
     void importScore();
     void importLyrics();
+    void applyScore (const jamstudio::notation::Score& score, bool replaceLyricsFromScore);
+    void setNotationDisplayMode (jamstudio::notation::NotationMode mode);
     void separateStems();
     void transcribeLyrics();
     void transcribeTab();
@@ -103,7 +108,9 @@ private:
     juce::Label statusLabel;
     jamstudio::ui::SeparationProgressBar separationProgress;
     jamstudio::ui::WaveformDisplay waveformDisplay;
+    juce::Label lyricsSectionLabel { {}, "Lyrics" };
     juce::Viewport notationViewport;
+    jamstudio::ui::NotationHeaderBar notationHeaderBar;
     jamstudio::notation::LyricsView lyricsView;
     jamstudio::notation::NotationView notationView;
     jamstudio::ui::TransportBar transportBar;

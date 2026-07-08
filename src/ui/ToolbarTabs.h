@@ -28,6 +28,8 @@ public:
         std::function<void()> showRecentProjects;
         std::function<void()> separateStems;
         std::function<void()> importScore;
+        std::function<void()> showTabView;
+        std::function<void()> showSheetView;
         std::function<void()> aiTab;
         std::function<void()> importLyrics;
         std::function<void()> aiLyrics;
@@ -70,6 +72,8 @@ private:
     IndicatorButton recentProjectsButton { "recent", "Recent" };
     IndicatorButton separateButton { "separate", "Separate" };
     IndicatorButton importScoreButton { "importScore", "Import Score" };
+    IndicatorButton tabViewButton { "tabView", "Tab" };
+    IndicatorButton sheetViewButton { "sheetView", "Sheet" };
     IndicatorButton aiTabButton { "aiTab", "AI Tab" };
     IndicatorButton importLyricsButton { "importLyrics", "Import LRC" };
     IndicatorButton aiLyricsButton { "aiLyrics", "AI Lyrics" };
