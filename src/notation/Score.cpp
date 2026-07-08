@@ -190,4 +190,149 @@ int Score::getMeasureIndexAtTime (const double seconds) const noexcept
     return 0;
 }
 
+namespace
+{
+juce::var noteToVar (const NoteEvent& note)
+{
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty ("midiPitch", note.midiPitch);
+    obj->setProperty ("stringNumber", note.stringNumber);
+    obj->setProperty ("fret", note.fret);
+    obj->setProperty ("staffNumber", note.staffNumber);
+    obj->setProperty ("startBeat", note.startBeat);
+    obj->setProperty ("durationBeats", note.durationBeats);
+    obj->setProperty ("isRest", note.isRest);
+    obj->setProperty ("isGrace", note.isGrace);
+    obj->setProperty ("isTuplet", note.isTuplet);
+    obj->setProperty ("label", note.label);
+    obj->setProperty ("lyricText", note.lyricText);
+    obj->setProperty ("syllabic", note.syllabic);
+    return juce::var (obj);
+}
+
+NoteEvent varToNote (const juce::var& value)
+{
+    NoteEvent note;
+
+    if (const auto* obj = value.getDynamicObject())
+    {
+        note.midiPitch = static_cast<int> (obj->getProperty ("midiPitch"));
+        note.stringNumber = static_cast<int> (obj->getProperty ("stringNumber"));
+        note.fret = static_cast<int> (obj->getProperty ("fret"));
+        note.staffNumber = static_cast<int> (obj->getProperty ("staffNumber"));
+        note.startBeat = obj->getProperty ("startBeat");
+        note.durationBeats = obj->getProperty ("durationBeats");
+        note.isRest = static_cast<bool> (obj->getProperty ("isRest"));
+        note.isGrace = static_cast<bool> (obj->getProperty ("isGrace"));
+        note.isTuplet = static_cast<bool> (obj->getProperty ("isTuplet"));
+        note.label = obj->getProperty ("label").toString();
+        note.lyricText = obj->getProperty ("lyricText").toString();
+        note.syllabic = obj->getProperty ("syllabic").toString();
+    }
+
+    return note;
+}
+
+juce::var measureToVar (const Measure& measure)
+{
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty ("number", measure.number);
+    obj->setProperty ("startBeat", measure.startBeat);
+    obj->setProperty ("lengthBeats", measure.lengthBeats);
+
+    juce::Array<juce::var> notes;
+
+    for (const auto& note : measure.notes)
+        notes.add (noteToVar (note));
+
+    obj->setProperty ("notes", notes);
+    return juce::var (obj);
+}
+
+Measure varToMeasure (const juce::var& value)
+{
+    Measure measure;
+
+    if (const auto* obj = value.getDynamicObject())
+    {
+        measure.number = static_cast<int> (obj->getProperty ("number"));
+        measure.startBeat = obj->getProperty ("startBeat");
+        measure.lengthBeats = obj->getProperty ("lengthBeats");
+
+        if (const auto* notes = obj->getProperty ("notes").getArray())
+        {
+            for (const auto& noteVar : *notes)
+                measure.notes.push_back (varToNote (noteVar));
+        }
+    }
+
+    return measure;
+}
+} // namespace
+
+juce::var Score::toVar() const
+{
+    auto* root = new juce::DynamicObject();
+    root->setProperty ("title", title);
+    root->setProperty ("tempoBpm", tempoBpm);
+    root->setProperty ("divisionsPerQuarter", divisionsPerQuarter);
+    root->setProperty ("notationMode", notationMode == NotationMode::tab ? "tab" : "standard");
+
+    juce::Array<juce::var> measureArray;
+
+    for (const auto& measure : measures)
+        measureArray.add (measureToVar (measure));
+
+    root->setProperty ("measures", measureArray);
+
+    juce::Array<juce::var> tempoArray;
+
+    for (const auto& event : tempoEvents)
+    {
+        auto* tempoObj = new juce::DynamicObject();
+        tempoObj->setProperty ("beat", event.beatPosition);
+        tempoObj->setProperty ("bpm", event.bpm);
+        tempoArray.add (juce::var (tempoObj));
+    }
+
+    root->setProperty ("tempoEvents", tempoArray);
+    return juce::var (root);
+}
+
+bool Score::fromVar (const juce::var& data, Score& score)
+{
+    const auto* root = data.getDynamicObject();
+
+    if (root == nullptr)
+        return false;
+
+    score.clear();
+    score.setTitle (root->getProperty ("title").toString());
+    score.setDivisionsPerQuarter (static_cast<int> (root->getProperty ("divisionsPerQuarter")));
+    score.setTempo (root->getProperty ("tempoBpm"));
+
+    const auto mode = root->getProperty ("notationMode").toString();
+    score.setNotationMode (mode.equalsIgnoreCase ("tab") ? NotationMode::tab : NotationMode::standard);
+
+    if (const auto* tempoArray = root->getProperty ("tempoEvents").getArray())
+    {
+        for (const auto& tempoVar : *tempoArray)
+        {
+            if (const auto* tempoObj = tempoVar.getDynamicObject())
+            {
+                score.addTempoEvent (tempoObj->getProperty ("beat"),
+                                     tempoObj->getProperty ("bpm"));
+            }
+        }
+    }
+
+    if (const auto* measureArray = root->getProperty ("measures").getArray())
+    {
+        for (const auto& measureVar : *measureArray)
+            score.addMeasure (varToMeasure (measureVar));
+    }
+
+    return ! score.isEmpty();
+}
+
 } // namespace jamstudio::notation

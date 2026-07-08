@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../ai/AiToolsCatalog.h"
 #include "../ai/BasicPitchTranscriber.h"
 #include "../ai/DemucsSeparator.h"
 #include "../ai/WhisperTranscriber.h"
@@ -52,7 +53,8 @@ private:
         importLyricsCmd,
         aiLyricsCmd,
         recordCmd,
-        aboutCmd
+        aboutCmd,
+        aiToolsCmd
     };
 
     void openSong();
@@ -73,6 +75,10 @@ private:
     void rebuildStemStrips();
     void setStatus (const juce::String& message);
     void refreshTheme();
+    void showAiToolsSetup();
+    void beginBackgroundTask (const juce::String& message, std::function<void()> onCancel);
+    void endBackgroundTask();
+    [[nodiscard]] juce::Array<jamstudio::ai::AiToolInfo> getAiToolStatuses() const;
     [[nodiscard]] juce::File getDefaultRecordingFile() const;
 
     juce::AudioDeviceManager& audioDeviceManager;

@@ -9,8 +9,14 @@ SeparationProgressBar::SeparationProgressBar()
     : progressBar (progressValue)
 {
     statusLabel.setJustificationType (juce::Justification::centredLeft);
+    cancelButton.onClick = [this]
+    {
+        if (cancelCallback != nullptr)
+            cancelCallback();
+    };
     addChildComponent (progressBar);
     addChildComponent (statusLabel);
+    addChildComponent (cancelButton);
     setVisible (false);
 }
 
@@ -19,6 +25,7 @@ void SeparationProgressBar::setVisible (const bool shouldBeVisible)
     juce::Component::setVisible (shouldBeVisible);
     progressBar.setVisible (shouldBeVisible);
     statusLabel.setVisible (shouldBeVisible);
+    cancelButton.setVisible (shouldBeVisible);
 }
 
 void SeparationProgressBar::setProgress (const float progress, const juce::String& statusText)
@@ -29,10 +36,16 @@ void SeparationProgressBar::setProgress (const float progress, const juce::Strin
     repaint();
 }
 
+void SeparationProgressBar::setCancelCallback (std::function<void()> callback)
+{
+    cancelCallback = std::move (callback);
+}
+
 void SeparationProgressBar::reset()
 {
     progressValue = 0.0;
     statusLabel.setText ({}, juce::dontSendNotification);
+    cancelCallback = nullptr;
     setVisible (false);
 }
 
@@ -44,7 +57,9 @@ void SeparationProgressBar::paint (juce::Graphics& g)
 void SeparationProgressBar::resized()
 {
     auto bounds = getLocalBounds().reduced (2);
-    statusLabel.setBounds (bounds.removeFromTop (20));
+    auto header = bounds.removeFromTop (20);
+    cancelButton.setBounds (header.removeFromRight (72).reduced (1));
+    statusLabel.setBounds (header);
     progressBar.setBounds (bounds.removeFromTop (22).reduced (0, 2));
 }
 

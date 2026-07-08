@@ -16,7 +16,7 @@ struct StemState
 
 struct ProjectData
 {
-    static constexpr int currentVersion = 1;
+    static constexpr int currentVersion = 2;
 
     int version = currentVersion;
     juce::String songFilePath;
@@ -26,6 +26,11 @@ struct ProjectData
     bool metronomeEnabled = false;
     double metronomeBpm = 120.0;
     double transportPosition = 0.0;
+
+    bool hasEmbeddedScore = false;
+    bool hasEmbeddedLyrics = false;
+    juce::var embeddedScore;
+    juce::var embeddedLyrics;
 };
 
 } // namespace jamstudio::project

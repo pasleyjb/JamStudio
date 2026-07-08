@@ -16,6 +16,8 @@ public:
     [[nodiscard]] static ProjectData captureState (const juce::File& songFile,
                                                    const juce::File& scoreFile,
                                                    const juce::File& lyricsFile,
+                                                   const jamstudio::notation::Score& score,
+                                                   const jamstudio::notation::LyricsTrack& lyrics,
                                                    jamstudio::audio::TransportController& transport,
                                                    const jamstudio::ui::TransportBar& transportBar);
 

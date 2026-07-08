@@ -39,6 +39,9 @@ public:
     [[nodiscard]] int getActiveWordIndex (int lineIndex, double seconds) const noexcept;
     [[nodiscard]] double getLineEndSeconds (int index) const noexcept;
 
+    [[nodiscard]] juce::var toVar() const;
+    [[nodiscard]] static bool fromVar (const juce::var& data, LyricsTrack& track);
+
 private:
     juce::String title;
     std::vector<LyricLine> lines;

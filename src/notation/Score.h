@@ -70,6 +70,9 @@ public:
     [[nodiscard]] bool hasLyrics() const noexcept;
     [[nodiscard]] const NoteEvent* getActiveLyricNoteAtTime (double seconds) const noexcept;
 
+    [[nodiscard]] juce::var toVar() const;
+    [[nodiscard]] static bool fromVar (const juce::var& data, Score& score);
+
 private:
     void sortTempoEvents();
 

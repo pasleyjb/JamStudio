@@ -39,6 +39,8 @@ StemState varToStem (const juce::var& value)
 ProjectData ProjectManager::captureState (const juce::File& songFile,
                                           const juce::File& scoreFile,
                                           const juce::File& lyricsFile,
+                                          const jamstudio::notation::Score& score,
+                                          const jamstudio::notation::LyricsTrack& lyrics,
                                           jamstudio::audio::TransportController& transport,
                                           const jamstudio::ui::TransportBar& transportBar)
 {
@@ -46,6 +48,26 @@ ProjectData ProjectManager::captureState (const juce::File& songFile,
     data.songFilePath = songFile.getFullPathName();
     data.scoreFilePath = scoreFile.getFullPathName();
     data.lyricsFilePath = lyricsFile.getFullPathName();
+
+    if (scoreFile.existsAsFile())
+    {
+        data.hasEmbeddedScore = false;
+    }
+    else if (! score.isEmpty())
+    {
+        data.hasEmbeddedScore = true;
+        data.embeddedScore = score.toVar();
+    }
+
+    if (lyricsFile.existsAsFile())
+    {
+        data.hasEmbeddedLyrics = false;
+    }
+    else if (! lyrics.isEmpty())
+    {
+        data.hasEmbeddedLyrics = true;
+        data.embeddedLyrics = lyrics.toVar();
+    }
     data.metronomeEnabled = transportBar.isMetronomeEnabled();
     data.metronomeBpm = transportBar.getBpm();
     data.transportPosition = transport.getPosition();
@@ -86,6 +108,14 @@ bool ProjectManager::saveProject (const juce::File& projectFile, const ProjectDa
         stemArray.add (stemToVar (stem));
 
     root->setProperty ("stems", stemArray);
+    root->setProperty ("hasEmbeddedScore", data.hasEmbeddedScore);
+    root->setProperty ("hasEmbeddedLyrics", data.hasEmbeddedLyrics);
+
+    if (data.hasEmbeddedScore)
+        root->setProperty ("embeddedScore", data.embeddedScore);
+
+    if (data.hasEmbeddedLyrics)
+        root->setProperty ("embeddedLyrics", data.embeddedLyrics);
 
     const auto json = juce::JSON::toString (juce::var (root), true);
     projectFile.getParentDirectory().createDirectory();
@@ -133,6 +163,11 @@ bool ProjectManager::loadProject (const juce::File& projectFile,
         for (const auto& stemVar : *stems)
             data.stems.add (varToStem (stemVar));
     }
+
+    data.hasEmbeddedScore = static_cast<bool> (root->getProperty ("hasEmbeddedScore"));
+    data.hasEmbeddedLyrics = static_cast<bool> (root->getProperty ("hasEmbeddedLyrics"));
+    data.embeddedScore = root->getProperty ("embeddedScore");
+    data.embeddedLyrics = root->getProperty ("embeddedLyrics");
 
     return true;
 }
@@ -203,6 +238,8 @@ bool ProjectManager::applyState (const ProjectData& data,
     scoreFile = juce::File();
     lyricsFile = juce::File();
 
+    auto scoreLoaded = false;
+
     if (data.scoreFilePath.isNotEmpty())
     {
         const juce::File loadedScore (data.scoreFilePath);
@@ -212,9 +249,17 @@ bool ProjectManager::applyState (const ProjectData& data,
             juce::String scoreError;
 
             if (jamstudio::notation::MusicXmlParser::parseFile (loadedScore, score, scoreError))
+            {
                 scoreFile = loadedScore;
+                scoreLoaded = true;
+            }
         }
     }
+
+    if (! scoreLoaded && data.hasEmbeddedScore)
+        scoreLoaded = jamstudio::notation::Score::fromVar (data.embeddedScore, score);
+
+    auto lyricsLoaded = false;
 
     if (data.lyricsFilePath.isNotEmpty())
     {
@@ -225,9 +270,15 @@ bool ProjectManager::applyState (const ProjectData& data,
             juce::String lyricsError;
 
             if (jamstudio::notation::LrcParser::parseFile (loadedLyrics, lyrics, lyricsError))
+            {
                 lyricsFile = loadedLyrics;
+                lyricsLoaded = true;
+            }
         }
     }
+
+    if (! lyricsLoaded && data.hasEmbeddedLyrics)
+        lyricsLoaded = jamstudio::notation::LyricsTrack::fromVar (data.embeddedLyrics, lyrics);
 
     transportBar.setMetronomeEnabled (data.metronomeEnabled);
     transportBar.setBpm (data.metronomeBpm);

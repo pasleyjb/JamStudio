@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(JamStudio VERSION 0.8.0 LANGUAGES C CXX)
+project(JamStudio VERSION 0.9.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,6 +31,7 @@ target_sources(JamStudio PRIVATE
     src/ai/DemucsSeparator.cpp
     src/ai/WhisperTranscriber.cpp
     src/ai/BasicPitchTranscriber.cpp
+    src/ai/AiToolsCatalog.cpp
     src/notation/Score.cpp
     src/notation/MusicXmlLoader.cpp
     src/notation/MusicXmlParser.cpp
@@ -45,6 +46,7 @@ target_sources(JamStudio PRIVATE
     src/ui/JamStudioLookAndFeel.cpp
     src/ui/IndicatorButton.cpp
     src/ui/ToolbarTabs.cpp
+    src/ui/AiToolsSetupDialog.cpp
     src/ui/StemStrip.cpp
     src/ui/TransportBar.cpp
     src/ui/WaveformDisplay.cpp

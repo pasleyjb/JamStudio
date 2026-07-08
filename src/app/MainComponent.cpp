@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include "../audio/StemType.h"
+#include "../ui/AiToolsSetupDialog.h"
 #include "../ui/JamStudioLookAndFeel.h"
 #include "../notation/LrcParser.h"
 #include "../notation/MusicXmlParser.h"
@@ -176,6 +177,8 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     }
     else if (menuName == "Help")
     {
+        menu.addItem (aiToolsCmd, "AI Tools Setup...", true, false);
+        menu.addSeparator();
         menu.addItem (aboutCmd, "About JamStudio", true, false);
     }
 
@@ -198,10 +201,11 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case importLyricsCmd: importLyrics(); break;
         case aiLyricsCmd: transcribeLyrics(); break;
         case recordCmd: toggleRecording(); break;
+        case aiToolsCmd: showAiToolsSetup(); break;
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
-                                                    "JamStudio v0.8.0\nStem separation, synced notation, lyrics, and recording.");
+                                                    "JamStudio v0.9.0\nStem separation, synced notation, lyrics, and recording.");
             break;
         default: break;
     }
@@ -268,7 +272,8 @@ void MainComponent::saveProject()
             file = file.withFileExtension (".jamstudio");
 
         const auto data = jamstudio::project::ProjectManager::captureState (
-            currentSongFile, currentScoreFile, currentLyricsFile, transportController, transportBar);
+            currentSongFile, currentScoreFile, currentLyricsFile,
+            currentScore, currentLyrics, transportController, transportBar);
 
         if (jamstudio::project::ProjectManager::saveProject (file, data))
         {
@@ -338,8 +343,16 @@ void MainComponent::loadProjectFile (const juce::File& file)
 
     rebuildStemStrips();
     resized();
+    juce::StringArray loadedParts;
+
+    if (! currentScore.isEmpty())
+        loadedParts.add ("notation");
+
+    if (! currentLyrics.isEmpty())
+        loadedParts.add ("lyrics");
+
     setStatus ("Project loaded: " + file.getFileName()
-               + (currentScore.hasLyrics() || ! currentLyrics.isEmpty() ? " (with synced lyrics)" : ""));
+               + (loadedParts.isEmpty() ? "" : " (" + loadedParts.joinIntoString (" + ") + ")"));
 }
 
 void MainComponent::importLyrics()
@@ -502,11 +515,40 @@ juce::File MainComponent::findMelodicStemFile()
     return {};
 }
 
+juce::Array<jamstudio::ai::AiToolInfo> MainComponent::getAiToolStatuses() const
+{
+    return jamstudio::ai::AiToolsCatalog::getToolStatuses (demucsSeparator, whisperTranscriber, basicPitchTranscriber);
+}
+
+void MainComponent::showAiToolsSetup()
+{
+    jamstudio::ui::AiToolsSetupDialog::show (this, getAiToolStatuses());
+}
+
+void MainComponent::beginBackgroundTask (const juce::String& message, std::function<void()> onCancel)
+{
+    toolbarTabs.setToolsEnabled (false);
+    separationProgress.setVisible (true);
+    separationProgress.setProgress (0.0f, message);
+    separationProgress.setCancelCallback ([onCancel = std::move (onCancel)] { if (onCancel) onCancel(); });
+    setStatus (message);
+    resized();
+}
+
+void MainComponent::endBackgroundTask()
+{
+    toolbarTabs.setToolsEnabled (true);
+    separationProgress.reset();
+    resized();
+}
+
 void MainComponent::transcribeLyrics()
 {
+    const auto tools = getAiToolStatuses();
+
     if (! whisperTranscriber.isAvailable())
     {
-        setStatus ("Whisper is not installed. Run: pip install openai-whisper");
+        setStatus (jamstudio::ai::AiToolsCatalog::buildUnavailableHint ("whisper", tools));
         return;
     }
 
@@ -521,18 +563,13 @@ void MainComponent::transcribeLyrics()
         return;
     }
 
-    toolbarTabs.setToolsEnabled (false);
-    separationProgress.setVisible (true);
-    separationProgress.setProgress (0.0f, "Starting vocal transcription...");
-    setStatus ("Transcribing vocals with Whisper...");
-    resized();
+    beginBackgroundTask ("Transcribing vocals with Whisper...",
+                         [this] { whisperTranscriber.cancel(); endBackgroundTask(); setStatus ("Transcription cancelled."); });
 
     whisperTranscriber.transcribeAsync (vocalsFile,
         [this] (const jamstudio::ai::TranscriptionResult& result)
         {
-            toolbarTabs.setToolsEnabled (true);
-            separationProgress.reset();
-            resized();
+            endBackgroundTask();
 
             if (! result.success)
             {
@@ -556,9 +593,11 @@ void MainComponent::transcribeLyrics()
 
 void MainComponent::transcribeTab()
 {
+    const auto tools = getAiToolStatuses();
+
     if (! basicPitchTranscriber.isAvailable())
     {
-        setStatus ("basic-pitch is not installed. Run: pip install basic-pitch");
+        setStatus (jamstudio::ai::AiToolsCatalog::buildUnavailableHint ("basic-pitch", tools));
         return;
     }
 
@@ -570,18 +609,13 @@ void MainComponent::transcribeTab()
         return;
     }
 
-    toolbarTabs.setToolsEnabled (false);
-    separationProgress.setVisible (true);
-    separationProgress.setProgress (0.0f, "Starting note transcription...");
-    setStatus ("Transcribing notes with basic-pitch...");
-    resized();
+    beginBackgroundTask ("Transcribing notes with basic-pitch...",
+                         [this] { basicPitchTranscriber.cancel(); endBackgroundTask(); setStatus ("Transcription cancelled."); });
 
     basicPitchTranscriber.transcribeAsync (melodicFile,
         [this] (const jamstudio::ai::PitchTranscriptionResult& result)
         {
-            toolbarTabs.setToolsEnabled (true);
-            separationProgress.reset();
-            resized();
+            endBackgroundTask();
 
             if (! result.success)
             {
@@ -611,24 +645,21 @@ void MainComponent::separateStems()
         return;
     }
 
+    const auto tools = getAiToolStatuses();
+
     if (! demucsSeparator.isAvailable())
     {
-        setStatus ("Demucs is not installed. Run: pip install demucs");
+        setStatus (jamstudio::ai::AiToolsCatalog::buildUnavailableHint ("demucs", tools));
         return;
     }
 
-    toolbarTabs.setToolsEnabled (false);
-    separationProgress.setVisible (true);
-    separationProgress.setProgress (0.0f, "Starting stem separation...");
-    setStatus ("Separating stems...");
-    resized();
+    beginBackgroundTask ("Separating stems...",
+                         [this] { demucsSeparator.cancel(); endBackgroundTask(); setStatus ("Separation cancelled."); });
 
     demucsSeparator.separateAsync (currentSongFile,
         [this] (const jamstudio::ai::SeparationResult& result)
         {
-            toolbarTabs.setToolsEnabled (true);
-            separationProgress.reset();
-            resized();
+            endBackgroundTask();
 
             if (! result.success)
             {
