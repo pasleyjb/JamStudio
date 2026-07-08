@@ -62,7 +62,25 @@ bool commandResponds (const juce::String& executable, const juce::String& probeA
 
 juce::String findWorkingExecutable (const juce::StringArray& candidates, const juce::String& probeArg)
 {
+    juce::StringArray expanded;
+
     for (const auto& candidate : candidates)
+    {
+        expanded.add (candidate);
+
+        if (! candidate.containsChar ('/') && ! candidate.contains (" -m "))
+        {
+            const auto localBin = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                .getChildFile (".local")
+                .getChildFile ("bin")
+                .getChildFile (candidate);
+
+            if (localBin.existsAsFile())
+                expanded.add (localBin.getFullPathName());
+        }
+    }
+
+    for (const auto& candidate : expanded)
     {
         if (commandResponds (candidate, probeArg))
             return candidate;
