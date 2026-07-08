@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include "../audio/StemType.h"
+#include "../ui/JamStudioLookAndFeel.h"
 #include "../notation/LrcParser.h"
 #include "../notation/MusicXmlParser.h"
 #include "../project/ProjectManager.h"
@@ -15,50 +16,31 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
       recentProjects (juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                           .getChildFile ("JamStudio")
                           .getChildFile ("recent-projects.json")),
+      toolbarTabs ({
+          [this] { openSong(); },
+          [this] { saveProject(); },
+          [this] { loadProject(); },
+          [this] { showRecentProjectsMenu(); },
+          [this] { separateStems(); },
+          [this] { importScore(); },
+          [this] { transcribeTab(); },
+          [this] { importLyrics(); },
+          [this] { transcribeLyrics(); },
+          [this] { toggleRecording(); }
+      }),
       waveformDisplay (transportController.getFormatManager(), thumbnailCache, transportController),
       lyricsView (transportController),
       notationView (transportController),
       transportBar (transportController)
 {
-    setSize (1100, 820);
+    setSize (1200, 860);
+    refreshTheme();
 
-    titleLabel.setFont (juce::FontOptions (24.0f, juce::Font::bold));
-    addAndMakeVisible (titleLabel);
-
-    openSongButton.onClick = [this] { openSong(); };
-    addAndMakeVisible (openSongButton);
-
-    saveProjectButton.onClick = [this] { saveProject(); };
-    addAndMakeVisible (saveProjectButton);
-
-    loadProjectButton.onClick = [this] { loadProject(); };
-    addAndMakeVisible (loadProjectButton);
-
-    recentProjectsButton.onClick = [this] { showRecentProjectsMenu(); };
-    addAndMakeVisible (recentProjectsButton);
-
-    separateButton.onClick = [this] { separateStems(); };
-    addAndMakeVisible (separateButton);
-
-    importScoreButton.onClick = [this] { importScore(); };
-    addAndMakeVisible (importScoreButton);
-
-    importLyricsButton.onClick = [this] { importLyrics(); };
-    addAndMakeVisible (importLyricsButton);
-
-    aiLyricsButton.onClick = [this] { transcribeLyrics(); };
-    addAndMakeVisible (aiLyricsButton);
-
-    aiTabButton.onClick = [this] { transcribeTab(); };
-    addAndMakeVisible (aiTabButton);
-
-    recordButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff8b2f2f));
-    recordButton.onClick = [this] { toggleRecording(); };
-    addAndMakeVisible (recordButton);
+    juce::Desktop::getInstance().addDarkModeSettingListener (this);
 
     statusLabel.setJustificationType (juce::Justification::centredLeft);
     juce::StringArray readyHints;
-    readyHints.add ("Open a song");
+    readyHints.add ("Open a song from File or the Project toolbar");
 
     if (demucsSeparator.isAvailable())
         readyHints.add ("separate stems");
@@ -70,8 +52,8 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
         readyHints.add ("AI tab");
 
     setStatus ("Ready. " + readyHints.joinIntoString (", ") + ".");
+    addAndMakeVisible (toolbarTabs);
     addAndMakeVisible (statusLabel);
-
     addAndMakeVisible (separationProgress);
     addAndMakeVisible (waveformDisplay);
     addAndMakeVisible (lyricsView);
@@ -83,7 +65,7 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     addAndMakeVisible (transportBar);
 
     stemViewport.setViewedComponent (&stemContainer, false);
-    stemViewport.setScrollBarsShown (false, true);
+    stemViewport.setScrollBarsShown (true, false);
     addAndMakeVisible (stemViewport);
 
     audioDeviceManager.addAudioCallback (&audioRecorder);
@@ -101,68 +83,141 @@ MainComponent::~MainComponent()
     basicPitchTranscriber.cancel();
     transportController.getStemMixer().removeChangeListener (this);
     transportController.removeChangeListener (this);
+    juce::Desktop::getInstance().removeDarkModeSettingListener (this);
 }
 
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff121212));
+    g.fillAll (jamstudio::ui::JamStudioTheme::getColours().windowBackground);
 }
 
 void MainComponent::resized()
 {
-    auto bounds = getLocalBounds().reduced (12);
+    auto bounds = getLocalBounds().reduced (6);
 
-    auto header = bounds.removeFromTop (40);
-    titleLabel.setBounds (header.removeFromLeft (140));
-    recordButton.setBounds (header.removeFromRight (70).reduced (2));
-    aiTabButton.setBounds (header.removeFromRight (70).reduced (2));
-    aiLyricsButton.setBounds (header.removeFromRight (80).reduced (2));
-    importLyricsButton.setBounds (header.removeFromRight (110).reduced (2));
-    importScoreButton.setBounds (header.removeFromRight (110).reduced (2));
-    separateButton.setBounds (header.removeFromRight (130).reduced (2));
-    openSongButton.setBounds (header.removeFromRight (110).reduced (2));
-    recentProjectsButton.setBounds (header.removeFromRight (80).reduced (2));
-    loadProjectButton.setBounds (header.removeFromRight (110).reduced (2));
-    saveProjectButton.setBounds (header.removeFromRight (110).reduced (2));
-
-    bounds.removeFromTop (8);
-    statusLabel.setBounds (bounds.removeFromTop (24));
+    toolbarTabs.setBounds (bounds.removeFromTop (58));
+    bounds.removeFromTop (4);
+    statusLabel.setBounds (bounds.removeFromTop (22));
 
     if (separationProgress.isVisible())
     {
-        bounds.removeFromTop (4);
-        separationProgress.setBounds (bounds.removeFromTop (48));
+        bounds.removeFromTop (2);
+        separationProgress.setBounds (bounds.removeFromTop (44));
     }
 
-    bounds.removeFromTop (8);
-    waveformDisplay.setBounds (bounds.removeFromTop (100));
-    bounds.removeFromTop (8);
-    lyricsView.setBounds (bounds.removeFromTop (72));
-    bounds.removeFromTop (8);
-    notationViewport.setBounds (bounds.removeFromTop (160));
-    bounds.removeFromTop (8);
-
-    transportBar.setBounds (bounds.removeFromTop (90));
-    bounds.removeFromTop (8);
+    bounds.removeFromTop (6);
+    waveformDisplay.setBounds (bounds.removeFromTop (128));
+    bounds.removeFromTop (4);
+    transportBar.setBounds (bounds.removeFromTop (44));
+    bounds.removeFromTop (6);
+    lyricsView.setBounds (bounds.removeFromTop (120));
+    bounds.removeFromTop (6);
+    notationViewport.setBounds (bounds.removeFromTop (juce::jmax (140, bounds.getHeight() / 3)));
+    bounds.removeFromTop (6);
 
     stemViewport.setBounds (bounds);
 
-    const auto stripWidth = 110;
-    const auto stripHeight = juce::jmax (180, stemViewport.getHeight() - 4);
-    stemContainer.setSize (juce::jmax (stemViewport.getWidth(), stemContainer.getNumChildComponents() * stripWidth),
-                           stripHeight);
+    constexpr int stripHeight = 40;
+    const auto containerWidth = juce::jmax (stemViewport.getMaximumVisibleWidth(), stemViewport.getWidth());
+    stemContainer.setSize (containerWidth, stemContainer.getNumChildComponents() * stripHeight + 4);
 
-    auto stripBounds = stemContainer.getLocalBounds().reduced (4);
-    int x = stripBounds.getX();
+    auto stripBounds = stemContainer.getLocalBounds().reduced (2);
+    int y = stripBounds.getY();
 
     for (int i = 0; i < stemContainer.getNumChildComponents(); ++i)
     {
         if (auto* strip = stemContainer.getChildComponent (i))
         {
-            strip->setBounds (x, stripBounds.getY(), stripWidth - 8, stripBounds.getHeight());
-            x += stripWidth;
+            strip->setBounds (stripBounds.getX(), y, stripBounds.getWidth(), stripHeight - 2);
+            y += stripHeight;
         }
     }
+}
+
+juce::StringArray MainComponent::getMenuBarNames()
+{
+    return { "File", "Project", "Stems", "Notation", "Lyrics", "Transport", "Help" };
+}
+
+juce::PopupMenu MainComponent::getMenuForIndex (const int topLevelMenuIndex, const juce::String& menuName)
+{
+    juce::PopupMenu menu;
+
+    if (menuName == "File")
+    {
+        menu.addItem (openSongCmd, "Open Song...", true, false);
+        menu.addSeparator();
+        menu.addItem (quitCmd, "Quit", true, false);
+    }
+    else if (menuName == "Project")
+    {
+        menu.addItem (saveProjectCmd, "Save Project", true, false);
+        menu.addItem (loadProjectCmd, "Load Project", true, false);
+        menu.addItem (recentProjectsCmd, "Recent Projects", true, false);
+    }
+    else if (menuName == "Stems")
+    {
+        menu.addItem (separateStemsCmd, "Separate Stems", demucsSeparator.isAvailable(), false);
+    }
+    else if (menuName == "Notation")
+    {
+        menu.addItem (importScoreCmd, "Import MusicXML...", true, false);
+        menu.addItem (aiTabCmd, "AI Tab Transcription", basicPitchTranscriber.isAvailable(), false);
+    }
+    else if (menuName == "Lyrics")
+    {
+        menu.addItem (importLyricsCmd, "Import LRC...", true, false);
+        menu.addItem (aiLyricsCmd, "AI Vocal Transcription", whisperTranscriber.isAvailable(), false);
+    }
+    else if (menuName == "Transport")
+    {
+        menu.addItem (recordCmd, "Record / Stop", true, false);
+    }
+    else if (menuName == "Help")
+    {
+        menu.addItem (aboutCmd, "About JamStudio", true, false);
+    }
+
+    juce::ignoreUnused (topLevelMenuIndex);
+    return menu;
+}
+
+void MainComponent::menuItemSelected (const int menuItemID, const int /*topLevelMenuIndex*/)
+{
+    switch (menuItemID)
+    {
+        case openSongCmd: openSong(); break;
+        case saveProjectCmd: saveProject(); break;
+        case loadProjectCmd: loadProject(); break;
+        case recentProjectsCmd: showRecentProjectsMenu(); break;
+        case quitCmd: juce::JUCEApplication::getInstance()->systemRequestedQuit(); break;
+        case separateStemsCmd: separateStems(); break;
+        case importScoreCmd: importScore(); break;
+        case aiTabCmd: transcribeTab(); break;
+        case importLyricsCmd: importLyrics(); break;
+        case aiLyricsCmd: transcribeLyrics(); break;
+        case recordCmd: toggleRecording(); break;
+        case aboutCmd:
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                                    "JamStudio",
+                                                    "JamStudio v0.8.0\nStem separation, synced notation, lyrics, and recording.");
+            break;
+        default: break;
+    }
+}
+
+void MainComponent::darkModeSettingChanged()
+{
+    refreshTheme();
+}
+
+void MainComponent::refreshTheme()
+{
+    jamstudio::ui::JamStudioTheme::applyToComponent (*this);
+    jamstudio::ui::JamStudioTheme::refreshAll (*this);
+
+    if (auto* laf = dynamic_cast<jamstudio::ui::JamStudioLookAndFeel*> (&getLookAndFeel()))
+        laf->refreshTheme();
 }
 
 void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
@@ -318,7 +373,7 @@ void MainComponent::showRecentProjectsMenu()
     juce::PopupMenu menu;
     recentProjects.buildMenu (menu);
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (recentProjectsButton),
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
                         [this] (int result)
     {
         if (result <= 0)
@@ -461,7 +516,7 @@ void MainComponent::transcribeLyrics()
         return;
     }
 
-    aiLyricsButton.setEnabled (false);
+    toolbarTabs.setToolsEnabled (false);
     separationProgress.setVisible (true);
     separationProgress.setProgress (0.0f, "Starting vocal transcription...");
     setStatus ("Transcribing vocals with Whisper...");
@@ -470,7 +525,7 @@ void MainComponent::transcribeLyrics()
     whisperTranscriber.transcribeAsync (vocalsFile,
         [this] (const jamstudio::ai::TranscriptionResult& result)
         {
-            aiLyricsButton.setEnabled (true);
+            toolbarTabs.setToolsEnabled (true);
             separationProgress.reset();
             resized();
 
@@ -510,7 +565,7 @@ void MainComponent::transcribeTab()
         return;
     }
 
-    aiTabButton.setEnabled (false);
+    toolbarTabs.setToolsEnabled (false);
     separationProgress.setVisible (true);
     separationProgress.setProgress (0.0f, "Starting note transcription...");
     setStatus ("Transcribing notes with basic-pitch...");
@@ -519,7 +574,7 @@ void MainComponent::transcribeTab()
     basicPitchTranscriber.transcribeAsync (melodicFile,
         [this] (const jamstudio::ai::PitchTranscriptionResult& result)
         {
-            aiTabButton.setEnabled (true);
+            toolbarTabs.setToolsEnabled (true);
             separationProgress.reset();
             resized();
 
@@ -557,7 +612,7 @@ void MainComponent::separateStems()
         return;
     }
 
-    separateButton.setEnabled (false);
+    toolbarTabs.setToolsEnabled (false);
     separationProgress.setVisible (true);
     separationProgress.setProgress (0.0f, "Starting stem separation...");
     setStatus ("Separating stems...");
@@ -566,7 +621,7 @@ void MainComponent::separateStems()
     demucsSeparator.separateAsync (currentSongFile,
         [this] (const jamstudio::ai::SeparationResult& result)
         {
-            separateButton.setEnabled (true);
+            toolbarTabs.setToolsEnabled (true);
             separationProgress.reset();
             resized();
 
@@ -591,8 +646,7 @@ void MainComponent::toggleRecording()
     if (audioRecorder.isRecording())
     {
         const auto savedFile = audioRecorder.stopRecording();
-        recordButton.setButtonText ("Record");
-        recordButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff8b2f2f));
+        toolbarTabs.setRecordingActive (false);
 
         if (! savedFile.existsAsFile())
         {
@@ -620,8 +674,7 @@ void MainComponent::toggleRecording()
 
     if (audioRecorder.startRecording (destination))
     {
-        recordButton.setButtonText ("Stop");
-        recordButton.setColour (juce::TextButton::buttonColourId, juce::Colours::red.darker());
+        toolbarTabs.setRecordingActive (true);
         setStatus ("Recording... play along with the backing and press Stop when finished.");
     }
     else

@@ -1,5 +1,7 @@
 #include "SeparationProgressBar.h"
 
+#include "JamStudioTheme.h"
+
 namespace jamstudio::ui
 {
 
@@ -36,7 +38,7 @@ void SeparationProgressBar::reset()
 
 void SeparationProgressBar::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff1e1e1e));
+    g.fillAll (JamStudioTheme::getColours().panelBackground);
 }
 
 void SeparationProgressBar::resized()

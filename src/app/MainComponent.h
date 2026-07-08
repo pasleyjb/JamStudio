@@ -10,8 +10,10 @@
 #include "../notation/LyricsTrack.h"
 #include "../notation/NotationView.h"
 #include "../notation/Score.h"
+#include "../ui/JamStudioTheme.h"
 #include "../ui/SeparationProgressBar.h"
 #include "../ui/StemStrip.h"
+#include "../ui/ToolbarTabs.h"
 #include "../ui/TransportBar.h"
 #include "../project/RecentProjects.h"
 #include "../ui/WaveformDisplay.h"
@@ -20,7 +22,9 @@ namespace jamstudio::app
 {
 
 class MainComponent : public juce::Component,
-                      public juce::ChangeListener
+                      public juce::ChangeListener,
+                      public juce::MenuBarModel,
+                      public juce::DarkModeSettingListener
 {
 public:
     explicit MainComponent (juce::AudioDeviceManager& deviceManager);
@@ -30,7 +34,28 @@ public:
     void resized() override;
     void changeListenerCallback (juce::ChangeBroadcaster* source) override;
 
+    juce::StringArray getMenuBarNames() override;
+    juce::PopupMenu getMenuForIndex (int topLevelMenuIndex, const juce::String& menuName) override;
+    void menuItemSelected (int menuItemID, int topLevelMenuIndex) override;
+    void darkModeSettingChanged() override;
+
 private:
+    enum MenuCommand
+    {
+        openSongCmd = 1,
+        saveProjectCmd,
+        loadProjectCmd,
+        recentProjectsCmd,
+        quitCmd,
+        separateStemsCmd,
+        importScoreCmd,
+        aiTabCmd,
+        importLyricsCmd,
+        aiLyricsCmd,
+        recordCmd,
+        aboutCmd
+    };
+
     void openSong();
     void saveProject();
     void loadProject();
@@ -48,6 +73,7 @@ private:
     void loadStemsIntoMixer (const juce::Array<juce::File>& stemFiles);
     void rebuildStemStrips();
     void setStatus (const juce::String& message);
+    void refreshTheme();
     [[nodiscard]] juce::File getDefaultRecordingFile() const;
 
     juce::AudioDeviceManager& audioDeviceManager;
@@ -63,17 +89,7 @@ private:
 
     juce::AudioThumbnailCache thumbnailCache { 4 };
 
-    juce::Label titleLabel { {}, "JamStudio" };
-    juce::TextButton openSongButton { "Open Song..." };
-    juce::TextButton saveProjectButton { "Save Project" };
-    juce::TextButton loadProjectButton { "Load Project" };
-    juce::TextButton recentProjectsButton { "Recent" };
-    juce::TextButton separateButton { "Separate Stems" };
-    juce::TextButton importScoreButton { "Import Score..." };
-    juce::TextButton importLyricsButton { "Import Lyrics..." };
-    juce::TextButton aiLyricsButton { "AI Lyrics" };
-    juce::TextButton aiTabButton { "AI Tab" };
-    juce::TextButton recordButton { "Record" };
+    jamstudio::ui::ToolbarTabs toolbarTabs;
     juce::Label statusLabel;
     jamstudio::ui::SeparationProgressBar separationProgress;
     jamstudio::ui::WaveformDisplay waveformDisplay;

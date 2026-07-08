@@ -1,11 +1,12 @@
 #pragma once
 
 #include "../audio/StemTrack.h"
+#include "IndicatorButton.h"
 
 namespace jamstudio::ui
 {
 
-/** Mixer strip for a single stem: label, mute, solo, volume. */
+/** Audacity-style horizontal track row with 3D mute/solo buttons and status LEDs. */
 class StemStrip : public juce::Component
 {
 public:
@@ -15,13 +16,16 @@ public:
 
     void paint (juce::Graphics& g) override;
     void resized() override;
+    void updateIndicators();
 
 private:
+    void notifyChanged();
+
     int index;
     juce::Label nameLabel;
-    juce::TextButton muteButton { "M" };
-    juce::TextButton soloButton { "S" };
-    juce::Slider volumeSlider { juce::Slider::LinearVertical, juce::Slider::TextBoxBelow };
+    IndicatorButton muteButton { "mute", "M" };
+    IndicatorButton soloButton { "solo", "S" };
+    juce::Slider volumeSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     StemChangedCallback onStemChanged;
 };
 

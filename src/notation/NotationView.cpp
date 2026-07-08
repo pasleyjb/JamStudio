@@ -1,5 +1,7 @@
 #include "NotationView.h"
 
+#include "../ui/JamStudioTheme.h"
+
 namespace jamstudio::notation
 {
 
@@ -33,18 +35,19 @@ int NotationView::getContentHeight() const noexcept
 
 void NotationView::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff161616));
+    const auto colours = jamstudio::ui::JamStudioTheme::getColours();
+    g.fillAll (colours.notationBackground);
 
     if (score.isEmpty())
     {
-        g.setColour (juce::Colours::grey);
+        g.setColour (colours.textSecondary);
         g.setFont (juce::FontOptions (14.0f));
         g.drawText ("Import a MusicXML file to display synced notation and lyrics",
                     getLocalBounds(), juce::Justification::centred);
         return;
     }
 
-    g.setColour (juce::Colours::white);
+    g.setColour (colours.text);
     g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
     g.drawText (score.getTitle(), 12, 4, getWidth() - 24, 20, juce::Justification::centredLeft);
 

@@ -1,11 +1,12 @@
 #pragma once
 
 #include "../audio/TransportController.h"
+#include "IndicatorButton.h"
 
 namespace jamstudio::ui
 {
 
-/** Transport controls: play, pause, stop, position, metronome, BPM. */
+/** Slim Audacity-style transport row with 3D controls and metronome LED. */
 class TransportBar : public juce::Component,
                      public juce::Timer
 {
@@ -24,14 +25,16 @@ public:
     void setBpm (double bpm);
 
 private:
+    void updateMetronomeIndicator();
+
     jamstudio::audio::TransportController& transportController;
 
-    juce::TextButton playButton { "Play" };
-    juce::TextButton pauseButton { "Pause" };
-    juce::TextButton stopButton { "Stop" };
+    IndicatorButton playButton { "play", "Play" };
+    IndicatorButton pauseButton { "pause", "Pause" };
+    IndicatorButton stopButton { "stop", "Stop" };
     juce::Slider positionSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxLeft };
     juce::Label positionLabel;
-    juce::ToggleButton metronomeButton { "Metronome" };
+    IndicatorButton metronomeButton { "metronome", "Metro" };
     juce::Slider bpmSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxLeft };
     juce::Label bpmLabel { {}, "BPM" };
 };

@@ -1,16 +1,21 @@
 #include "MainWindow.h"
 
+#include "../ui/JamStudioTheme.h"
+
 namespace jamstudio::app
 {
 
 MainWindow::MainWindow (juce::AudioDeviceManager& deviceManager)
     : DocumentWindow ("JamStudio",
-                      juce::Desktop::getInstance().getDefaultLookAndFeel()
-                          .findColour (juce::ResizableWindow::backgroundColourId),
+                      jamstudio::ui::JamStudioTheme::getColours().windowBackground,
                       DocumentWindow::allButtons)
 {
     setUsingNativeTitleBar (true);
-    setContentOwned (new MainComponent (deviceManager), true);
+
+    auto* content = new MainComponent (deviceManager);
+    setContentOwned (content, true);
+    setMenuBar (content);
+
     setResizable (true, true);
     centreWithSize (getWidth(), getHeight());
     setVisible (true);
@@ -18,6 +23,7 @@ MainWindow::MainWindow (juce::AudioDeviceManager& deviceManager)
 
 void MainWindow::closeButtonPressed()
 {
+    setMenuBar (nullptr);
     juce::JUCEApplication::getInstance()->systemRequestedQuit();
 }
 

@@ -1,5 +1,7 @@
 #include "WaveformDisplay.h"
 
+#include "JamStudioTheme.h"
+
 namespace jamstudio::ui
 {
 
@@ -32,15 +34,16 @@ void WaveformDisplay::clear()
 
 void WaveformDisplay::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff1a1a1a));
+    const auto colours = jamstudio::ui::JamStudioTheme::getColours();
+    g.fillAll (colours.waveformBackground);
 
     auto bounds = getLocalBounds().reduced (2);
-    g.setColour (juce::Colour (0xff2d2d2d));
+    g.setColour (colours.border);
     g.drawRect (bounds);
 
     if (thumbnail.getTotalLength() > 0.0)
     {
-        g.setColour (juce::Colour (0xff4a9eff));
+        g.setColour (colours.waveform);
         thumbnail.drawChannels (g, bounds, 0.0, thumbnail.getTotalLength(), 1.0f);
 
         const auto progress = thumbnail.getTotalLength() > 0.0
