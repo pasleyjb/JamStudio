@@ -34,7 +34,8 @@ practice with a metronome.
 | Tab and standard notation renderer | Done |
 | Playback-synced scroll and highlight | Done |
 | Synced lyrics from MusicXML | Done |
-| AI-generated / imported LRC lyrics | Planned |
+| Imported LRC lyrics | Done |
+| AI-generated lyrics from vocals | Planned |
 | Karaoke-style word highlighting | Planned |
 | Per-instrument notation views | Planned |
 | Manual notation editing | Planned |

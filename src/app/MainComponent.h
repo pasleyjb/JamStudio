@@ -4,6 +4,8 @@
 #include "../audio/AudioRecorder.h"
 #include "../audio/RecordingExporter.h"
 #include "../audio/TransportController.h"
+#include "../notation/LyricsView.h"
+#include "../notation/LyricsTrack.h"
 #include "../notation/NotationView.h"
 #include "../notation/Score.h"
 #include "../ui/SeparationProgressBar.h"
@@ -33,6 +35,7 @@ private:
     void loadProjectFile (const juce::File& file);
     void showRecentProjectsMenu();
     void importScore();
+    void importLyrics();
     void separateStems();
     void toggleRecording();
     void loadRecordingAsStem (const juce::File& recordingFile);
@@ -48,6 +51,7 @@ private:
     jamstudio::ai::DemucsSeparator demucsSeparator;
     jamstudio::project::RecentProjects recentProjects;
     jamstudio::notation::Score currentScore;
+    jamstudio::notation::LyricsTrack currentLyrics;
 
     juce::AudioThumbnailCache thumbnailCache { 4 };
 
@@ -58,11 +62,13 @@ private:
     juce::TextButton recentProjectsButton { "Recent" };
     juce::TextButton separateButton { "Separate Stems" };
     juce::TextButton importScoreButton { "Import Score..." };
+    juce::TextButton importLyricsButton { "Import Lyrics..." };
     juce::TextButton recordButton { "Record" };
     juce::Label statusLabel;
     jamstudio::ui::SeparationProgressBar separationProgress;
     jamstudio::ui::WaveformDisplay waveformDisplay;
     juce::Viewport notationViewport;
+    jamstudio::notation::LyricsView lyricsView;
     jamstudio::notation::NotationView notationView;
     jamstudio::ui::TransportBar transportBar;
     juce::Viewport stemViewport;
@@ -70,6 +76,7 @@ private:
 
     juce::File currentSongFile;
     juce::File currentScoreFile;
+    juce::File currentLyricsFile;
     juce::File currentProjectFile;
     std::unique_ptr<juce::FileChooser> fileChooser;
 };

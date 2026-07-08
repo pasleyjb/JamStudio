@@ -1,5 +1,6 @@
 #include "ProjectManager.h"
 
+#include "../notation/LrcParser.h"
 #include "../notation/MusicXmlParser.h"
 
 namespace jamstudio::project
@@ -37,12 +38,14 @@ StemState varToStem (const juce::var& value)
 
 ProjectData ProjectManager::captureState (const juce::File& songFile,
                                           const juce::File& scoreFile,
+                                          const juce::File& lyricsFile,
                                           jamstudio::audio::TransportController& transport,
                                           const jamstudio::ui::TransportBar& transportBar)
 {
     ProjectData data;
     data.songFilePath = songFile.getFullPathName();
     data.scoreFilePath = scoreFile.getFullPathName();
+    data.lyricsFilePath = lyricsFile.getFullPathName();
     data.metronomeEnabled = transportBar.isMetronomeEnabled();
     data.metronomeBpm = transportBar.getBpm();
     data.transportPosition = transport.getPosition();
@@ -72,6 +75,7 @@ bool ProjectManager::saveProject (const juce::File& projectFile, const ProjectDa
     root->setProperty ("version", data.version);
     root->setProperty ("songFile", data.songFilePath);
     root->setProperty ("scoreFile", data.scoreFilePath);
+    root->setProperty ("lyricsFile", data.lyricsFilePath);
     root->setProperty ("metronomeEnabled", data.metronomeEnabled);
     root->setProperty ("metronomeBpm", data.metronomeBpm);
     root->setProperty ("transportPosition", data.transportPosition);
@@ -118,6 +122,7 @@ bool ProjectManager::loadProject (const juce::File& projectFile,
     data.version = static_cast<int> (root->getProperty ("version"));
     data.songFilePath = root->getProperty ("songFile").toString();
     data.scoreFilePath = root->getProperty ("scoreFile").toString();
+    data.lyricsFilePath = root->getProperty ("lyricsFile").toString();
     data.metronomeEnabled = static_cast<bool> (root->getProperty ("metronomeEnabled"));
     data.metronomeBpm = static_cast<double> (root->getProperty ("metronomeBpm"));
     data.transportPosition = static_cast<double> (root->getProperty ("transportPosition"));
@@ -136,8 +141,10 @@ bool ProjectManager::applyState (const ProjectData& data,
                                  jamstudio::audio::TransportController& transport,
                                  jamstudio::ui::TransportBar& transportBar,
                                  jamstudio::notation::Score& score,
+                                 jamstudio::notation::LyricsTrack& lyrics,
                                  juce::File& songFile,
                                  juce::File& scoreFile,
+                                 juce::File& lyricsFile,
                                  juce::String& errorMessage)
 {
     transport.stop();
@@ -192,7 +199,9 @@ bool ProjectManager::applyState (const ProjectData& data,
         songFile = juce::File (data.songFilePath);
 
     score.clear();
+    lyrics.clear();
     scoreFile = juce::File();
+    lyricsFile = juce::File();
 
     if (data.scoreFilePath.isNotEmpty())
     {
@@ -204,6 +213,19 @@ bool ProjectManager::applyState (const ProjectData& data,
 
             if (jamstudio::notation::MusicXmlParser::parseFile (loadedScore, score, scoreError))
                 scoreFile = loadedScore;
+        }
+    }
+
+    if (data.lyricsFilePath.isNotEmpty())
+    {
+        const juce::File loadedLyrics (data.lyricsFilePath);
+
+        if (loadedLyrics.existsAsFile())
+        {
+            juce::String lyricsError;
+
+            if (jamstudio::notation::LrcParser::parseFile (loadedLyrics, lyrics, lyricsError))
+                lyricsFile = loadedLyrics;
         }
     }
 

@@ -47,7 +47,7 @@
 - [x] Tab and sheet music display
 - [x] Synced scroll during playback
 - [x] Synced lyrics from MusicXML (syllable highlight)
-- [ ] LRC / external lyrics import
+- [x] LRC / external lyrics import
 - [ ] AI vocal transcription to lyrics
 - [ ] Manual notation editing
 

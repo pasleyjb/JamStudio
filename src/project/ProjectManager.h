@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../audio/TransportController.h"
+#include "../notation/LyricsTrack.h"
 #include "../notation/Score.h"
 #include "../ui/TransportBar.h"
 #include "ProjectData.h"
@@ -14,6 +15,7 @@ class ProjectManager
 public:
     [[nodiscard]] static ProjectData captureState (const juce::File& songFile,
                                                    const juce::File& scoreFile,
+                                                   const juce::File& lyricsFile,
                                                    jamstudio::audio::TransportController& transport,
                                                    const jamstudio::ui::TransportBar& transportBar);
 
@@ -26,8 +28,10 @@ public:
                                           jamstudio::audio::TransportController& transport,
                                           jamstudio::ui::TransportBar& transportBar,
                                           jamstudio::notation::Score& score,
+                                          jamstudio::notation::LyricsTrack& lyrics,
                                           juce::File& songFile,
                                           juce::File& scoreFile,
+                                          juce::File& lyricsFile,
                                           juce::String& errorMessage);
 };
 

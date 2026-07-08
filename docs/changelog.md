@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0] — 2026-07-08
+
+### Added
+
+- LRC lyrics import with karaoke-style line highlighting during playback
+- Lyrics panel works alongside tabs, sheet music, or on its own with any song
+- Project files now save and restore linked LRC lyrics paths
+
 ## [0.5.0] — 2026-07-08
 
 ### Added

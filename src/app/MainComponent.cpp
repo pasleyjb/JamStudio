@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 
+#include "../notation/LrcParser.h"
 #include "../notation/MusicXmlParser.h"
 #include "../project/ProjectManager.h"
 
@@ -14,10 +15,11 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
                           .getChildFile ("JamStudio")
                           .getChildFile ("recent-projects.json")),
       waveformDisplay (transportController.getFormatManager(), thumbnailCache, transportController),
+      lyricsView (transportController),
       notationView (transportController),
       transportBar (transportController)
 {
-    setSize (1024, 780);
+    setSize (1100, 820);
 
     titleLabel.setFont (juce::FontOptions (24.0f, juce::Font::bold));
     addAndMakeVisible (titleLabel);
@@ -40,6 +42,9 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     importScoreButton.onClick = [this] { importScore(); };
     addAndMakeVisible (importScoreButton);
 
+    importLyricsButton.onClick = [this] { importLyrics(); };
+    addAndMakeVisible (importLyricsButton);
+
     recordButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff8b2f2f));
     recordButton.onClick = [this] { toggleRecording(); };
     addAndMakeVisible (recordButton);
@@ -52,6 +57,7 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
 
     addAndMakeVisible (separationProgress);
     addAndMakeVisible (waveformDisplay);
+    addAndMakeVisible (lyricsView);
 
     notationViewport.setViewedComponent (&notationView, false);
     notationViewport.setScrollBarsShown (false, true);
@@ -89,7 +95,8 @@ void MainComponent::resized()
 
     auto header = bounds.removeFromTop (40);
     titleLabel.setBounds (header.removeFromLeft (140));
-    recordButton.setBounds (header.removeFromRight (80).reduced (2));
+    recordButton.setBounds (header.removeFromRight (70).reduced (2));
+    importLyricsButton.setBounds (header.removeFromRight (110).reduced (2));
     importScoreButton.setBounds (header.removeFromRight (110).reduced (2));
     separateButton.setBounds (header.removeFromRight (130).reduced (2));
     openSongButton.setBounds (header.removeFromRight (110).reduced (2));
@@ -109,7 +116,9 @@ void MainComponent::resized()
     bounds.removeFromTop (8);
     waveformDisplay.setBounds (bounds.removeFromTop (100));
     bounds.removeFromTop (8);
-    notationViewport.setBounds (bounds.removeFromTop (180));
+    lyricsView.setBounds (bounds.removeFromTop (72));
+    bounds.removeFromTop (8);
+    notationViewport.setBounds (bounds.removeFromTop (160));
     bounds.removeFromTop (8);
 
     transportBar.setBounds (bounds.removeFromTop (90));
@@ -178,7 +187,7 @@ void MainComponent::saveProject()
             file = file.withFileExtension (".jamstudio");
 
         const auto data = jamstudio::project::ProjectManager::captureState (
-            currentSongFile, currentScoreFile, transportController, transportBar);
+            currentSongFile, currentScoreFile, currentLyricsFile, transportController, transportBar);
 
         if (jamstudio::project::ProjectManager::saveProject (file, data))
         {
@@ -224,7 +233,8 @@ void MainComponent::loadProjectFile (const juce::File& file)
     }
 
     if (! jamstudio::project::ProjectManager::applyState (data, transportController, transportBar,
-                                                        currentScore, currentSongFile, currentScoreFile, error))
+                                                        currentScore, currentLyrics,
+                                                        currentSongFile, currentScoreFile, currentLyricsFile, error))
     {
         setStatus ("Failed to restore project: " + error);
         return;
@@ -240,10 +250,46 @@ void MainComponent::loadProjectFile (const juce::File& file)
     else
         notationView.clear();
 
+    if (! currentLyrics.isEmpty())
+        lyricsView.setLyrics (currentLyrics);
+    else
+        lyricsView.clear();
+
     rebuildStemStrips();
     resized();
     setStatus ("Project loaded: " + file.getFileName()
-               + (currentScore.hasLyrics() ? " (with synced lyrics)" : ""));
+               + (currentScore.hasLyrics() || ! currentLyrics.isEmpty() ? " (with synced lyrics)" : ""));
+}
+
+void MainComponent::importLyrics()
+{
+    fileChooser = std::make_unique<juce::FileChooser> ("Import LRC lyrics file",
+                                                      juce::File {},
+                                                      "*.lrc;*.txt");
+
+    const auto chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& chooser)
+    {
+        const auto file = chooser.getResult();
+
+        if (! file.existsAsFile())
+            return;
+
+        jamstudio::notation::LyricsTrack importedLyrics;
+        juce::String error;
+
+        if (! jamstudio::notation::LrcParser::parseFile (file, importedLyrics, error))
+        {
+            setStatus ("Lyrics import failed: " + error);
+            return;
+        }
+
+        currentLyricsFile = file;
+        currentLyrics = importedLyrics;
+        lyricsView.setLyrics (currentLyrics);
+        setStatus ("Lyrics loaded: " + file.getFileName() + " (" + juce::String (currentLyrics.getNumLines()) + " lines)");
+    });
 }
 
 void MainComponent::showRecentProjectsMenu()

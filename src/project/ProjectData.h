@@ -21,6 +21,7 @@ struct ProjectData
     int version = currentVersion;
     juce::String songFilePath;
     juce::String scoreFilePath;
+    juce::String lyricsFilePath;
     juce::Array<StemState> stems;
     bool metronomeEnabled = false;
     double metronomeBpm = 120.0;
