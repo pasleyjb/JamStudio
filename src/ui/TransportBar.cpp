@@ -105,4 +105,26 @@ void TransportBar::updatePositionSlider()
         positionSlider.setValue (transportController.getPosition() / length, juce::dontSendNotification);
 }
 
+bool TransportBar::isMetronomeEnabled() const noexcept
+{
+    return metronomeButton.getToggleState();
+}
+
+void TransportBar::setMetronomeEnabled (const bool enabled)
+{
+    metronomeButton.setToggleState (enabled, juce::dontSendNotification);
+    transportController.getMetronome().setEnabled (enabled);
+}
+
+double TransportBar::getBpm() const noexcept
+{
+    return bpmSlider.getValue();
+}
+
+void TransportBar::setBpm (const double bpm)
+{
+    bpmSlider.setValue (bpm, juce::dontSendNotification);
+    transportController.getMetronome().setBpm (bpm);
+}
+
 } // namespace jamstudio::ui

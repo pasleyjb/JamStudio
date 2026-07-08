@@ -27,6 +27,8 @@ public:
 
 private:
     void openSong();
+    void saveProject();
+    void loadProject();
     void importScore();
     void separateStems();
     void toggleRecording();
@@ -47,6 +49,8 @@ private:
 
     juce::Label titleLabel { {}, "JamStudio" };
     juce::TextButton openSongButton { "Open Song..." };
+    juce::TextButton saveProjectButton { "Save Project" };
+    juce::TextButton loadProjectButton { "Load Project" };
     juce::TextButton separateButton { "Separate Stems" };
     juce::TextButton importScoreButton { "Import Score..." };
     juce::TextButton recordButton { "Record" };
@@ -60,6 +64,8 @@ private:
     juce::Component stemContainer;
 
     juce::File currentSongFile;
+    juce::File currentScoreFile;
+    juce::File currentProjectFile;
     std::unique_ptr<juce::FileChooser> fileChooser;
 };
 

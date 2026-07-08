@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0] — 2026-07-08
+
+### Added
+
+- Project save/load (`.jamstudio` JSON format)
+- Persists stems, mixer state, metronome, transport position, and score path
+
 ## [0.3.0] — 2026-07-08
 
 ### Added

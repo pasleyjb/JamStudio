@@ -18,6 +18,11 @@ public:
 
     void updatePositionSlider();
 
+    [[nodiscard]] bool isMetronomeEnabled() const noexcept;
+    void setMetronomeEnabled (bool enabled);
+    [[nodiscard]] double getBpm() const noexcept;
+    void setBpm (double bpm);
+
 private:
     jamstudio::audio::TransportController& transportController;
 

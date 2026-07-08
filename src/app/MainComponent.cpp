@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include "../notation/MusicXmlParser.h"
+#include "../project/ProjectManager.h"
 
 namespace jamstudio::app
 {
@@ -20,6 +21,12 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
 
     openSongButton.onClick = [this] { openSong(); };
     addAndMakeVisible (openSongButton);
+
+    saveProjectButton.onClick = [this] { saveProject(); };
+    addAndMakeVisible (saveProjectButton);
+
+    loadProjectButton.onClick = [this] { loadProject(); };
+    addAndMakeVisible (loadProjectButton);
 
     separateButton.onClick = [this] { separateStems(); };
     addAndMakeVisible (separateButton);
@@ -75,11 +82,13 @@ void MainComponent::resized()
     auto bounds = getLocalBounds().reduced (12);
 
     auto header = bounds.removeFromTop (40);
-    titleLabel.setBounds (header.removeFromLeft (160));
-    recordButton.setBounds (header.removeFromRight (90).reduced (2));
-    importScoreButton.setBounds (header.removeFromRight (120).reduced (2));
-    separateButton.setBounds (header.removeFromRight (140).reduced (2));
-    openSongButton.setBounds (header.removeFromRight (120).reduced (2));
+    titleLabel.setBounds (header.removeFromLeft (140));
+    recordButton.setBounds (header.removeFromRight (80).reduced (2));
+    importScoreButton.setBounds (header.removeFromRight (110).reduced (2));
+    separateButton.setBounds (header.removeFromRight (130).reduced (2));
+    openSongButton.setBounds (header.removeFromRight (110).reduced (2));
+    loadProjectButton.setBounds (header.removeFromRight (110).reduced (2));
+    saveProjectButton.setBounds (header.removeFromRight (110).reduced (2));
 
     bounds.removeFromTop (8);
     statusLabel.setBounds (bounds.removeFromTop (24));
@@ -125,6 +134,103 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
         rebuildStemStrips();
 
     transportBar.updatePositionSlider();
+}
+
+void MainComponent::saveProject()
+{
+    if (transportController.getStemMixer().getNumStems() == 0)
+    {
+        setStatus ("Load a song before saving a project.");
+        return;
+    }
+
+    auto defaultFile = currentProjectFile;
+
+    if (! defaultFile.existsAsFile())
+    {
+        defaultFile = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+            .getChildFile ("JamStudio")
+            .getChildFile ("Projects")
+            .getChildFile (currentSongFile.existsAsFile()
+                ? currentSongFile.getFileNameWithoutExtension() + ".jamstudio"
+                : "untitled.jamstudio");
+    }
+
+    fileChooser = std::make_unique<juce::FileChooser> ("Save JamStudio project", defaultFile, "*.jamstudio");
+
+    const auto chooserFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& chooser)
+    {
+        auto file = chooser.getResult();
+
+        if (file == juce::File())
+            return;
+
+        if (! file.hasFileExtension ("jamstudio"))
+            file = file.withFileExtension (".jamstudio");
+
+        const auto data = jamstudio::project::ProjectManager::captureState (
+            currentSongFile, currentScoreFile, transportController, transportBar);
+
+        if (jamstudio::project::ProjectManager::saveProject (file, data))
+        {
+            currentProjectFile = file;
+            setStatus ("Project saved: " + file.getFileName());
+        }
+        else
+        {
+            setStatus ("Failed to save project.");
+        }
+    });
+}
+
+void MainComponent::loadProject()
+{
+    fileChooser = std::make_unique<juce::FileChooser> ("Load JamStudio project",
+                                                      juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                                                          .getChildFile ("JamStudio")
+                                                          .getChildFile ("Projects"),
+                                                      "*.jamstudio");
+
+    const auto chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& chooser)
+    {
+        const auto file = chooser.getResult();
+
+        if (! file.existsAsFile())
+            return;
+
+        jamstudio::project::ProjectData data;
+        juce::String error;
+
+        if (! jamstudio::project::ProjectManager::loadProject (file, data, error))
+        {
+            setStatus ("Failed to load project: " + error);
+            return;
+        }
+
+        if (! jamstudio::project::ProjectManager::applyState (data, transportController, transportBar,
+                                                            currentScore, currentSongFile, currentScoreFile, error))
+        {
+            setStatus ("Failed to restore project: " + error);
+            return;
+        }
+
+        currentProjectFile = file;
+        waveformDisplay.setSourceFile (currentSongFile.existsAsFile() ? currentSongFile
+                                                                      : juce::File (data.stems.getFirst().filePath));
+
+        if (! currentScore.isEmpty())
+            notationView.setScore (currentScore);
+        else
+            notationView.clear();
+
+        rebuildStemStrips();
+        resized();
+        setStatus ("Project loaded: " + file.getFileName());
+    });
 }
 
 void MainComponent::openSong()
@@ -183,6 +289,7 @@ void MainComponent::importScore()
             return;
         }
 
+        currentScoreFile = file;
         currentScore = importedScore;
         notationView.setScore (currentScore);
         transportController.getMetronome().setBpm (currentScore.getTempo());

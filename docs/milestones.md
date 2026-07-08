@@ -37,8 +37,8 @@
 
 ## M6 — Project Persistence
 
-- [ ] Save project (stems paths, mixer state, tempo)
-- [ ] Load project
+- [x] Save project (stems paths, mixer state, tempo)
+- [x] Load project
 - [ ] Recent projects list
 
 ## M7 — Notation (Phase 2)
