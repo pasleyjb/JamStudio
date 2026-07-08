@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../notation/Score.h"
 #include "IndicatorButton.h"
 #include "JamStudioTheme.h"
 
@@ -27,6 +28,7 @@ public:
         std::function<void()> loadProject;
         std::function<void()> showRecentProjects;
         std::function<void()> separateStems;
+        std::function<void()> browseTabLibrary;
         std::function<void()> importScore;
         std::function<void()> showTabView;
         std::function<void()> showSheetView;
@@ -43,6 +45,7 @@ public:
     void setActiveTab (Tab tab);
     void setRecordingActive (bool recording);
     void setToolsEnabled (bool enabled);
+    void setNotationViewState (jamstudio::notation::NotationMode mode);
 
 private:
     void showTab (Tab tab);
@@ -71,7 +74,8 @@ private:
     IndicatorButton loadProjectButton { "load", "Load" };
     IndicatorButton recentProjectsButton { "recent", "Recent" };
     IndicatorButton separateButton { "separate", "Separate" };
-    IndicatorButton importScoreButton { "importScore", "Import Score" };
+    IndicatorButton browseLibraryButton { "browseLibrary", "Browse Library" };
+    IndicatorButton importScoreButton { "importScore", "Import File" };
     IndicatorButton tabViewButton { "tabView", "Tab" };
     IndicatorButton sheetViewButton { "sheetView", "Sheet" };
     IndicatorButton aiTabButton { "aiTab", "AI Tab" };

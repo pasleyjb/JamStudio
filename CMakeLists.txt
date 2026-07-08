@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(JamStudio VERSION 0.9.5 LANGUAGES C CXX)
+project(JamStudio VERSION 0.9.6 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,6 +44,7 @@ target_sources(JamStudio PRIVATE
     src/notation/NotationView.cpp
     src/notation/TranscriptionEditor.cpp
     src/notation/ScoreLyricsExtractor.cpp
+    src/notation/TabLibraryClient.cpp
     src/project/ProjectManager.cpp
     src/project/RecentProjects.cpp
     src/ui/JamStudioTheme.cpp
@@ -54,6 +55,7 @@ target_sources(JamStudio PRIVATE
     src/ui/StemMiniWaveform.cpp
     src/ui/StemStrip.cpp
     src/ui/NotationHeaderBar.cpp
+    src/ui/TabLibraryBrowserDialog.cpp
     src/ui/TranscriptionCorrectionDialog.cpp
     src/ui/TransportBar.cpp
     src/ui/WaveformDisplay.cpp

@@ -36,6 +36,7 @@ ToolbarTabs::ToolbarTabs (Actions actions)
     loadProjectButton.onClick = [this] { if (toolbarActions.loadProject) toolbarActions.loadProject(); };
     recentProjectsButton.onClick = [this] { if (toolbarActions.showRecentProjects) toolbarActions.showRecentProjects(); };
     separateButton.onClick = [this] { if (toolbarActions.separateStems) toolbarActions.separateStems(); };
+    browseLibraryButton.onClick = [this] { if (toolbarActions.browseTabLibrary) toolbarActions.browseTabLibrary(); };
     importScoreButton.onClick = [this] { if (toolbarActions.importScore) toolbarActions.importScore(); };
     tabViewButton.setIndicatorColour (JamStudioTheme::getColours().accent);
     tabViewButton.onClick = [this] { if (toolbarActions.showTabView) toolbarActions.showTabView(); };
@@ -54,6 +55,7 @@ ToolbarTabs::ToolbarTabs (Actions actions)
 
     stemsPanel.addAndMakeVisible (separateButton);
 
+    notationPanel.addAndMakeVisible (browseLibraryButton);
     notationPanel.addAndMakeVisible (importScoreButton);
     notationPanel.addAndMakeVisible (tabViewButton);
     notationPanel.addAndMakeVisible (sheetViewButton);
@@ -112,7 +114,7 @@ void ToolbarTabs::resized()
     transportHint.setBounds (transportPanel.getLocalBounds().reduced (6, 2));
     layoutPanel (projectPanel, { &openSongButton, &saveProjectButton, &loadProjectButton, &recentProjectsButton });
     layoutPanel (stemsPanel, { &separateButton });
-    layoutPanel (notationPanel, { &importScoreButton, &tabViewButton, &sheetViewButton, &aiTabButton });
+    layoutPanel (notationPanel, { &browseLibraryButton, &importScoreButton, &tabViewButton, &sheetViewButton, &aiTabButton });
     layoutPanel (lyricsPanel, { &importLyricsButton, &aiLyricsButton });
     layoutPanel (recordPanel, { &recordButton });
 }
@@ -156,6 +158,15 @@ void ToolbarTabs::setToolsEnabled (const bool enabled)
     separateButton.setEnabled (enabled);
     aiTabButton.setEnabled (enabled);
     aiLyricsButton.setEnabled (enabled);
+}
+
+void ToolbarTabs::setNotationViewState (const jamstudio::notation::NotationMode mode)
+{
+    const auto isTab = mode == jamstudio::notation::NotationMode::tab;
+    const auto isSheet = mode == jamstudio::notation::NotationMode::standard;
+
+    tabViewButton.setIndicatorActive (isTab);
+    sheetViewButton.setIndicatorActive (isSheet);
 }
 
 } // namespace jamstudio::ui

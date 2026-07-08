@@ -168,6 +168,10 @@ bool TranscriptionEditor::scoreFromEditableTabText (const juce::String& text,
     out.setTempo (tempo);
     out.setNotationMode (NotationMode::tab);
 
+    ScorePart tabPart;
+    tabPart.name = original.getActivePart().name.isNotEmpty() ? original.getActivePart().name : "Guitar";
+    tabPart.notationMode = NotationMode::tab;
+
     for (size_t m = 0; m < measureTokens.size(); ++m)
     {
         Measure measure;
@@ -207,8 +211,10 @@ bool TranscriptionEditor::scoreFromEditableTabText (const juce::String& text,
             measure.notes.push_back (std::move (note));
         }
 
-        out.addMeasure (std::move (measure));
+        tabPart.addMeasure (std::move (measure));
     }
+
+    out.addPart (std::move (tabPart));
 
     errorMessage = {};
     return true;

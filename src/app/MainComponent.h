@@ -51,6 +51,7 @@ private:
         recentProjectsCmd,
         quitCmd,
         separateStemsCmd,
+        browseTabLibraryCmd,
         importScoreCmd,
         showTabViewCmd,
         showSheetViewCmd,
@@ -68,10 +69,17 @@ private:
     void loadProject();
     void loadProjectFile (const juce::File& file);
     void showRecentProjectsMenu();
+    void browseTabLibrary();
     void importScore();
+    void importScoreFile (const juce::File& file, const juce::String& displayName);
     void importLyrics();
     void applyScore (const jamstudio::notation::Score& score, bool replaceLyricsFromScore);
     void setNotationDisplayMode (jamstudio::notation::NotationMode mode);
+    void toggleTabView();
+    void toggleSheetView();
+    void setActiveScorePart (int partIndex);
+    void updateNotationPanelVisibility();
+    void syncNotationUiState();
     void separateStems();
     void transcribeLyrics();
     void transcribeTab();

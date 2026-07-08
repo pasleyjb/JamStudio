@@ -8,7 +8,7 @@ namespace jamstudio::notation
 NotationView::NotationView (jamstudio::audio::TransportController& transport)
     : transportController (transport)
 {
-    startTimerHz (15);
+    startTimerHz (30);
 }
 
 void NotationView::setScore (const Score& newScore)
@@ -16,6 +16,7 @@ void NotationView::setScore (const Score& newScore)
     score = newScore;
     lastHighlightedMeasure = -1;
     lastHighlightedBeat = -1.0;
+    lastScrolledBeat = -1.0;
     setSize (juce::jmax (getWidth(), score.getNumMeasures() * measureWidth + 40), getContentHeight());
     repaint();
 }
@@ -25,6 +26,7 @@ void NotationView::clear()
     score.clear();
     lastHighlightedMeasure = -1;
     lastHighlightedBeat = -1.0;
+    lastScrolledBeat = -1.0;
     repaint();
 }
 
@@ -82,28 +84,31 @@ void NotationView::timerCallback()
     const auto position = transportController.getPosition();
     const auto activeMeasure = score.getMeasureIndexAtTime (position);
     const auto currentBeat = score.secondsToBeats (position);
-    const auto beatChanged = std::abs (currentBeat - lastHighlightedBeat) > 0.01;
+    const auto beatChanged = std::abs (currentBeat - lastHighlightedBeat) > 0.02;
+    const auto scrollChanged = std::abs (currentBeat - lastScrolledBeat) > 0.04;
 
-    if (activeMeasure != lastHighlightedMeasure)
+    if ((transportController.isPlaying() || beatChanged) && scrollChanged)
     {
-        lastHighlightedMeasure = activeMeasure;
-        scrollToMeasure (activeMeasure);
+        lastScrolledBeat = currentBeat;
+        scrollToBeat (currentBeat);
     }
 
     if (beatChanged || activeMeasure != lastHighlightedMeasure)
     {
+        lastHighlightedMeasure = activeMeasure;
         lastHighlightedBeat = currentBeat;
         repaint();
     }
 }
 
-void NotationView::scrollToMeasure (const int measureIndex)
+void NotationView::scrollToBeat (const double beat)
 {
     if (auto* parent = getParentComponent())
     {
         if (auto* viewport = dynamic_cast<juce::Viewport*> (parent))
         {
-            const auto targetX = juce::jmax (0, measureIndex * measureWidth - viewport->getWidth() / 3);
+            const auto playheadX = static_cast<int> (score.getXPositionForBeat (beat, measureWidth));
+            const auto targetX = juce::jmax (0, playheadX - viewport->getWidth() / 3);
             viewport->setViewPosition (targetX, 0);
         }
     }

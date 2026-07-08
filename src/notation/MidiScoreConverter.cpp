@@ -178,6 +178,10 @@ bool MidiScoreConverter::convertFile (const juce::File& midiFile,
         measures[static_cast<size_t> (measureIndex)].notes.push_back (std::move (note));
     }
 
+    ScorePart tabPart;
+    tabPart.name = "Guitar";
+    tabPart.notationMode = NotationMode::tab;
+
     for (auto& measure : measures)
     {
         std::sort (measure.notes.begin(), measure.notes.end(),
@@ -186,9 +190,10 @@ bool MidiScoreConverter::convertFile (const juce::File& midiFile,
                        return a.startBeat < b.startBeat;
                    });
 
-        score.addMeasure (std::move (measure));
+        tabPart.addMeasure (std::move (measure));
     }
 
+    score.addPart (std::move (tabPart));
     return true;
 }
 

@@ -5,13 +5,52 @@
 namespace jamstudio::notation
 {
 
-void Score::clear()
+void ScorePart::clear()
 {
     measures.clear();
-    tempoEvents.clear();
     totalBeats = 0.0;
+    id = {};
+    name = {};
+    notationMode = NotationMode::standard;
+}
+
+void ScorePart::addMeasure (Measure measure)
+{
+    measure.startBeat = totalBeats;
+    totalBeats += measure.lengthBeats;
+    measures.push_back (std::move (measure));
+}
+
+const Measure* ScorePart::getMeasure (const int index) const noexcept
+{
+    if (! juce::isPositiveAndBelow (index, static_cast<int> (measures.size())))
+        return nullptr;
+
+    return &measures[static_cast<size_t> (index)];
+}
+
+bool ScorePart::hasLyrics() const noexcept
+{
+    for (const auto& measure : measures)
+    {
+        for (const auto& note : measure.notes)
+        {
+            if (note.lyricText.isNotEmpty())
+                return true;
+        }
+    }
+
+    return false;
+}
+
+void Score::clear()
+{
+    parts.clear();
+    tempoEvents.clear();
+    activePartIndex = 0;
     tempoBpm = 120.0;
     title = {};
+    notationMode = NotationMode::standard;
 }
 
 void Score::setTempo (const double bpm)
@@ -22,11 +61,26 @@ void Score::setTempo (const double bpm)
         addTempoEvent (0.0, tempoBpm);
 }
 
-void Score::addMeasure (Measure measure)
+void Score::setNotationMode (const NotationMode mode)
 {
-    measure.startBeat = totalBeats;
-    totalBeats += measure.lengthBeats;
-    measures.push_back (std::move (measure));
+    notationMode = mode;
+
+    if (mode != NotationMode::hidden && ! parts.empty())
+        parts[static_cast<size_t> (activePartIndex)].notationMode = mode;
+}
+
+void Score::setActivePartIndex (const int index)
+{
+    if (juce::isPositiveAndBelow (index, static_cast<int> (parts.size())))
+        activePartIndex = index;
+}
+
+void Score::addPart (ScorePart part)
+{
+    if (part.name.isEmpty())
+        part.name = "Part " + juce::String (parts.size() + 1);
+
+    parts.push_back (std::move (part));
 }
 
 void Score::addTempoEvent (const double beatPosition, const double bpm)
@@ -50,12 +104,68 @@ void Score::sortTempoEvents()
                });
 }
 
+bool Score::isEmpty() const noexcept
+{
+    return parts.empty() || getActivePartInternal().isEmpty();
+}
+
+NotationMode Score::getNotationMode() const noexcept
+{
+    if (notationMode == NotationMode::hidden)
+        return NotationMode::hidden;
+
+    if (! parts.empty())
+        return parts[static_cast<size_t> (activePartIndex)].notationMode;
+
+    return notationMode;
+}
+
+int Score::getNumMeasures() const noexcept
+{
+    return getActivePartInternal().getNumMeasures();
+}
+
 const Measure* Score::getMeasure (const int index) const noexcept
 {
-    if (! juce::isPositiveAndBelow (index, static_cast<int> (measures.size())))
+    return getActivePartInternal().getMeasure (index);
+}
+
+double Score::getTotalBeats() const noexcept
+{
+    return getActivePartInternal().totalBeats;
+}
+
+const ScorePart* Score::getPart (const int index) const noexcept
+{
+    if (! juce::isPositiveAndBelow (index, static_cast<int> (parts.size())))
         return nullptr;
 
-    return &measures[static_cast<size_t> (index)];
+    return &parts[static_cast<size_t> (index)];
+}
+
+const ScorePart& Score::getActivePart() const noexcept
+{
+    return getActivePartInternal();
+}
+
+const ScorePart& Score::getActivePartInternal() const noexcept
+{
+    static const ScorePart emptyPart;
+
+    if (parts.empty())
+        return emptyPart;
+
+    return parts[static_cast<size_t> (juce::jlimit (0, static_cast<int> (parts.size()) - 1, activePartIndex))];
+}
+
+juce::StringArray Score::getPartNames() const
+{
+    juce::StringArray names;
+
+    for (const auto& part : parts)
+        names.add (part.name);
+
+    return names;
 }
 
 double Score::getTempoAtBeat (const double beat) const noexcept
@@ -137,16 +247,7 @@ double Score::secondsToBeats (const double seconds) const noexcept
 
 bool Score::hasLyrics() const noexcept
 {
-    for (const auto& measure : measures)
-    {
-        for (const auto& note : measure.notes)
-        {
-            if (note.lyricText.isNotEmpty())
-                return true;
-        }
-    }
-
-    return false;
+    return getActivePartInternal().hasLyrics();
 }
 
 const NoteEvent* Score::getActiveLyricNoteAtTime (const double seconds) const noexcept
@@ -154,7 +255,7 @@ const NoteEvent* Score::getActiveLyricNoteAtTime (const double seconds) const no
     const auto beat = secondsToBeats (seconds);
     const NoteEvent* active = nullptr;
 
-    for (const auto& measure : measures)
+    for (const auto& measure : getActivePartInternal().measures)
     {
         for (const auto& note : measure.notes)
         {
@@ -176,18 +277,45 @@ const NoteEvent* Score::getActiveLyricNoteAtTime (const double seconds) const no
 
 int Score::getMeasureIndexAtTime (const double seconds) const noexcept
 {
-    if (measures.empty())
+    const auto& activePart = getActivePartInternal();
+
+    if (activePart.measures.empty())
         return -1;
 
     const auto beat = secondsToBeats (seconds);
 
-    for (int i = static_cast<int> (measures.size()) - 1; i >= 0; --i)
+    for (int i = static_cast<int> (activePart.measures.size()) - 1; i >= 0; --i)
     {
-        if (measures[static_cast<size_t> (i)].startBeat <= beat)
+        if (activePart.measures[static_cast<size_t> (i)].startBeat <= beat)
             return i;
     }
 
     return 0;
+}
+
+double Score::getXPositionForBeat (const double beat, const int measureWidth) const noexcept
+{
+    constexpr int leftMargin = 12;
+    auto x = static_cast<double> (leftMargin);
+
+    for (int i = 0; i < getNumMeasures(); ++i)
+    {
+        if (const auto* measure = getMeasure (i))
+        {
+            const auto measureEnd = measure->startBeat + measure->lengthBeats;
+
+            if (beat < measureEnd || i == getNumMeasures() - 1)
+            {
+                const auto length = juce::jmax (0.01, measure->lengthBeats);
+                const auto fraction = juce::jlimit (0.0, 1.0, (beat - measure->startBeat) / length);
+                return x + fraction * static_cast<double> (measureWidth);
+            }
+
+            x += static_cast<double> (measureWidth);
+        }
+    }
+
+    return x;
 }
 
 namespace
@@ -268,6 +396,45 @@ Measure varToMeasure (const juce::var& value)
 
     return measure;
 }
+
+juce::var partToVar (const ScorePart& part)
+{
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty ("id", part.id);
+    obj->setProperty ("name", part.name);
+    obj->setProperty ("notationMode", part.notationMode == NotationMode::tab ? "tab" : "standard");
+
+    juce::Array<juce::var> measureArray;
+
+    for (const auto& measure : part.measures)
+        measureArray.add (measureToVar (measure));
+
+    obj->setProperty ("measures", measureArray);
+    return juce::var (obj);
+}
+
+ScorePart varToPart (const juce::var& value)
+{
+    ScorePart part;
+
+    if (const auto* obj = value.getDynamicObject())
+    {
+        part.id = obj->getProperty ("id").toString();
+        part.name = obj->getProperty ("name").toString();
+
+        const auto mode = obj->getProperty ("notationMode").toString();
+        part.notationMode = mode.equalsIgnoreCase ("tab") ? NotationMode::tab : NotationMode::standard;
+        part.totalBeats = 0.0;
+
+        if (const auto* measureArray = obj->getProperty ("measures").getArray())
+        {
+            for (const auto& measureVar : *measureArray)
+                part.addMeasure (varToMeasure (measureVar));
+        }
+    }
+
+    return part;
+}
 } // namespace
 
 juce::var Score::toVar() const
@@ -276,14 +443,16 @@ juce::var Score::toVar() const
     root->setProperty ("title", title);
     root->setProperty ("tempoBpm", tempoBpm);
     root->setProperty ("divisionsPerQuarter", divisionsPerQuarter);
-    root->setProperty ("notationMode", notationMode == NotationMode::tab ? "tab" : "standard");
+    root->setProperty ("notationMode", getNotationMode() == NotationMode::tab ? "tab"
+                        : (getNotationMode() == NotationMode::hidden ? "hidden" : "standard"));
+    root->setProperty ("activePartIndex", activePartIndex);
 
-    juce::Array<juce::var> measureArray;
+    juce::Array<juce::var> partArray;
 
-    for (const auto& measure : measures)
-        measureArray.add (measureToVar (measure));
+    for (const auto& part : parts)
+        partArray.add (partToVar (part));
 
-    root->setProperty ("measures", measureArray);
+    root->setProperty ("parts", partArray);
 
     juce::Array<juce::var> tempoArray;
 
@@ -312,7 +481,13 @@ bool Score::fromVar (const juce::var& data, Score& score)
     score.setTempo (root->getProperty ("tempoBpm"));
 
     const auto mode = root->getProperty ("notationMode").toString();
-    score.setNotationMode (mode.equalsIgnoreCase ("tab") ? NotationMode::tab : NotationMode::standard);
+
+    if (mode.equalsIgnoreCase ("tab"))
+        score.setNotationMode (NotationMode::tab);
+    else if (mode.equalsIgnoreCase ("hidden"))
+        score.setNotationMode (NotationMode::hidden);
+    else
+        score.setNotationMode (NotationMode::standard);
 
     if (const auto* tempoArray = root->getProperty ("tempoEvents").getArray())
     {
@@ -326,13 +501,24 @@ bool Score::fromVar (const juce::var& data, Score& score)
         }
     }
 
-    if (const auto* measureArray = root->getProperty ("measures").getArray())
+    if (const auto* partArray = root->getProperty ("parts").getArray())
     {
+        for (const auto& partVar : *partArray)
+            score.addPart (varToPart (partVar));
+    }
+    else if (const auto* measureArray = root->getProperty ("measures").getArray())
+    {
+        ScorePart legacyPart;
+        legacyPart.name = "Part 1";
+
         for (const auto& measureVar : *measureArray)
-            score.addMeasure (varToMeasure (measureVar));
+            legacyPart.addMeasure (varToMeasure (measureVar));
+
+        score.addPart (std::move (legacyPart));
     }
 
-    return ! score.isEmpty();
+    score.setActivePartIndex (static_cast<int> (root->getProperty ("activePartIndex")));
+    return ! score.parts.empty();
 }
 
 } // namespace jamstudio::notation

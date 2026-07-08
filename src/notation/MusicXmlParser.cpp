@@ -4,6 +4,7 @@
 
 #include <array>
 #include <limits>
+#include <map>
 
 namespace jamstudio::notation
 {
@@ -305,10 +306,13 @@ NoteEvent MusicXmlParser::parseNote (const juce::XmlElement& noteElement,
     return note;
 }
 
-bool MusicXmlParser::parseMeasure (const juce::XmlElement& measureElement, Score& score, ParseContext& context)
+bool MusicXmlParser::parseMeasure (const juce::XmlElement& measureElement,
+                                   ScorePart& part,
+                                   Score& score,
+                                   ParseContext& context)
 {
     Measure measure;
-    measure.number = measureElement.getIntAttribute ("number", score.getNumMeasures() + 1);
+    measure.number = measureElement.getIntAttribute ("number", part.getNumMeasures() + 1);
     measure.startBeat = context.measureBeatOffset;
     measure.lengthBeats = context.measureLengthBeats;
     context.positionInMeasure = 0.0;
@@ -320,7 +324,7 @@ bool MusicXmlParser::parseMeasure (const juce::XmlElement& measureElement, Score
 
     measure.lengthBeats = context.measureLengthBeats;
     score.setDivisionsPerQuarter (context.divisions);
-    score.setNotationMode (context.hasTabClef ? NotationMode::tab : NotationMode::standard);
+    part.notationMode = context.hasTabClef ? NotationMode::tab : NotationMode::standard;
 
     const auto previousTempo = score.getTempoEvents().empty()
         ? context.tempo
@@ -357,7 +361,7 @@ bool MusicXmlParser::parseMeasure (const juce::XmlElement& measureElement, Score
     }
 
     context.measureBeatOffset += measure.lengthBeats;
-    score.addMeasure (std::move (measure));
+    part.addMeasure (std::move (measure));
     return true;
 }
 
@@ -409,20 +413,54 @@ bool MusicXmlParser::parseXml (const juce::String& xmlText, Score& score, juce::
             score.setTitle (workTitle->getAllSubText());
     }
 
-    auto* part = root->getChildByName ("part");
+    std::map<juce::String, juce::String> partNames;
 
-    if (part == nullptr)
+    if (const auto* partList = root->getChildByName ("part-list"))
+    {
+        for (auto* scorePart : partList->getChildIterator())
+        {
+            if (! scorePart->hasTagName ("score-part"))
+                continue;
+
+            const auto partId = scorePart->getStringAttribute ("id");
+
+            if (const auto* partName = scorePart->getChildByName ("part-name"))
+                partNames[partId] = partName->getAllSubText().trim();
+        }
+    }
+
+    auto foundPart = false;
+
+    for (auto* partElement : root->getChildIterator())
+    {
+        if (! partElement->hasTagName ("part"))
+            continue;
+
+        ScorePart scorePart;
+        scorePart.id = partElement->getStringAttribute ("id");
+        scorePart.name = partNames.count (scorePart.id) > 0
+            ? partNames[scorePart.id]
+            : (scorePart.id.isNotEmpty() ? scorePart.id : "Part");
+
+        ParseContext context;
+
+        for (auto* measureElement : partElement->getChildIterator())
+        {
+            if (measureElement->hasTagName ("measure"))
+                parseMeasure (*measureElement, scorePart, score, context);
+        }
+
+        if (! scorePart.isEmpty())
+        {
+            score.addPart (std::move (scorePart));
+            foundPart = true;
+        }
+    }
+
+    if (! foundPart)
     {
         errorMessage = "No part data found in MusicXML.";
         return false;
-    }
-
-    ParseContext context;
-
-    for (auto* measureElement : part->getChildIterator())
-    {
-        if (measureElement->hasTagName ("measure"))
-            parseMeasure (*measureElement, score, context);
     }
 
     if (score.isEmpty())
@@ -430,6 +468,9 @@ bool MusicXmlParser::parseXml (const juce::String& xmlText, Score& score, juce::
         errorMessage = "No measures were found in the MusicXML file.";
         return false;
     }
+
+    if (const auto* firstPart = score.getPart (0))
+        score.setNotationMode (firstPart->notationMode);
 
     return true;
 }

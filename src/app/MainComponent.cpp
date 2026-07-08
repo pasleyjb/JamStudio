@@ -3,6 +3,7 @@
 #include "../audio/StemType.h"
 #include "../audio/TempoDetector.h"
 #include "../ui/AiToolsSetupDialog.h"
+#include "../ui/TabLibraryBrowserDialog.h"
 #include "../ui/JamStudioLookAndFeel.h"
 #include "../notation/LrcParser.h"
 #include "../notation/MusicXmlParser.h"
@@ -25,9 +26,10 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
           [this] { loadProject(); },
           [this] { showRecentProjectsMenu(); },
           [this] { separateStems(); },
+          [this] { browseTabLibrary(); },
           [this] { importScore(); },
-          [this] { setNotationDisplayMode (jamstudio::notation::NotationMode::tab); },
-          [this] { setNotationDisplayMode (jamstudio::notation::NotationMode::standard); },
+          [this] { toggleTabView(); },
+          [this] { toggleSheetView(); },
           [this] { transcribeTab(); },
           [this] { importLyrics(); },
           [this] { transcribeLyrics(); },
@@ -69,6 +71,10 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     notationHeaderBar.setModeChangedCallback ([this] (const jamstudio::notation::NotationMode mode)
     {
         setNotationDisplayMode (mode);
+    });
+    notationHeaderBar.setPartChangedCallback ([this] (const int partIndex)
+    {
+        setActiveScorePart (partIndex);
     });
     addAndMakeVisible (notationHeaderBar);
 
@@ -138,9 +144,28 @@ void MainComponent::resized()
     lyricsSectionLabel.setBounds (bounds.removeFromTop (18));
     lyricsView.setBounds (bounds.removeFromTop (120));
     bounds.removeFromTop (6);
-    notationHeaderBar.setBounds (bounds.removeFromTop (30));
-    notationViewport.setBounds (bounds.removeFromTop (juce::jmax (140, bounds.getHeight() / 3)));
-    bounds.removeFromTop (6);
+
+    if (! currentScore.isEmpty())
+    {
+        notationHeaderBar.setVisible (true);
+        notationHeaderBar.setBounds (bounds.removeFromTop (30));
+
+        if (currentScore.isNotationVisible())
+        {
+            notationViewport.setVisible (true);
+            notationViewport.setBounds (bounds.removeFromTop (juce::jmax (140, bounds.getHeight() / 3)));
+            bounds.removeFromTop (6);
+        }
+        else
+        {
+            notationViewport.setVisible (false);
+        }
+    }
+    else
+    {
+        notationHeaderBar.setVisible (false);
+        notationViewport.setVisible (false);
+    }
 
     stemViewport.setBounds (bounds);
 
@@ -188,13 +213,16 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     }
     else if (menuName == "Notation")
     {
-        menu.addItem (importScoreCmd, "Import MusicXML...", true, false);
+        menu.addItem (browseTabLibraryCmd, "Browse Tab Library...", true, false);
+        menu.addItem (importScoreCmd, "Import Local MusicXML...", true, false);
         menu.addItem (aiTabCmd, "AI Tab Transcription", basicPitchTranscriber.isAvailable(), false);
         menu.addSeparator();
         menu.addItem (showTabViewCmd, "Tab View", ! currentScore.isEmpty(),
-                      currentScore.getNotationMode() == jamstudio::notation::NotationMode::tab);
+                      currentScore.isNotationVisible()
+                          && currentScore.getNotationMode() == jamstudio::notation::NotationMode::tab);
         menu.addItem (showSheetViewCmd, "Sheet View", ! currentScore.isEmpty(),
-                      currentScore.getNotationMode() == jamstudio::notation::NotationMode::standard);
+                      currentScore.isNotationVisible()
+                          && currentScore.getNotationMode() == jamstudio::notation::NotationMode::standard);
     }
     else if (menuName == "Lyrics")
     {
@@ -227,9 +255,10 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case recentProjectsCmd: showRecentProjectsMenu(); break;
         case quitCmd: juce::JUCEApplication::getInstance()->systemRequestedQuit(); break;
         case separateStemsCmd: separateStems(); break;
+        case browseTabLibraryCmd: browseTabLibrary(); break;
         case importScoreCmd: importScore(); break;
-        case showTabViewCmd: setNotationDisplayMode (jamstudio::notation::NotationMode::tab); break;
-        case showSheetViewCmd: setNotationDisplayMode (jamstudio::notation::NotationMode::standard); break;
+        case showTabViewCmd: toggleTabView(); break;
+        case showSheetViewCmd: toggleSheetView(); break;
         case aiTabCmd: transcribeTab(); break;
         case importLyricsCmd: importLyrics(); break;
         case aiLyricsCmd: transcribeLyrics(); break;
@@ -244,7 +273,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
-                                                    "JamStudio v0.9.5\nStem separation, synced notation, lyrics, and recording.");
+                                                    "JamStudio v0.9.6\nStem separation, synced notation, lyrics, and recording.");
             break;
         default: break;
     }
@@ -492,6 +521,15 @@ void MainComponent::openSong()
     });
 }
 
+void MainComponent::browseTabLibrary()
+{
+    jamstudio::ui::TabLibraryBrowserDialog::show (this,
+        [this] (const juce::File& file, const jamstudio::notation::TabLibraryEntry& entry)
+        {
+            importScoreFile (file, entry.title);
+        });
+}
+
 void MainComponent::importScore()
 {
     fileChooser = std::make_unique<juce::FileChooser> ("Import MusicXML score",
@@ -507,37 +545,59 @@ void MainComponent::importScore()
         if (! file.existsAsFile())
             return;
 
-        jamstudio::notation::Score importedScore;
-        juce::String error;
-
-        if (! jamstudio::notation::MusicXmlParser::parseFile (file, importedScore, error))
-        {
-            setStatus ("Score import failed: " + error);
-            return;
-        }
-
-        currentScoreFile = file;
-        applyScore (importedScore, true);
-        toolbarTabs.setActiveTab (jamstudio::ui::ToolbarTabs::Tab::notation);
-
-        auto message = "Score loaded: " + file.getFileName() + " (" + juce::String (currentScore.getNumMeasures()) + " measures)";
-
-        if (currentScore.hasLyrics())
-            message += " with synced lyrics";
-
-        setStatus (message);
-        resized();
+        importScoreFile (file, file.getFileNameWithoutExtension());
     });
+}
+
+void MainComponent::importScoreFile (const juce::File& file, const juce::String& displayName)
+{
+    if (! file.existsAsFile())
+    {
+        setStatus ("Score file not found.");
+        return;
+    }
+
+    jamstudio::notation::Score importedScore;
+    juce::String error;
+
+    if (! jamstudio::notation::MusicXmlParser::parseFile (file, importedScore, error))
+    {
+        setStatus ("Score import failed: " + error);
+        return;
+    }
+
+    currentScoreFile = file;
+    applyScore (importedScore, true);
+    toolbarTabs.setActiveTab (jamstudio::ui::ToolbarTabs::Tab::notation);
+
+    auto message = "Score loaded: " + displayName + " (" + juce::String (currentScore.getNumMeasures()) + " measures)";
+
+    if (currentScore.hasLyrics())
+        message += " with synced lyrics";
+
+    setStatus (message);
+    resized();
 }
 
 void MainComponent::applyScore (const jamstudio::notation::Score& score, const bool replaceLyricsFromScore)
 {
     currentScore = score;
+
+    if (currentScore.getNotationMode() == jamstudio::notation::NotationMode::hidden
+        && ! currentScore.isEmpty())
+    {
+        const auto* activePart = currentScore.getPart (currentScore.getActivePartIndex());
+        currentScore.setNotationMode (activePart != nullptr && activePart->notationMode == jamstudio::notation::NotationMode::tab
+                                          ? jamstudio::notation::NotationMode::tab
+                                          : jamstudio::notation::NotationMode::standard);
+    }
+
     notationView.setScore (currentScore);
     transportController.getMetronome().setBpm (currentScore.getTempo());
-    notationHeaderBar.setHasScore (true);
+    notationHeaderBar.setHasScore (! currentScore.isEmpty());
     notationHeaderBar.setTitle (currentScore.getTitle());
-    notationHeaderBar.setNotationMode (currentScore.getNotationMode());
+    notationHeaderBar.setParts (currentScore.getPartNames(), currentScore.getActivePartIndex());
+    syncNotationUiState();
 
     if (replaceLyricsFromScore && currentScore.hasLyrics())
     {
@@ -545,6 +605,8 @@ void MainComponent::applyScore (const jamstudio::notation::Score& score, const b
         currentLyrics = jamstudio::notation::ScoreLyricsExtractor::fromScore (currentScore);
         lyricsView.setLyrics (currentLyrics);
     }
+
+    updateNotationPanelVisibility();
 }
 
 void MainComponent::setNotationDisplayMode (const jamstudio::notation::NotationMode mode)
@@ -557,8 +619,75 @@ void MainComponent::setNotationDisplayMode (const jamstudio::notation::NotationM
 
     currentScore.setNotationMode (mode);
     notationView.setScore (currentScore);
-    notationHeaderBar.setNotationMode (mode);
-    setStatus (mode == jamstudio::notation::NotationMode::tab ? "Showing guitar tab." : "Showing sheet notation.");
+    syncNotationUiState();
+    updateNotationPanelVisibility();
+
+    if (mode == jamstudio::notation::NotationMode::hidden)
+        setStatus ("Notation hidden. Press Tab or Sheet to show again.");
+    else if (mode == jamstudio::notation::NotationMode::tab)
+        setStatus ("Showing guitar tab for " + currentScore.getActivePart().name + ".");
+    else
+        setStatus ("Showing sheet notation for " + currentScore.getActivePart().name + ".");
+}
+
+void MainComponent::toggleTabView()
+{
+    if (currentScore.isEmpty())
+    {
+        setStatus ("Import a score or run AI Tab before switching notation view.");
+        return;
+    }
+
+    if (currentScore.isNotationVisible()
+        && currentScore.getNotationMode() == jamstudio::notation::NotationMode::tab)
+        setNotationDisplayMode (jamstudio::notation::NotationMode::hidden);
+    else
+        setNotationDisplayMode (jamstudio::notation::NotationMode::tab);
+}
+
+void MainComponent::toggleSheetView()
+{
+    if (currentScore.isEmpty())
+    {
+        setStatus ("Import a score or run AI Tab before switching notation view.");
+        return;
+    }
+
+    if (currentScore.isNotationVisible()
+        && currentScore.getNotationMode() == jamstudio::notation::NotationMode::standard)
+        setNotationDisplayMode (jamstudio::notation::NotationMode::hidden);
+    else
+        setNotationDisplayMode (jamstudio::notation::NotationMode::standard);
+}
+
+void MainComponent::setActiveScorePart (const int partIndex)
+{
+    if (currentScore.isEmpty())
+        return;
+
+    currentScore.setActivePartIndex (partIndex);
+    notationView.setScore (currentScore);
+    notationHeaderBar.setParts (currentScore.getPartNames(), currentScore.getActivePartIndex());
+
+    if (currentScore.isNotationVisible())
+        setNotationDisplayMode (currentScore.getActivePart().notationMode);
+    else
+        syncNotationUiState();
+
+    setStatus ("Viewing " + currentScore.getActivePart().name + ".");
+}
+
+void MainComponent::updateNotationPanelVisibility()
+{
+    notationHeaderBar.setVisible (! currentScore.isEmpty());
+    notationViewport.setVisible (currentScore.isNotationVisible());
+    resized();
+}
+
+void MainComponent::syncNotationUiState()
+{
+    notationHeaderBar.setNotationMode (currentScore.getNotationMode());
+    toolbarTabs.setNotationViewState (currentScore.getNotationMode());
 }
 
 juce::File MainComponent::findStemFileForType (const jamstudio::audio::StemType preferredType)

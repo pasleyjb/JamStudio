@@ -21,7 +21,7 @@ public:
     void timerCallback() override;
 
 private:
-    void scrollToMeasure (int measureIndex);
+    void scrollToBeat (double beat);
     void drawMeasure (juce::Graphics& g, const Measure& measure, juce::Rectangle<int> bounds,
                       bool isActive, const NoteEvent* activeLyricNote) const;
     void drawLyric (juce::Graphics& g, const NoteEvent& note, juce::Rectangle<int> bounds,
@@ -34,6 +34,7 @@ private:
     Score score;
     int lastHighlightedMeasure = -1;
     double lastHighlightedBeat = -1.0;
+    double lastScrolledBeat = -1.0;
     static constexpr int measureWidth = 180;
     static constexpr int measureHeight = 160;
     static constexpr int lyricRowHeight = 22;

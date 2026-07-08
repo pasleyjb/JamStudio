@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "JamStudio Tab Library",
+  "catalogBaseUrl": "https://raw.githubusercontent.com/pasleyjb/JamStudio/develop/samples/",
+  "scores": [
+    {
+      "id": "demo-tab",
+      "title": "Hello (guitar tab demo)",
+      "artist": "JamStudio",
+      "path": "demo-tab.musicxml",
+      "tags": ["guitar", "demo", "beginner", "rock"],
+      "description": "Short synced tab excerpt with lyrics for testing notation playback."
+    }
+  ]
+}
