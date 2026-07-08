@@ -75,3 +75,5 @@ target_link_libraries(JamStudio PRIVATE
     juce::juce_audio_utils
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
+
+# Qt shell prototype (future): apps/JamStudio/
