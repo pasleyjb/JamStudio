@@ -3,8 +3,8 @@
 ## Product Vision
 
 JamStudio is a music practice and learning workstation. Load any song, split it into
-playable stems, read along with synced tabs or sheet music, practice with a metronome,
-and record yourself — all in one application.
+playable stems, read along with synced tabs, sheet music, and lyrics, practice with a
+metronome, and record yourself — all in one application.
 
 ## Phase 1 — Playback Workstation (complete)
 
@@ -21,17 +21,21 @@ practice with a metronome.
 | Waveform display with seek | Done |
 | Separation progress bar | Done |
 | Metronome (tempo from song or manual) | Done |
-| Project save / load (stems + mixer state) | Planned |
+| Project save / load (stems + mixer state) | Done |
+| Recent projects list | Done |
 
-## Phase 2 — Synced Notation (initial)
+## Phase 2 — Synced Notation (in progress)
 
-**Goal:** Display sheet music and guitar tabs that follow playback in real time.
+**Goal:** Display sheet music, guitar tabs, and lyrics that follow playback in real time.
 
 | Feature | Status |
 |---|---|
 | MusicXML import | Done |
 | Tab and standard notation renderer | Done |
 | Playback-synced scroll and highlight | Done |
+| Synced lyrics from MusicXML | Done |
+| AI-generated / imported LRC lyrics | Planned |
+| Karaoke-style word highlighting | Planned |
 | Per-instrument notation views | Planned |
 | Manual notation editing | Planned |
 
@@ -43,12 +47,12 @@ practice with a metronome.
 |---|---|
 | Audio input monitoring | Done |
 | Record over backing stems | Done |
-| Export recording (WAV) | Done |
+| Export recording (WAV, OGG, MP3) | Done |
 | Overdub and multi-take support | Planned |
 
 ## Phase 4 — Smart Transcription
 
-**Goal:** Automatically generate tabs and sheet music from separated stems.
+**Goal:** Automatically generate tabs, sheet music, and lyrics from separated stems.
 
 | Feature | Status |
 |---|---|
@@ -56,6 +60,7 @@ practice with a metronome.
 | MIDI extraction per instrument | Planned |
 | Auto-generate guitar tab | Planned |
 | Auto-generate standard notation | Planned |
+| Auto-transcribe vocals to lyrics | Planned |
 | Transcription correction UI | Planned |
 
 ## Future (beyond initial product)

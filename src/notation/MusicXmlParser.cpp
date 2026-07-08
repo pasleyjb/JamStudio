@@ -140,6 +140,22 @@ bool MusicXmlParser::parseAttributes (const juce::XmlElement* attributes, ParseC
     return true;
 }
 
+void MusicXmlParser::parseLyricData (const juce::XmlElement& note, NoteEvent& noteEvent)
+{
+    for (auto* lyric : note.getChildWithTagNameIterator ("lyric"))
+    {
+        if (const auto* text = lyric->getChildByName ("text"))
+        {
+            noteEvent.lyricText = text->getAllSubText().trim();
+
+            if (const auto* syllabic = lyric->getChildByName ("syllabic"))
+                noteEvent.syllabic = syllabic->getAllSubText().trim();
+
+            break;
+        }
+    }
+}
+
 bool MusicXmlParser::parseTabTechnicalData (const juce::XmlElement& note, NoteEvent& noteEvent)
 {
     auto found = false;
@@ -257,6 +273,8 @@ NoteEvent MusicXmlParser::parseNote (const juce::XmlElement& noteElement,
     }
 
     note.durationBeats = getNoteDurationBeats (noteElement, context.divisions);
+
+    parseLyricData (noteElement, note);
 
     const auto hasTabData = parseTabTechnicalData (noteElement, note);
 

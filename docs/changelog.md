@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0] — 2026-07-08
+
+### Added
+
+- Synced lyrics from MusicXML with syllable-level highlight during playback
+- Lyrics row displayed below tabs and standard notation
+- Recent projects menu for quick session restore
+
 ## [0.4.0] — 2026-07-08
 
 ### Added

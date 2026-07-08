@@ -9,6 +9,7 @@
 #include "../ui/SeparationProgressBar.h"
 #include "../ui/StemStrip.h"
 #include "../ui/TransportBar.h"
+#include "../project/RecentProjects.h"
 #include "../ui/WaveformDisplay.h"
 
 namespace jamstudio::app
@@ -29,6 +30,8 @@ private:
     void openSong();
     void saveProject();
     void loadProject();
+    void loadProjectFile (const juce::File& file);
+    void showRecentProjectsMenu();
     void importScore();
     void separateStems();
     void toggleRecording();
@@ -43,6 +46,7 @@ private:
     jamstudio::audio::AudioRecorder audioRecorder;
     jamstudio::audio::RecordingExporter recordingExporter;
     jamstudio::ai::DemucsSeparator demucsSeparator;
+    jamstudio::project::RecentProjects recentProjects;
     jamstudio::notation::Score currentScore;
 
     juce::AudioThumbnailCache thumbnailCache { 4 };
@@ -51,6 +55,7 @@ private:
     juce::TextButton openSongButton { "Open Song..." };
     juce::TextButton saveProjectButton { "Save Project" };
     juce::TextButton loadProjectButton { "Load Project" };
+    juce::TextButton recentProjectsButton { "Recent" };
     juce::TextButton separateButton { "Separate Stems" };
     juce::TextButton importScoreButton { "Import Score..." };
     juce::TextButton recordButton { "Record" };

@@ -135,6 +135,45 @@ double Score::secondsToBeats (const double seconds) const noexcept
     return beat;
 }
 
+bool Score::hasLyrics() const noexcept
+{
+    for (const auto& measure : measures)
+    {
+        for (const auto& note : measure.notes)
+        {
+            if (note.lyricText.isNotEmpty())
+                return true;
+        }
+    }
+
+    return false;
+}
+
+const NoteEvent* Score::getActiveLyricNoteAtTime (const double seconds) const noexcept
+{
+    const auto beat = secondsToBeats (seconds);
+    const NoteEvent* active = nullptr;
+
+    for (const auto& measure : measures)
+    {
+        for (const auto& note : measure.notes)
+        {
+            if (note.lyricText.isEmpty())
+                continue;
+
+            const auto endBeat = note.startBeat + note.durationBeats;
+
+            if (beat >= note.startBeat && beat < endBeat)
+                return &note;
+
+            if (note.startBeat <= beat)
+                active = &note;
+        }
+    }
+
+    return active;
+}
+
 int Score::getMeasureIndexAtTime (const double seconds) const noexcept
 {
     if (measures.empty())

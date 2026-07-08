@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(JamStudio VERSION 0.4.0 LANGUAGES C CXX)
+project(JamStudio VERSION 0.5.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,6 +32,7 @@ target_sources(JamStudio PRIVATE
     src/notation/MusicXmlParser.cpp
     src/notation/NotationView.cpp
     src/project/ProjectManager.cpp
+    src/project/RecentProjects.cpp
     src/ui/StemStrip.cpp
     src/ui/TransportBar.cpp
     src/ui/WaveformDisplay.cpp

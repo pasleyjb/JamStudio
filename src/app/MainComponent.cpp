@@ -10,6 +10,9 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     : audioDeviceManager (deviceManager),
       transportController (deviceManager),
       recordingExporter (transportController.getFormatManager()),
+      recentProjects (juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                          .getChildFile ("JamStudio")
+                          .getChildFile ("recent-projects.json")),
       waveformDisplay (transportController.getFormatManager(), thumbnailCache, transportController),
       notationView (transportController),
       transportBar (transportController)
@@ -27,6 +30,9 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
 
     loadProjectButton.onClick = [this] { loadProject(); };
     addAndMakeVisible (loadProjectButton);
+
+    recentProjectsButton.onClick = [this] { showRecentProjectsMenu(); };
+    addAndMakeVisible (recentProjectsButton);
 
     separateButton.onClick = [this] { separateStems(); };
     addAndMakeVisible (separateButton);
@@ -87,6 +93,7 @@ void MainComponent::resized()
     importScoreButton.setBounds (header.removeFromRight (110).reduced (2));
     separateButton.setBounds (header.removeFromRight (130).reduced (2));
     openSongButton.setBounds (header.removeFromRight (110).reduced (2));
+    recentProjectsButton.setBounds (header.removeFromRight (80).reduced (2));
     loadProjectButton.setBounds (header.removeFromRight (110).reduced (2));
     saveProjectButton.setBounds (header.removeFromRight (110).reduced (2));
 
@@ -176,6 +183,7 @@ void MainComponent::saveProject()
         if (jamstudio::project::ProjectManager::saveProject (file, data))
         {
             currentProjectFile = file;
+            recentProjects.add (file);
             setStatus ("Project saved: " + file.getFileName());
         }
         else
@@ -199,37 +207,61 @@ void MainComponent::loadProject()
     {
         const auto file = chooser.getResult();
 
-        if (! file.existsAsFile())
+        if (file.existsAsFile())
+            loadProjectFile (file);
+    });
+}
+
+void MainComponent::loadProjectFile (const juce::File& file)
+{
+    jamstudio::project::ProjectData data;
+    juce::String error;
+
+    if (! jamstudio::project::ProjectManager::loadProject (file, data, error))
+    {
+        setStatus ("Failed to load project: " + error);
+        return;
+    }
+
+    if (! jamstudio::project::ProjectManager::applyState (data, transportController, transportBar,
+                                                        currentScore, currentSongFile, currentScoreFile, error))
+    {
+        setStatus ("Failed to restore project: " + error);
+        return;
+    }
+
+    currentProjectFile = file;
+    recentProjects.add (file);
+    waveformDisplay.setSourceFile (currentSongFile.existsAsFile() ? currentSongFile
+                                                                  : juce::File (data.stems.getFirst().filePath));
+
+    if (! currentScore.isEmpty())
+        notationView.setScore (currentScore);
+    else
+        notationView.clear();
+
+    rebuildStemStrips();
+    resized();
+    setStatus ("Project loaded: " + file.getFileName()
+               + (currentScore.hasLyrics() ? " (with synced lyrics)" : ""));
+}
+
+void MainComponent::showRecentProjectsMenu()
+{
+    juce::PopupMenu menu;
+    recentProjects.buildMenu (menu);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (recentProjectsButton),
+                        [this] (int result)
+    {
+        if (result <= 0)
             return;
 
-        jamstudio::project::ProjectData data;
-        juce::String error;
+        const auto paths = recentProjects.getProjectPaths();
+        const auto index = result - 1;
 
-        if (! jamstudio::project::ProjectManager::loadProject (file, data, error))
-        {
-            setStatus ("Failed to load project: " + error);
-            return;
-        }
-
-        if (! jamstudio::project::ProjectManager::applyState (data, transportController, transportBar,
-                                                            currentScore, currentSongFile, currentScoreFile, error))
-        {
-            setStatus ("Failed to restore project: " + error);
-            return;
-        }
-
-        currentProjectFile = file;
-        waveformDisplay.setSourceFile (currentSongFile.existsAsFile() ? currentSongFile
-                                                                      : juce::File (data.stems.getFirst().filePath));
-
-        if (! currentScore.isEmpty())
-            notationView.setScore (currentScore);
-        else
-            notationView.clear();
-
-        rebuildStemStrips();
-        resized();
-        setStatus ("Project loaded: " + file.getFileName());
+        if (juce::isPositiveAndBelow (index, paths.size()))
+            loadProjectFile (juce::File (paths[index]));
     });
 }
 
@@ -293,7 +325,12 @@ void MainComponent::importScore()
         currentScore = importedScore;
         notationView.setScore (currentScore);
         transportController.getMetronome().setBpm (currentScore.getTempo());
-        setStatus ("Score loaded: " + file.getFileName() + " (" + juce::String (currentScore.getNumMeasures()) + " measures)");
+        auto message = "Score loaded: " + file.getFileName() + " (" + juce::String (currentScore.getNumMeasures()) + " measures)";
+
+        if (currentScore.hasLyrics())
+            message += " with synced lyrics";
+
+        setStatus (message);
         resized();
     });
 }

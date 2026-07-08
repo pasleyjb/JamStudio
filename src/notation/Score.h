@@ -23,6 +23,8 @@ struct NoteEvent
     bool isGrace = false;
     bool isTuplet = false;
     juce::String label;
+    juce::String lyricText;
+    juce::String syllabic;
 };
 
 struct Measure
@@ -65,6 +67,8 @@ public:
     [[nodiscard]] double secondsToBeats (double seconds) const noexcept;
     [[nodiscard]] int getMeasureIndexAtTime (double seconds) const noexcept;
     [[nodiscard]] double getTempoAtBeat (double beat) const noexcept;
+    [[nodiscard]] bool hasLyrics() const noexcept;
+    [[nodiscard]] const NoteEvent* getActiveLyricNoteAtTime (double seconds) const noexcept;
 
 private:
     void sortTempoEvents();

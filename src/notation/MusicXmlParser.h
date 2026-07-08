@@ -36,6 +36,7 @@ private:
     [[nodiscard]] static double getNoteDurationBeats (const juce::XmlElement& note, int divisionsPerQuarter);
     [[nodiscard]] static bool parseAttributes (const juce::XmlElement* attributes, ParseContext& context);
     [[nodiscard]] static bool parseTabTechnicalData (const juce::XmlElement& note, NoteEvent& noteEvent);
+    static void parseLyricData (const juce::XmlElement& note, NoteEvent& noteEvent);
     static void assignGuitarTab (NoteEvent& note, TabAssignmentContext& context);
     [[nodiscard]] static bool parseMeasure (const juce::XmlElement& measureElement, Score& score, ParseContext& context);
     [[nodiscard]] static NoteEvent parseNote (const juce::XmlElement& noteElement, ParseContext& context, bool isChord);

@@ -13,7 +13,8 @@ void NotationView::setScore (const Score& newScore)
 {
     score = newScore;
     lastHighlightedMeasure = -1;
-    setSize (juce::jmax (getWidth(), score.getNumMeasures() * measureWidth + 40), measureHeight + 20);
+    lastHighlightedBeat = -1.0;
+    setSize (juce::jmax (getWidth(), score.getNumMeasures() * measureWidth + 40), getContentHeight());
     repaint();
 }
 
@@ -21,7 +22,13 @@ void NotationView::clear()
 {
     score.clear();
     lastHighlightedMeasure = -1;
+    lastHighlightedBeat = -1.0;
     repaint();
+}
+
+int NotationView::getContentHeight() const noexcept
+{
+    return measureHeight + (score.hasLyrics() ? lyricRowHeight : 0) + 20;
 }
 
 void NotationView::paint (juce::Graphics& g)
@@ -32,7 +39,7 @@ void NotationView::paint (juce::Graphics& g)
     {
         g.setColour (juce::Colours::grey);
         g.setFont (juce::FontOptions (14.0f));
-        g.drawText ("Import a MusicXML file to display synced notation",
+        g.drawText ("Import a MusicXML file to display synced notation and lyrics",
                     getLocalBounds(), juce::Justification::centred);
         return;
     }
@@ -41,7 +48,9 @@ void NotationView::paint (juce::Graphics& g)
     g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
     g.drawText (score.getTitle(), 12, 4, getWidth() - 24, 20, juce::Justification::centredLeft);
 
-    const auto activeMeasure = score.getMeasureIndexAtTime (transportController.getPosition());
+    const auto position = transportController.getPosition();
+    const auto activeMeasure = score.getMeasureIndexAtTime (position);
+    const auto* activeLyricNote = score.getActiveLyricNoteAtTime (position);
 
     auto x = 12;
 
@@ -50,7 +59,7 @@ void NotationView::paint (juce::Graphics& g)
         if (const auto* measure = score.getMeasure (i))
         {
             const auto bounds = juce::Rectangle<int> (x, 24, measureWidth - 8, measureHeight);
-            drawMeasure (g, *measure, bounds, i == activeMeasure);
+            drawMeasure (g, *measure, bounds, i == activeMeasure, activeLyricNote);
             x += measureWidth;
         }
     }
@@ -59,7 +68,7 @@ void NotationView::paint (juce::Graphics& g)
 void NotationView::resized()
 {
     if (! score.isEmpty())
-        setSize (juce::jmax (getWidth(), score.getNumMeasures() * measureWidth + 40), measureHeight + 20);
+        setSize (juce::jmax (getWidth(), score.getNumMeasures() * measureWidth + 40), getContentHeight());
 }
 
 void NotationView::timerCallback()
@@ -67,12 +76,20 @@ void NotationView::timerCallback()
     if (score.isEmpty())
         return;
 
-    const auto activeMeasure = score.getMeasureIndexAtTime (transportController.getPosition());
+    const auto position = transportController.getPosition();
+    const auto activeMeasure = score.getMeasureIndexAtTime (position);
+    const auto currentBeat = score.secondsToBeats (position);
+    const auto beatChanged = std::abs (currentBeat - lastHighlightedBeat) > 0.01;
 
     if (activeMeasure != lastHighlightedMeasure)
     {
         lastHighlightedMeasure = activeMeasure;
         scrollToMeasure (activeMeasure);
+    }
+
+    if (beatChanged || activeMeasure != lastHighlightedMeasure)
+    {
+        lastHighlightedBeat = currentBeat;
         repaint();
     }
 }
@@ -92,7 +109,8 @@ void NotationView::scrollToMeasure (const int measureIndex)
 void NotationView::drawMeasure (juce::Graphics& g,
                                 const Measure& measure,
                                 const juce::Rectangle<int> bounds,
-                                const bool isActive) const
+                                const bool isActive,
+                                const NoteEvent* activeLyricNote) const
 {
     g.setColour (isActive ? juce::Colour (0xff2f4f78) : juce::Colour (0xff242424));
     g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
@@ -106,7 +124,12 @@ void NotationView::drawMeasure (juce::Graphics& g,
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
     g.drawText (juce::String (measure.number), measureBounds.removeFromTop (18), juce::Justification::centred);
 
-    auto noteArea = measureBounds.reduced (6, 4);
+    auto noteArea = measureBounds;
+
+    if (score.hasLyrics())
+        noteArea.removeFromBottom (lyricRowHeight);
+
+    noteArea = noteArea.reduced (6, 4);
     auto x = noteArea.getX() + 8;
 
     for (const auto& note : measure.notes)
@@ -123,9 +146,35 @@ void NotationView::drawMeasure (juce::Graphics& g,
             g.drawText ("3", x - 4, noteArea.getY() + 2, 12, 10, juce::Justification::centred);
         }
 
+        if (note.lyricText.isNotEmpty())
+        {
+            const auto isLyricActive = activeLyricNote != nullptr && activeLyricNote->startBeat == note.startBeat;
+            drawLyric (g, note, bounds, x, isLyricActive);
+        }
+
         const auto spacing = juce::jlimit (14, 40, static_cast<int> (note.durationBeats * 8.0));
         x += spacing;
     }
+}
+
+void NotationView::drawLyric (juce::Graphics& g,
+                              const NoteEvent& note,
+                              const juce::Rectangle<int> bounds,
+                              const int x,
+                              const bool isActive) const
+{
+    auto lyricArea = bounds.withTrimmedTop (bounds.getHeight() - lyricRowHeight).reduced (4, 0);
+
+    if (isActive)
+    {
+        g.setColour (juce::Colour (0xffffcc00).withAlpha (0.35f));
+        g.fillRoundedRectangle (static_cast<float> (x - 8), static_cast<float> (lyricArea.getY()),
+                                28.0f, static_cast<float> (lyricArea.getHeight()), 3.0f);
+    }
+
+    g.setColour (isActive ? juce::Colours::white : juce::Colours::white.withAlpha (0.75f));
+    g.setFont (juce::FontOptions (isActive ? 13.0f : 11.0f, isActive ? juce::Font::bold : juce::Font::plain));
+    g.drawText (note.lyricText, x - 10, lyricArea.getY(), 36, lyricArea.getHeight(), juce::Justification::centred);
 }
 
 void NotationView::drawStandardNote (juce::Graphics& g,

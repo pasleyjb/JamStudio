@@ -39,13 +39,16 @@
 
 - [x] Save project (stems paths, mixer state, tempo)
 - [x] Load project
-- [ ] Recent projects list
+- [x] Recent projects list
 
 ## M7 — Notation (Phase 2)
 
 - [x] MusicXML import
 - [x] Tab and sheet music display
 - [x] Synced scroll during playback
+- [x] Synced lyrics from MusicXML (syllable highlight)
+- [ ] LRC / external lyrics import
+- [ ] AI vocal transcription to lyrics
 - [ ] Manual notation editing
 
 ## M8 — Record (Phase 3)
