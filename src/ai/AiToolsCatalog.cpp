@@ -32,8 +32,8 @@ juce::Array<AiToolInfo> AiToolsCatalog::getToolStatuses (const DemucsSeparator& 
         "basic-pitch",
         "AI note and tab transcription from audio",
         basicPitch.isAvailable(),
-        "pipx install basic-pitch",
-        "Spotify basic-pitch converts melodic stems to MIDI/tab."
+        "uv-based install (Python 3.11 required)",
+        "pipx fails on Python 3.14. Install uv, then: uv python install 3.11; uv venv ~/.local/share/jamstudio-venvs/basic-pitch --python 3.11; uv pip install --python ~/.local/share/jamstudio-venvs/basic-pitch basic-pitch 'setuptools<81'; ln -sf ~/.local/share/jamstudio-venvs/basic-pitch/bin/basic-pitch ~/.local/bin/"
     });
 
     return tools;

@@ -8,7 +8,20 @@ namespace jamstudio::ai
 
 BasicPitchTranscriber::BasicPitchTranscriber()
 {
-    basicPitchExecutable = findWorkingExecutable ({ "basic-pitch", "python3 -m basic_pitch", "python -m basic_pitch" });
+    const auto venvBasicPitch = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+        .getChildFile (".local")
+        .getChildFile ("share")
+        .getChildFile ("jamstudio-venvs")
+        .getChildFile ("basic-pitch")
+        .getChildFile ("bin")
+        .getChildFile ("basic-pitch");
+
+    juce::StringArray candidates { "basic-pitch", "python3 -m basic_pitch", "python -m basic_pitch" };
+
+    if (venvBasicPitch.existsAsFile())
+        candidates.add (venvBasicPitch.getFullPathName());
+
+    basicPitchExecutable = findWorkingExecutable (candidates);
 }
 
 bool BasicPitchTranscriber::isAvailable() const
