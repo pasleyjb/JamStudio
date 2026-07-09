@@ -12,6 +12,7 @@ class NotationHeaderBar : public juce::Component
 public:
     using ModeChangedCallback = std::function<void (jamstudio::notation::NotationMode)>;
     using PartChangedCallback = std::function<void (int partIndex)>;
+    using FullPageCallback = std::function<void()>;
 
     NotationHeaderBar();
 
@@ -19,6 +20,7 @@ public:
     void setNotationMode (jamstudio::notation::NotationMode mode);
     void setModeChangedCallback (ModeChangedCallback callback);
     void setPartChangedCallback (PartChangedCallback callback);
+    void setFullPageCallback (FullPageCallback callback);
     void setHasScore (bool hasScore);
     void setParts (const juce::StringArray& partNames, int activePartIndex);
 
@@ -33,11 +35,13 @@ private:
     juce::Label titleLabel;
     juce::Label partLabel { {}, "Part" };
     juce::ComboBox partSelector;
+    IndicatorButton fullPageButton { "fullPage", "Full Page" };
     IndicatorButton tabButton { "tabView", "Tab" };
     IndicatorButton sheetButton { "sheetView", "Sheet" };
     jamstudio::notation::NotationMode currentMode = jamstudio::notation::NotationMode::standard;
     ModeChangedCallback onModeChanged;
     PartChangedCallback onPartChanged;
+    FullPageCallback onFullPage;
 };
 
 } // namespace jamstudio::ui

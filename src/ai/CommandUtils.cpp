@@ -1,5 +1,7 @@
 #include "CommandUtils.h"
 
+#include <cmath>
+
 namespace jamstudio::ai
 {
 
@@ -87,6 +89,53 @@ juce::String findWorkingExecutable (const juce::StringArray& candidates, const j
     }
 
     return {};
+}
+
+float parsePercentProgress (const juce::String& output)
+{
+    if (output.isEmpty())
+        return -1.0f;
+
+    auto lines = juce::StringArray::fromLines (output);
+    float best = -1.0f;
+
+    // tqdm rewrites the same line with \r — split those too.
+    juce::StringArray tokens;
+
+    for (const auto& line : lines)
+        tokens.addTokens (line, "\r", "");
+
+    for (const auto& token : tokens)
+    {
+        const auto trimmed = token.trim();
+        const auto percentIndex = trimmed.indexOfChar ('%');
+
+        if (percentIndex <= 0)
+            continue;
+
+        int start = percentIndex - 1;
+
+        while (start >= 0
+               && (juce::CharacterFunctions::isDigit (trimmed[start])
+                   || trimmed[start] == '.'
+                   || trimmed[start] == ' '))
+            --start;
+
+        const auto value = trimmed.substring (start + 1, percentIndex).trim().getFloatValue();
+
+        if (value >= 0.0f && value <= 100.0f)
+            best = juce::jmax (best, value / 100.0f);
+    }
+
+    return best;
+}
+
+float estimateRunningProgress (const double elapsedSeconds, const double expectedSeconds)
+{
+    const auto expected = juce::jmax (1.0, expectedSeconds);
+    // 1 - e^(-t/T) approaches 1 asymptotically; keep UI moving without claiming 100%.
+    const auto fraction = 1.0 - std::exp (-elapsedSeconds / expected);
+    return static_cast<float> (juce::jlimit (0.05, 0.95, 0.05 + 0.9 * fraction));
 }
 
 juce::String extractProcessErrorSummary (const juce::String& output)

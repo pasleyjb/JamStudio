@@ -19,13 +19,25 @@ juce::String formatTime (const double seconds)
 TransportBar::TransportBar (jamstudio::audio::TransportController& transport)
     : transportController (transport)
 {
-    playButton.onClick = [this] { transportController.play(); };
+    playButton.onClick = [this]
+    {
+        transportController.play();
+        updateTransportIndicators();
+    };
     addAndMakeVisible (playButton);
 
-    pauseButton.onClick = [this] { transportController.pause(); };
+    pauseButton.onClick = [this]
+    {
+        transportController.pause();
+        updateTransportIndicators();
+    };
     addAndMakeVisible (pauseButton);
 
-    stopButton.onClick = [this] { transportController.stop(); };
+    stopButton.onClick = [this]
+    {
+        transportController.stop();
+        updateTransportIndicators();
+    };
     addAndMakeVisible (stopButton);
 
     positionSlider.setRange (0.0, 1.0, 0.001);
@@ -39,6 +51,7 @@ TransportBar::TransportBar (jamstudio::audio::TransportController& transport)
     addAndMakeVisible (positionSlider);
 
     positionLabel.setJustificationType (juce::Justification::centredLeft);
+    positionLabel.setFont (juce::FontOptions (13.0f).withStyle ("Monospaced"));
     addAndMakeVisible (positionLabel);
 
     masterVolumeSlider.setRange (0.0, 1.0, 0.01);
@@ -85,17 +98,22 @@ void TransportBar::setDetectTempoCallback (DetectTempoCallback callback)
 
 void TransportBar::paint (juce::Graphics& g)
 {
-    g.fillAll (JamStudioTheme::getColours().panelBackground);
+    const auto colours = JamStudioTheme::getColours();
+    g.fillAll (colours.panelBackground);
+    g.setColour (colours.border.withAlpha (0.55f));
+    g.drawHorizontalLine (getHeight() - 1, 0.0f, static_cast<float> (getWidth()));
 }
 
 void TransportBar::resized()
 {
     auto bounds = getLocalBounds().reduced (6, 4);
 
-    playButton.setBounds (bounds.removeFromLeft (56).reduced (1));
-    pauseButton.setBounds (bounds.removeFromLeft (56).reduced (1));
-    stopButton.setBounds (bounds.removeFromLeft (56).reduced (1));
-    bounds.removeFromLeft (6);
+    // Square tape-deck cluster
+    const auto deckSize = juce::jmin (bounds.getHeight(), 40);
+    playButton.setBounds (bounds.removeFromLeft (deckSize).reduced (1));
+    pauseButton.setBounds (bounds.removeFromLeft (deckSize).reduced (1));
+    stopButton.setBounds (bounds.removeFromLeft (deckSize).reduced (1));
+    bounds.removeFromLeft (8);
 
     detectTempoButton.setBounds (bounds.removeFromRight (58).reduced (1));
     bpmSlider.setBounds (bounds.removeFromRight (120).reduced (1));
@@ -103,7 +121,7 @@ void TransportBar::resized()
     metronomeButton.setBounds (bounds.removeFromRight (64).reduced (1));
     masterVolumeSlider.setBounds (bounds.removeFromRight (72).reduced (1));
     masterLabel.setBounds (bounds.removeFromRight (44));
-    positionLabel.setBounds (bounds.removeFromRight (88));
+    positionLabel.setBounds (bounds.removeFromRight (96));
     positionSlider.setBounds (bounds.reduced (1));
 }
 
@@ -111,10 +129,19 @@ void TransportBar::timerCallback()
 {
     updatePositionSlider();
     updateMetronomeIndicator();
+    updateTransportIndicators();
 
     const auto position = transportController.getPosition();
     const auto length = transportController.getLengthInSeconds();
     positionLabel.setText (formatTime (position) + " / " + formatTime (length), juce::dontSendNotification);
+}
+
+void TransportBar::updateTransportIndicators()
+{
+    const auto playing = transportController.isPlaying();
+    playButton.setActive (playing);
+    pauseButton.setActive (! playing && transportController.getPosition() > 0.0);
+    stopButton.setActive (! playing && transportController.getPosition() <= 0.001);
 }
 
 void TransportBar::updateMetronomeIndicator()

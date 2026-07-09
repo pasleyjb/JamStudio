@@ -9,10 +9,15 @@ SeparationProgressBar::SeparationProgressBar()
     : progressBar (progressValue)
 {
     statusLabel.setJustificationType (juce::Justification::centredLeft);
+    cancelButton.setWantsKeyboardFocus (false);
     cancelButton.onClick = [this]
     {
-        if (cancelCallback != nullptr)
-            cancelCallback();
+        // Capture and clear first so a double-click cannot re-enter cancel.
+        auto callback = std::move (cancelCallback);
+        cancelCallback = nullptr;
+
+        if (callback != nullptr)
+            callback();
     };
     addChildComponent (progressBar);
     addChildComponent (statusLabel);

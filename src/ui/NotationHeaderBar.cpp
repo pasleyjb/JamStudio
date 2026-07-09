@@ -19,6 +19,14 @@ NotationHeaderBar::NotationHeaderBar()
     addAndMakeVisible (partLabel);
     addAndMakeVisible (partSelector);
 
+    fullPageButton.setIndicatorColour (JamStudioTheme::getColours().accent);
+    fullPageButton.onClick = [this]
+    {
+        if (onFullPage != nullptr)
+            onFullPage();
+    };
+    addAndMakeVisible (fullPageButton);
+
     tabButton.setClickingTogglesState (true);
     tabButton.setIndicatorColour (JamStudioTheme::getColours().accent);
     tabButton.onClick = [this] { handleTabButton(); };
@@ -53,10 +61,16 @@ void NotationHeaderBar::setPartChangedCallback (PartChangedCallback callback)
     onPartChanged = std::move (callback);
 }
 
+void NotationHeaderBar::setFullPageCallback (FullPageCallback callback)
+{
+    onFullPage = std::move (callback);
+}
+
 void NotationHeaderBar::setHasScore (const bool hasScore)
 {
     tabButton.setEnabled (hasScore);
     sheetButton.setEnabled (hasScore);
+    fullPageButton.setEnabled (hasScore);
     partSelector.setEnabled (hasScore);
 }
 
@@ -65,11 +79,21 @@ void NotationHeaderBar::setParts (const juce::StringArray& partNames, const int 
     partSelector.clear (juce::dontSendNotification);
 
     for (int i = 0; i < partNames.size(); ++i)
-        partSelector.addItem (partNames[i], i + 1);
+    {
+        auto name = partNames[i].trim();
 
-    const auto showSelector = partNames.size() > 1;
+        if (name.isEmpty())
+            name = "Part " + juce::String (i + 1);
+
+        // Always expose every part so the user can choose (not guitar-only).
+        partSelector.addItem (juce::String (i + 1) + ". " + name, i + 1);
+    }
+
+    const auto showSelector = partNames.size() >= 1;
     partLabel.setVisible (showSelector);
     partSelector.setVisible (showSelector);
+    partSelector.setEnabled (showSelector && partNames.size() > 0);
+    partLabel.setText (partNames.size() > 1 ? "Part" : "Part", juce::dontSendNotification);
 
     if (partNames.isEmpty())
         return;
@@ -146,6 +170,8 @@ void NotationHeaderBar::paint (juce::Graphics& g)
 void NotationHeaderBar::resized()
 {
     auto bounds = getLocalBounds().reduced (6, 2);
+    fullPageButton.setBounds (bounds.removeFromRight (84));
+    bounds.removeFromRight (4);
     tabButton.setBounds (bounds.removeFromRight (56));
     bounds.removeFromRight (4);
     sheetButton.setBounds (bounds.removeFromRight (64));
@@ -153,7 +179,7 @@ void NotationHeaderBar::resized()
 
     if (partSelector.isVisible())
     {
-        partSelector.setBounds (bounds.removeFromRight (140));
+        partSelector.setBounds (bounds.removeFromRight (200));
         bounds.removeFromRight (4);
         partLabel.setBounds (bounds.removeFromRight (36));
         bounds.removeFromRight (8);

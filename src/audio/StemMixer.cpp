@@ -1,5 +1,7 @@
 #include "StemMixer.h"
 
+#include <algorithm>
+
 namespace jamstudio::audio
 {
 
@@ -41,7 +43,22 @@ bool StemMixer::loadStems (const juce::Array<juce::File>& files)
     for (const auto& file : files)
         loadedAny = loadStem (file) || loadedAny;
 
+    if (loadedAny)
+        sortStemsForPractice();
+
     return loadedAny;
+}
+
+void StemMixer::sortStemsForPractice()
+{
+    // Guitar-first order so learners see their instrument at the top of the mixer.
+    std::stable_sort (stems.begin(), stems.end(),
+                      [] (const std::unique_ptr<StemTrack>& a, const std::unique_ptr<StemTrack>& b)
+                      {
+                          return stemTypeSortOrder (a->getType()) < stemTypeSortOrder (b->getType());
+                      });
+
+    sendChangeMessage();
 }
 
 StemTrack* StemMixer::getStem (const int index) noexcept

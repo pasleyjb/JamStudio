@@ -2,6 +2,8 @@
 
 #include "StemType.h"
 
+#include <atomic>
+
 namespace jamstudio::audio
 {
 
@@ -29,12 +31,23 @@ public:
     [[nodiscard]] bool isSolo() const noexcept { return solo; }
     [[nodiscard]] float getVolume() const noexcept { return volume; }
 
+    /** Instantaneous envelope level 0..1 for meter drawing (thread-safe). */
+    [[nodiscard]] float getMeterLevel() const noexcept { return meterLevel.load (std::memory_order_relaxed); }
+
+    /** Peak-hold level 0..1 — sticks at highest peak like old stereo meters. */
+    [[nodiscard]] float getMeterPeakHold() const noexcept { return meterPeakHold.load (std::memory_order_relaxed); }
+
+    /** Call on the message thread (~30 Hz) to decay the sticky peak hold. */
+    void tickMeterPeakHold (float deltaSeconds) noexcept;
+
     void readIntoBuffer (juce::AudioBuffer<float>& output,
                          int64 startSample,
                          int numSamples,
                          bool anySoloActive) const;
 
 private:
+    void updateMeterFromBuffer (const juce::AudioBuffer<float>& buffer, float gain) const noexcept;
+
     std::unique_ptr<juce::AudioFormatReader> reader;
     juce::File sourceFile;
     juce::String name;
@@ -42,6 +55,10 @@ private:
     float volume = 0.8f;
     bool muted = false;
     bool solo = false;
+
+    mutable std::atomic<float> meterLevel { 0.0f };
+    mutable std::atomic<float> meterPeakHold { 0.0f };
+    mutable std::atomic<float> peakHoldTimer { 0.0f };
 };
 
 } // namespace jamstudio::audio

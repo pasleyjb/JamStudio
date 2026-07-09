@@ -46,6 +46,7 @@ private:
     [[nodiscard]] bool anyStemSoloed() const noexcept;
     [[nodiscard]] int64 secondsToSamples (double seconds) const noexcept;
     [[nodiscard]] double samplesToSeconds (int64 samples) const noexcept;
+    void sortStemsForPractice();
 
     juce::AudioFormatManager& formatManager;
     std::vector<std::unique_ptr<StemTrack>> stems;

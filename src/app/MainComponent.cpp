@@ -3,11 +3,13 @@
 #include "../audio/StemType.h"
 #include "../audio/TempoDetector.h"
 #include "../ui/AiToolsSetupDialog.h"
+#include "../ui/OnlineLyricsDialog.h"
 #include "../ui/TabLibraryBrowserDialog.h"
 #include "../ui/JamStudioLookAndFeel.h"
 #include "../notation/LrcParser.h"
 #include "../notation/MusicXmlParser.h"
 #include "../notation/ScoreLyricsExtractor.h"
+#include "../notation/SongMetadata.h"
 #include "../project/ProjectManager.h"
 
 namespace jamstudio::app
@@ -30,42 +32,48 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
           [this] { importScore(); },
           [this] { toggleTabView(); },
           [this] { toggleSheetView(); },
+          [this] { openFullPageTabs(); },
           [this] { transcribeTab(); },
           [this] { importLyrics(); },
+          [this] { findOnlineLyrics(); },
           [this] { transcribeLyrics(); },
-          [this] { toggleRecording(); }
+          [this] { toggleRecording(); },
+          [this] { toggleLyricsPanel(); },
+          [this] { toggleNotationPanel(); },
+          [this] { toggleStemsPanel(); },
+          [this] { toggleMixerWindow(); }
       }),
       waveformDisplay (transportController.getFormatManager(), thumbnailCache, transportController),
       lyricsView (transportController),
       notationView (transportController),
-      transportBar (transportController)
+      transportBar (transportController),
+      mixerWindow (transportController),
+      fullPageTabsWindow (transportController)
 {
-    setSize (1200, 860);
+    setSize (1280, 900);
     refreshTheme();
 
     juce::Desktop::getInstance().addDarkModeSettingListener (this);
 
     statusLabel.setJustificationType (juce::Justification::centredLeft);
-    juce::StringArray readyHints;
-    readyHints.add ("Open a song from File or the Project toolbar");
+    statusLabel.setColour (juce::Label::backgroundColourId,
+                           jamstudio::ui::JamStudioTheme::getColours().statusBackground);
+    setStatus ("Ready. Open a song. Use toolbar View tab to show/hide Lyrics, Tabs, Stems, Mixer.");
 
-    if (demucsSeparator.isAvailable())
-        readyHints.add ("separate stems");
-
-    if (whisperTranscriber.isAvailable())
-        readyHints.add ("AI lyrics");
-
-    if (basicPitchTranscriber.isAvailable())
-        readyHints.add ("AI tab");
-
-    setStatus ("Ready. " + readyHints.joinIntoString (", ") + ".");
     addAndMakeVisible (toolbarTabs);
     addAndMakeVisible (statusLabel);
     addAndMakeVisible (separationProgress);
-    addAndMakeVisible (waveformDisplay);
-    lyricsSectionLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-    lyricsSectionLabel.setJustificationType (juce::Justification::centredLeft);
-    addAndMakeVisible (lyricsSectionLabel);
+    addAndMakeVisible (transportBar);
+
+    for (auto* label : { &lyricsSectionLabel, &notationSectionLabel, &stemsSectionLabel })
+    {
+        label->setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        label->setJustificationType (juce::Justification::centredLeft);
+        label->setColour (juce::Label::textColourId,
+                          jamstudio::ui::JamStudioTheme::getColours().textSecondary);
+        addAndMakeVisible (*label);
+    }
+
     addAndMakeVisible (lyricsView);
 
     notationHeaderBar.setModeChangedCallback ([this] (const jamstudio::notation::NotationMode mode)
@@ -76,13 +84,14 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     {
         setActiveScorePart (partIndex);
     });
+    notationHeaderBar.setFullPageCallback ([this] { openFullPageTabs(); });
     addAndMakeVisible (notationHeaderBar);
 
     notationViewport.setViewedComponent (&notationView, false);
     notationViewport.setScrollBarsShown (false, true);
     addAndMakeVisible (notationViewport);
 
-    addAndMakeVisible (transportBar);
+    addAndMakeVisible (waveformDisplay);
 
     stemViewport.setViewedComponent (&stemContainer, false);
     stemViewport.setScrollBarsShown (true, false);
@@ -102,11 +111,22 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
         else
             setStatus ("Open a song before detecting tempo.");
     });
+
+    // Panels available immediately with empty states.
+    rebuildMixerWindow();
+    mixerWindow.setVisibilityChangedCallback ([this] (bool)
+    {
+        updatePanelToggleStates();
+    });
+    updatePanelToggleStates();
+    applyPanelVisibility();
 }
 
 MainComponent::~MainComponent()
 {
     fileChooser.reset();
+    mixerWindow.setVisible (false);
+    fullPageTabsWindow.setVisible (false);
     audioRecorder.stopRecording();
     audioDeviceManager.removeAudioCallback (&audioRecorder);
     demucsSeparator.cancel();
@@ -117,6 +137,64 @@ MainComponent::~MainComponent()
     juce::Desktop::getInstance().removeDarkModeSettingListener (this);
 }
 
+void MainComponent::updatePanelToggleStates()
+{
+    toolbarTabs.setPanelVisibilityState (lyricsPanelVisible,
+                                         notationPanelVisible,
+                                         stemsPanelVisible,
+                                         mixerWindow.isMixerVisible());
+}
+
+void MainComponent::applyPanelVisibility()
+{
+    lyricsSectionLabel.setVisible (lyricsPanelVisible);
+    lyricsView.setVisible (lyricsPanelVisible);
+
+    notationSectionLabel.setVisible (notationPanelVisible);
+    notationHeaderBar.setVisible (notationPanelVisible && ! currentScore.isEmpty());
+    notationViewport.setVisible (notationPanelVisible);
+
+    stemsSectionLabel.setVisible (stemsPanelVisible);
+    stemViewport.setVisible (stemsPanelVisible);
+
+    updatePanelToggleStates();
+    resized();
+}
+
+void MainComponent::revealWorkspacePanels()
+{
+    lyricsPanelVisible = true;
+    notationPanelVisible = true;
+    stemsPanelVisible = true;
+    applyPanelVisibility();
+    mixerWindow.showMixer (true);
+    updatePanelToggleStates();
+}
+
+void MainComponent::toggleLyricsPanel()
+{
+    lyricsPanelVisible = ! lyricsPanelVisible;
+    applyPanelVisibility();
+}
+
+void MainComponent::toggleNotationPanel()
+{
+    notationPanelVisible = ! notationPanelVisible;
+    applyPanelVisibility();
+}
+
+void MainComponent::toggleStemsPanel()
+{
+    stemsPanelVisible = ! stemsPanelVisible;
+    applyPanelVisibility();
+}
+
+void MainComponent::toggleMixerWindow()
+{
+    mixerWindow.showMixer (! mixerWindow.isMixerVisible());
+    updatePanelToggleStates();
+}
+
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (jamstudio::ui::JamStudioTheme::getColours().windowBackground);
@@ -124,71 +202,102 @@ void MainComponent::paint (juce::Graphics& g)
 
 void MainComponent::resized()
 {
-    auto bounds = getLocalBounds().reduced (6);
+    auto bounds = getLocalBounds().reduced (8);
 
-    toolbarTabs.setBounds (bounds.removeFromTop (58));
+    toolbarTabs.setBounds (bounds.removeFromTop (54));
     bounds.removeFromTop (4);
-    statusLabel.setBounds (bounds.removeFromTop (22));
 
     if (separationProgress.isVisible())
     {
-        bounds.removeFromTop (2);
-        separationProgress.setBounds (bounds.removeFromTop (44));
+        separationProgress.setBounds (bounds.removeFromTop (42));
+        bounds.removeFromTop (4);
     }
 
-    bounds.removeFromTop (6);
-    waveformDisplay.setBounds (bounds.removeFromTop (128));
-    bounds.removeFromTop (4);
-    transportBar.setBounds (bounds.removeFromTop (44));
-    bounds.removeFromTop (6);
-    lyricsSectionLabel.setBounds (bounds.removeFromTop (18));
-    lyricsView.setBounds (bounds.removeFromTop (120));
+    statusLabel.setBounds (bounds.removeFromTop (22));
     bounds.removeFromTop (6);
 
-    if (! currentScore.isEmpty())
+    // Bottom dock: main waveform → transport → stem lanes
+    const int stemLaneCount = stemContainer.getNumChildComponents();
+    const int stemLaneHeight = 40;
+    const int stemsBlockHeight = stemsPanelVisible
+        ? (18 + juce::jlimit (56, 220, juce::jmax (1, stemLaneCount) * stemLaneHeight + 8))
+        : 0;
+    const int waveHeight = 96;
+    const int transportHeight = 48;
+    const int bottomStackHeight = waveHeight + 4 + transportHeight
+                                  + (stemsPanelVisible ? 8 + stemsBlockHeight : 0);
+
+    auto bottom = bounds.removeFromBottom (bottomStackHeight);
+
+    // Top of bottom stack: main waveform
+    waveformDisplay.setBounds (bottom.removeFromTop (waveHeight));
+    bottom.removeFromTop (4);
+
+    // Directly under waveform: transport deck
+    transportBar.setBounds (bottom.removeFromTop (transportHeight));
+
+    if (stemsPanelVisible)
     {
-        notationHeaderBar.setVisible (true);
-        notationHeaderBar.setBounds (bounds.removeFromTop (30));
+        bottom.removeFromTop (8);
+        auto stemsArea = bottom;
+        stemsSectionLabel.setBounds (stemsArea.removeFromTop (16));
+        stemViewport.setBounds (stemsArea);
+        layoutStemLanes();
+    }
 
-        if (currentScore.isNotationVisible())
+    // Upper / middle: lyrics then tabs
+    if (lyricsPanelVisible)
+    {
+        const auto lyricsHeight = juce::jlimit (100, 170, bounds.getHeight() / 4);
+        lyricsSectionLabel.setBounds (bounds.removeFromTop (16));
+        lyricsView.setBounds (bounds.removeFromTop (lyricsHeight));
+        bounds.removeFromTop (6);
+    }
+
+    if (notationPanelVisible)
+    {
+        notationSectionLabel.setBounds (bounds.removeFromTop (16));
+
+        if (! currentScore.isEmpty())
         {
-            notationViewport.setVisible (true);
-            notationViewport.setBounds (bounds.removeFromTop (juce::jmax (140, bounds.getHeight() / 3)));
-            bounds.removeFromTop (6);
+            notationHeaderBar.setVisible (true);
+            notationHeaderBar.setBounds (bounds.removeFromTop (28));
+            bounds.removeFromTop (2);
         }
         else
         {
-            notationViewport.setVisible (false);
+            notationHeaderBar.setVisible (false);
         }
-    }
-    else
-    {
-        notationHeaderBar.setVisible (false);
-        notationViewport.setVisible (false);
-    }
 
-    stemViewport.setBounds (bounds);
+        notationViewport.setVisible (true);
+        notationViewport.setBounds (bounds);
+        notationView.setSize (juce::jmax (notationViewport.getWidth(), notationView.getWidth()),
+                              juce::jmax (notationViewport.getHeight(), notationView.getContentHeight()));
+    }
+}
 
-    constexpr int stripHeight = 48;
+void MainComponent::layoutStemLanes()
+{
+    constexpr int laneHeight = 40;
     const auto containerWidth = juce::jmax (stemViewport.getMaximumVisibleWidth(), stemViewport.getWidth());
-    stemContainer.setSize (containerWidth, stemContainer.getNumChildComponents() * stripHeight + 4);
+    stemContainer.setSize (containerWidth, juce::jmax (1, stemContainer.getNumChildComponents()) * laneHeight + 4);
 
     auto stripBounds = stemContainer.getLocalBounds().reduced (2);
     int y = stripBounds.getY();
 
     for (int i = 0; i < stemContainer.getNumChildComponents(); ++i)
     {
-        if (auto* strip = stemContainer.getChildComponent (i))
+        if (auto* lane = stemContainer.getChildComponent (i))
         {
-            strip->setBounds (stripBounds.getX(), y, stripBounds.getWidth(), stripHeight - 2);
-            y += stripHeight;
+            lane->setBounds (stripBounds.getX(), y, stripBounds.getWidth(), laneHeight - 2);
+            y += laneHeight;
         }
     }
 }
 
 juce::StringArray MainComponent::buildMenuBarNames()
 {
-    return { "File", "Project", "Stems", "Notation", "Lyrics", "Transport", "Help" };
+    return { "File", "Project", "View", "Stems", "Notation", "Lyrics", "Transport", "Help" };
 }
 
 juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, const juce::String& menuName)
@@ -207,9 +316,17 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
         menu.addItem (loadProjectCmd, "Load Project", true, false);
         menu.addItem (recentProjectsCmd, "Recent Projects", true, false);
     }
+    else if (menuName == "View")
+    {
+        menu.addItem (toggleLyricsPanelCmd, "Show Lyrics", true, lyricsPanelVisible);
+        menu.addItem (toggleNotationPanelCmd, "Show Tabs", true, notationPanelVisible);
+        menu.addItem (toggleStemsPanelCmd, "Show Stem Lanes", true, stemsPanelVisible);
+        menu.addItem (toggleMixerWindowCmd, "Show Mixer", true, mixerWindow.isMixerVisible());
+    }
     else if (menuName == "Stems")
     {
         menu.addItem (separateStemsCmd, "Separate Stems", demucsSeparator.isAvailable(), false);
+        menu.addItem (toggleMixerWindowCmd, "Show Mixer", true, mixerWindow.isMixerVisible());
     }
     else if (menuName == "Notation")
     {
@@ -217,17 +334,21 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
         menu.addItem (importScoreCmd, "Import Local MusicXML...", true, false);
         menu.addItem (aiTabCmd, "AI Tab Transcription", basicPitchTranscriber.isAvailable(), false);
         menu.addSeparator();
-        menu.addItem (showTabViewCmd, "Tab View", ! currentScore.isEmpty(),
+        menu.addItem (showTabViewCmd, "Tab View", true,
                       currentScore.isNotationVisible()
                           && currentScore.getNotationMode() == jamstudio::notation::NotationMode::tab);
-        menu.addItem (showSheetViewCmd, "Sheet View", ! currentScore.isEmpty(),
+        menu.addItem (showSheetViewCmd, "Sheet View", true,
                       currentScore.isNotationVisible()
                           && currentScore.getNotationMode() == jamstudio::notation::NotationMode::standard);
+        menu.addItem (openFullPageTabsCmd, "Open Full Page Tabs (Printable)...", true, false);
+        menu.addItem (toggleNotationPanelCmd, "Show Tabs Panel", true, notationPanelVisible);
     }
     else if (menuName == "Lyrics")
     {
-        menu.addItem (importLyricsCmd, "Import LRC...", true, false);
-        menu.addItem (aiLyricsCmd, "AI Vocal Transcription", whisperTranscriber.isAvailable(), false);
+        menu.addItem (onlineLyricsCmd, "Find Synced Lyrics Online...", true, false);
+        menu.addItem (importLyricsCmd, "Import LRC File...", true, false);
+        menu.addItem (aiLyricsCmd, "AI Vocal Transcription (Whisper)", whisperTranscriber.isAvailable(), false);
+        menu.addItem (toggleLyricsPanelCmd, "Show Lyrics Panel", true, lyricsPanelVisible);
     }
     else if (menuName == "Transport")
     {
@@ -259,8 +380,10 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case importScoreCmd: importScore(); break;
         case showTabViewCmd: toggleTabView(); break;
         case showSheetViewCmd: toggleSheetView(); break;
+        case openFullPageTabsCmd: openFullPageTabs(); break;
         case aiTabCmd: transcribeTab(); break;
         case importLyricsCmd: importLyrics(); break;
+        case onlineLyricsCmd: findOnlineLyrics(); break;
         case aiLyricsCmd: transcribeLyrics(); break;
         case detectTempoCmd:
             if (currentSongFile.existsAsFile())
@@ -270,10 +393,16 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
             break;
         case recordCmd: toggleRecording(); break;
         case aiToolsCmd: showAiToolsSetup(); break;
+        case toggleLyricsPanelCmd: toggleLyricsPanel(); break;
+        case toggleNotationPanelCmd: toggleNotationPanel(); break;
+        case toggleStemsPanelCmd: toggleStemsPanel(); break;
+        case toggleMixerWindowCmd: toggleMixerWindow(); break;
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
-                                                    "JamStudio v0.9.6\nStem separation, synced notation, lyrics, and recording.");
+                                                    "JamStudio v0.9.6\n"
+                                                    "Guitar practice workstation with stems, tabs, and lyrics.\n\n"
+                                                    "Designed by man, engineered and coded by Grok.");
             break;
         default: break;
     }
@@ -300,7 +429,10 @@ void MainComponent::refreshTheme()
 void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
     if (source == &transportController.getStemMixer())
-        rebuildStemStrips();
+    {
+        rebuildStemLanes();
+        rebuildMixerWindow();
+    }
 
     transportBar.updatePositionSlider();
 }
@@ -421,8 +553,9 @@ void MainComponent::loadProjectFile (const juce::File& file)
             recordingTakeManager.addRestoredTake (juce::File (stemState.filePath), stemState.name);
     }
 
-    rebuildStemStrips();
-    resized();
+    rebuildStemLanes();
+    rebuildMixerWindow();
+    revealWorkspacePanels();
     juce::StringArray loadedParts;
 
     if (! currentScore.isEmpty())
@@ -462,9 +595,47 @@ void MainComponent::importLyrics()
         currentLyricsFile = file;
         currentLyrics = importedLyrics;
         lyricsView.setLyrics (currentLyrics);
+        lyricsPanelVisible = true;
+        applyPanelVisibility();
         toolbarTabs.setActiveTab (jamstudio::ui::ToolbarTabs::Tab::lyrics);
         setStatus ("Lyrics loaded: " + file.getFileName() + " (" + juce::String (currentLyrics.getNumLines()) + " lines)");
     });
+}
+
+void MainComponent::findOnlineLyrics()
+{
+    juce::File source = currentSongFile;
+
+    if (! source.existsAsFile())
+    {
+        // Fall back to first loaded stem / song audio
+        if (const auto* stem = transportController.getStemMixer().getStem (0))
+            source = stem->getFile();
+    }
+
+    if (! source.existsAsFile())
+    {
+        setStatus ("Open a song first so JamStudio can read title/artist metadata.");
+        return;
+    }
+
+    auto metadata = jamstudio::notation::extractSongMetadata (source, transportController.getFormatManager());
+    setStatus ("Looking up online lyrics for: " + metadata.displayLabel());
+
+    jamstudio::ui::OnlineLyricsDialog::show (this, std::move (metadata),
+        [this] (jamstudio::notation::LyricsTrack lyrics)
+        {
+            currentLyricsFile = juce::File();
+            currentLyrics = std::move (lyrics);
+            lyricsView.setLyrics (currentLyrics);
+            lyricsPanelVisible = true;
+            applyPanelVisibility();
+            toolbarTabs.setActiveTab (jamstudio::ui::ToolbarTabs::Tab::lyrics);
+
+            const auto wordInfo = currentLyrics.hasWordTimings() ? " (word-level if present)" : " (line-synced LRC)";
+            setStatus ("Online lyrics applied: " + juce::String (currentLyrics.getNumLines())
+                       + " lines" + wordInfo + " — " + currentLyrics.getTitle());
+        });
 }
 
 void MainComponent::showRecentProjectsMenu()
@@ -509,10 +680,12 @@ void MainComponent::openSong()
         if (transportController.getStemMixer().loadStems ({ file }))
         {
             detectTempoFromSong (file, false);
+            rebuildStemLanes();
+            rebuildMixerWindow();
+            revealWorkspacePanels();
             setStatus ("Loaded: " + file.getFileName()
-                       + " @ " + juce::String (static_cast<int> (transportBar.getBpm())) + " BPM");
-            rebuildStemStrips();
-            resized();
+                       + " @ " + juce::String (static_cast<int> (transportBar.getBpm()))
+                       + " BPM — Lyrics / Tabs / Stems / Mixer ready.");
         }
         else
         {
@@ -599,42 +772,57 @@ void MainComponent::applyScore (const jamstudio::notation::Score& score, const b
     notationHeaderBar.setParts (currentScore.getPartNames(), currentScore.getActivePartIndex());
     syncNotationUiState();
 
+    if (fullPageTabsWindow.isTabsWindowVisible())
+        fullPageTabsWindow.setScore (currentScore);
+
     if (replaceLyricsFromScore && currentScore.hasLyrics())
     {
         currentLyricsFile = juce::File();
         currentLyrics = jamstudio::notation::ScoreLyricsExtractor::fromScore (currentScore);
         lyricsView.setLyrics (currentLyrics);
+        lyricsPanelVisible = true;
     }
 
+    notationPanelVisible = true;
     updateNotationPanelVisibility();
+    applyPanelVisibility();
 }
 
 void MainComponent::setNotationDisplayMode (const jamstudio::notation::NotationMode mode)
 {
     if (currentScore.isEmpty())
     {
-        setStatus ("Import a score or run AI Tab before switching notation view.");
+        notationPanelVisible = true;
+        applyPanelVisibility();
+        setStatus ("Tabs panel open — import MusicXML or run AI Tab.");
         return;
     }
 
     currentScore.setNotationMode (mode);
     notationView.setScore (currentScore);
     syncNotationUiState();
+    notationPanelVisible = true;
     updateNotationPanelVisibility();
+    applyPanelVisibility();
+
+    if (fullPageTabsWindow.isTabsWindowVisible())
+        fullPageTabsWindow.setScore (currentScore);
 
     if (mode == jamstudio::notation::NotationMode::hidden)
-        setStatus ("Notation hidden. Press Tab or Sheet to show again.");
+        setStatus ("Notation content hidden. Tabs panel stays available.");
     else if (mode == jamstudio::notation::NotationMode::tab)
-        setStatus ("Showing guitar tab for " + currentScore.getActivePart().name + ".");
+        setStatus ("Showing tab for " + currentScore.getActivePart().name + ".");
     else
-        setStatus ("Showing sheet notation for " + currentScore.getActivePart().name + ".");
+        setStatus ("Showing sheet for " + currentScore.getActivePart().name + ".");
 }
 
 void MainComponent::toggleTabView()
 {
     if (currentScore.isEmpty())
     {
-        setStatus ("Import a score or run AI Tab before switching notation view.");
+        notationPanelVisible = true;
+        applyPanelVisibility();
+        setStatus ("Tabs panel open — import MusicXML or run AI Tab.");
         return;
     }
 
@@ -649,7 +837,9 @@ void MainComponent::toggleSheetView()
 {
     if (currentScore.isEmpty())
     {
-        setStatus ("Import a score or run AI Tab before switching notation view.");
+        notationPanelVisible = true;
+        applyPanelVisibility();
+        setStatus ("Tabs panel open — import MusicXML or run AI Tab.");
         return;
     }
 
@@ -660,27 +850,61 @@ void MainComponent::toggleSheetView()
         setNotationDisplayMode (jamstudio::notation::NotationMode::standard);
 }
 
+void MainComponent::openFullPageTabs()
+{
+    if (currentScore.isEmpty())
+    {
+        setStatus ("Load or generate notation before opening full-page tabs.");
+        return;
+    }
+
+    // Prefer tab mode for the printable window when nothing is selected yet.
+    if (currentScore.getNotationMode() == jamstudio::notation::NotationMode::hidden)
+        currentScore.setNotationMode (jamstudio::notation::NotationMode::tab);
+
+    fullPageTabsWindow.setScore (currentScore);
+    fullPageTabsWindow.showWindow (true);
+    setStatus ("Full page tabs open — use Print or Export PNG for a printable copy.");
+}
+
 void MainComponent::setActiveScorePart (const int partIndex)
 {
     if (currentScore.isEmpty())
         return;
 
+    // Keep the user's Tab/Sheet choice — don't force guitar-only tab mode per part.
+    const auto modeBefore = currentScore.getNotationMode();
     currentScore.setActivePartIndex (partIndex);
+
+    if (modeBefore != jamstudio::notation::NotationMode::hidden)
+        currentScore.setNotationMode (modeBefore);
+
     notationView.setScore (currentScore);
     notationHeaderBar.setParts (currentScore.getPartNames(), currentScore.getActivePartIndex());
+    syncNotationUiState();
+    updateNotationPanelVisibility();
 
-    if (currentScore.isNotationVisible())
-        setNotationDisplayMode (currentScore.getActivePart().notationMode);
-    else
-        syncNotationUiState();
+    if (fullPageTabsWindow.isTabsWindowVisible())
+        fullPageTabsWindow.setScore (currentScore);
 
-    setStatus ("Viewing " + currentScore.getActivePart().name + ".");
+    const auto partName = currentScore.getActivePart().name.isNotEmpty()
+                              ? currentScore.getActivePart().name
+                              : ("Part " + juce::String (partIndex + 1));
+    const auto modeLabel = currentScore.getNotationMode() == jamstudio::notation::NotationMode::tab
+                               ? "tab"
+                               : "sheet";
+    setStatus ("Viewing " + partName + " (" + modeLabel + "). Use Part menu or Tab/Sheet to change.");
 }
 
 void MainComponent::updateNotationPanelVisibility()
 {
-    notationHeaderBar.setVisible (! currentScore.isEmpty());
-    notationViewport.setVisible (currentScore.isNotationVisible());
+    // Panel shell stays available; score content fills when present.
+    if (notationPanelVisible)
+    {
+        notationHeaderBar.setVisible (! currentScore.isEmpty());
+        notationViewport.setVisible (true);
+    }
+
     resized();
 }
 
@@ -708,8 +932,11 @@ juce::File MainComponent::findStemFileForType (const jamstudio::audio::StemType 
 
 juce::File MainComponent::findMelodicStemFile()
 {
-    for (const auto stemType : { jamstudio::audio::StemType::other,
+    // Prefer guitar for AI tab generation — this app is for guitar practice.
+    for (const auto stemType : { jamstudio::audio::StemType::guitar,
+                                 jamstudio::audio::StemType::other,
                                  jamstudio::audio::StemType::bass,
+                                 jamstudio::audio::StemType::piano,
                                  jamstudio::audio::StemType::vocals })
     {
         if (const auto file = findStemFileForType (stemType); file.existsAsFile())
@@ -769,16 +996,36 @@ void MainComponent::detectTempoFromSong (const juce::File& audioFile, const bool
 
 void MainComponent::beginBackgroundTask (const juce::String& message, std::function<void()> onCancel)
 {
+    ++backgroundTaskGeneration;
+    const auto generation = backgroundTaskGeneration.load();
+    backgroundTaskActive = true;
+
     toolbarTabs.setToolsEnabled (false);
     separationProgress.setVisible (true);
     separationProgress.setProgress (0.0f, message);
-    separationProgress.setCancelCallback ([onCancel = std::move (onCancel)] { if (onCancel) onCancel(); });
+    separationProgress.setCancelCallback ([this, generation, onCancel = std::move (onCancel)]
+    {
+        // Only act if this is still the active job (avoids stale callbacks).
+        if (generation != backgroundTaskGeneration.load())
+            return;
+
+        if (onCancel)
+            onCancel();
+
+        // End UI immediately — do not quit the app. Completion callback may also fire later.
+        endBackgroundTask();
+        setStatus ("Cancelled.");
+    });
     setStatus (message);
     resized();
 }
 
 void MainComponent::endBackgroundTask()
 {
+    if (! backgroundTaskActive)
+        return;
+
+    backgroundTaskActive = false;
     toolbarTabs.setToolsEnabled (true);
     separationProgress.reset();
     resized();
@@ -806,16 +1053,23 @@ void MainComponent::transcribeLyrics()
     }
 
     beginBackgroundTask ("Transcribing vocals with Whisper...",
-                         [this] { whisperTranscriber.cancel(); endBackgroundTask(); setStatus ("Transcription cancelled."); });
+                         [this] { whisperTranscriber.cancel(); });
+
+    const auto jobGeneration = backgroundTaskGeneration.load();
 
     whisperTranscriber.transcribeAsync (vocalsFile,
-        [this] (const jamstudio::ai::TranscriptionResult& result)
+        [this, jobGeneration] (const jamstudio::ai::TranscriptionResult& result)
         {
+            // Ignore late results after a newer job started or cancel already ended the UI.
+            if (jobGeneration != backgroundTaskGeneration.load())
+                return;
+
             endBackgroundTask();
 
             if (! result.success)
             {
-                setStatus (result.errorMessage);
+                // Cancel is a normal outcome — keep the app open and show status only.
+                setStatus (result.errorMessage.isNotEmpty() ? result.errorMessage : "Transcription cancelled.");
                 return;
             }
 
@@ -831,8 +1085,11 @@ void MainComponent::transcribeLyrics()
                     setStatus ("AI lyrics applied: " + juce::String (currentLyrics.getNumLines()) + " lines" + wordInfo + ".");
                 });
         },
-        [this] (const float progress, const juce::String& message)
+        [this, jobGeneration] (const float progress, const juce::String& message)
         {
+            if (jobGeneration != backgroundTaskGeneration.load() || ! backgroundTaskActive)
+                return;
+
             separationProgress.setProgress (progress, message);
             setStatus (message);
         });
@@ -857,16 +1114,21 @@ void MainComponent::transcribeTab()
     }
 
     beginBackgroundTask ("Transcribing notes with basic-pitch...",
-                         [this] { basicPitchTranscriber.cancel(); endBackgroundTask(); setStatus ("Transcription cancelled."); });
+                         [this] { basicPitchTranscriber.cancel(); });
+
+    const auto jobGeneration = backgroundTaskGeneration.load();
 
     basicPitchTranscriber.transcribeAsync (melodicFile,
-        [this] (const jamstudio::ai::PitchTranscriptionResult& result)
+        [this, jobGeneration] (const jamstudio::ai::PitchTranscriptionResult& result)
         {
+            if (jobGeneration != backgroundTaskGeneration.load())
+                return;
+
             endBackgroundTask();
 
             if (! result.success)
             {
-                setStatus (result.errorMessage);
+                setStatus (result.errorMessage.isNotEmpty() ? result.errorMessage : "Transcription cancelled.");
                 return;
             }
 
@@ -880,8 +1142,11 @@ void MainComponent::transcribeTab()
                     resized();
                 });
         },
-        [this] (const float progress, const juce::String& message)
+        [this, jobGeneration] (const float progress, const juce::String& message)
         {
+            if (jobGeneration != backgroundTaskGeneration.load() || ! backgroundTaskActive)
+                return;
+
             separationProgress.setProgress (progress, message);
             setStatus (message);
         });
@@ -903,25 +1168,39 @@ void MainComponent::separateStems()
         return;
     }
 
-    beginBackgroundTask ("Separating stems...",
-                         [this] { demucsSeparator.cancel(); endBackgroundTask(); setStatus ("Separation cancelled."); });
+    beginBackgroundTask ("Separating stems (guitar model)...",
+                         [this] { demucsSeparator.cancel(); });
+
+    const auto jobGeneration = backgroundTaskGeneration.load();
 
     demucsSeparator.separateAsync (currentSongFile,
-        [this] (const jamstudio::ai::SeparationResult& result)
+        [this, jobGeneration] (const jamstudio::ai::SeparationResult& result)
         {
+            if (jobGeneration != backgroundTaskGeneration.load())
+                return;
+
             endBackgroundTask();
 
             if (! result.success)
             {
-                setStatus (result.errorMessage);
+                setStatus (result.errorMessage.isNotEmpty() ? result.errorMessage : "Separation cancelled.");
                 return;
             }
 
             loadStemsIntoMixer (result.stemFiles);
-            setStatus ("Separation complete. " + juce::String (result.stemFiles.size()) + " stems loaded.");
+
+            const auto hasGuitar = findStemFileForType (jamstudio::audio::StemType::guitar).existsAsFile();
+            setStatus (hasGuitar
+                           ? "Separation complete — Guitar stem ready. Solo Guitar to learn the part, "
+                             "or mute Guitar to play along with the band."
+                           : "Separation complete. " + juce::String (result.stemFiles.size())
+                                 + " stems loaded.");
         },
-        [this] (const float progress, const juce::String& message)
+        [this, jobGeneration] (const float progress, const juce::String& message)
         {
+            if (jobGeneration != backgroundTaskGeneration.load() || ! backgroundTaskActive)
+                return;
+
             separationProgress.setProgress (progress, message);
             setStatus (message);
         });
@@ -992,7 +1271,8 @@ void MainComponent::loadRecordingAsStem (const juce::File& recordingFile,
         stem->setName (displayName);
     }
 
-    rebuildStemStrips();
+    rebuildStemLanes();
+    rebuildMixerWindow();
 }
 
 void MainComponent::loadStemsIntoMixer (const juce::Array<juce::File>& stemFiles)
@@ -1003,7 +1283,11 @@ void MainComponent::loadStemsIntoMixer (const juce::Array<juce::File>& stemFiles
 
     if (stemFiles.size() > 0)
     {
-        waveformDisplay.setSourceFile (stemFiles.getReference (0));
+        // Prefer original song for the main overview waveform when available.
+        if (currentSongFile.existsAsFile())
+            waveformDisplay.setSourceFile (currentSongFile);
+        else
+            waveformDisplay.setSourceFile (stemFiles.getReference (0));
 
         if (currentSongFile.existsAsFile())
             detectTempoFromSong (currentSongFile, false);
@@ -1011,11 +1295,14 @@ void MainComponent::loadStemsIntoMixer (const juce::Array<juce::File>& stemFiles
             detectTempoFromSong (stemFiles.getReference (0), false);
     }
 
-    rebuildStemStrips();
+    rebuildStemLanes();
+    rebuildMixerWindow();
+    mixerWindow.showMixer (true);
+    updatePanelToggleStates();
     resized();
 }
 
-void MainComponent::rebuildStemStrips()
+void MainComponent::rebuildStemLanes()
 {
     stemContainer.removeAllChildren();
 
@@ -1025,24 +1312,30 @@ void MainComponent::rebuildStemStrips()
     {
         if (const auto* stem = mixer.getStem (i))
         {
-            auto strip = std::make_unique<jamstudio::ui::StemStrip> (
+            auto lane = std::make_unique<jamstudio::ui::StemLane> (
                 i, *stem,
                 transportController.getFormatManager(),
                 thumbnailCache,
-                transportController,
-                [this] (const int index, const bool muted, const bool solo, const float volume)
-                {
-                    auto& stemMixer = transportController.getStemMixer();
-                    stemMixer.setStemMuted (index, muted);
-                    stemMixer.setStemSolo (index, solo);
-                    stemMixer.setStemVolume (index, volume);
-                });
+                transportController);
 
-            stemContainer.addAndMakeVisible (strip.release());
+            stemContainer.addAndMakeVisible (lane.release());
         }
     }
 
+    layoutStemLanes();
     resized();
+}
+
+void MainComponent::rebuildMixerWindow()
+{
+    mixerWindow.rebuild (transportController.getStemMixer(),
+                         [this] (const int index, const bool muted, const bool solo, const float volume)
+                         {
+                             auto& stemMixer = transportController.getStemMixer();
+                             stemMixer.setStemMuted (index, muted);
+                             stemMixer.setStemSolo (index, solo);
+                             stemMixer.setStemVolume (index, volume);
+                         });
 }
 
 void MainComponent::setStatus (const juce::String& message)

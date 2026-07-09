@@ -2,6 +2,8 @@
 
 #include "../notation/LyricsTrack.h"
 
+#include <mutex>
+
 namespace jamstudio::ai
 {
 
@@ -19,6 +21,7 @@ class WhisperTranscriber
 {
 public:
     WhisperTranscriber();
+    ~WhisperTranscriber();
 
     [[nodiscard]] bool isAvailable() const;
 
@@ -26,6 +29,7 @@ public:
                           std::function<void (TranscriptionResult)> onComplete,
                           TranscriptionProgressCallback onProgress = nullptr);
 
+    /** Requests cancel and immediately kills the running Whisper process if any. */
     void cancel();
 
 private:
@@ -33,8 +37,12 @@ private:
                                          jamstudio::notation::LyricsTrack& lyrics,
                                          juce::String& error) const;
 
+    void clearActiveProcess();
+
     juce::String whisperExecutable;
     std::atomic<bool> shouldCancel { false };
+    std::mutex processMutex;
+    juce::ChildProcess* activeProcess = nullptr;
 };
 
 } // namespace jamstudio::ai

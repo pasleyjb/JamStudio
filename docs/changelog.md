@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.9.6] — 2026-07-08
+
+### Fixed
+
+- Lyrics (Whisper) and tab (basic-pitch) progress stuck at 50%: drain subprocess output during the run (prevents pipe deadlock) and report real / time-based progress to 100%
+- Cancel during AI lyrics / tab / separation could hang or kill the whole app: cancel now stops only the child process, ends the progress UI, and leaves JamStudio open
+
+### Changed
+
+- Stem separation defaults to **htdemucs_6s** (6 stems) so **Guitar** and **Piano** are dedicated tracks instead of a muddy "Other" bucket
+- Separation quality: Demucs `--shifts 2` for cleaner stems (slightly slower)
+- Mixer orders stems guitar-first for practice (Guitar, Bass, Drums, Vocals, Piano, Other)
+- AI tab generation prefers the Guitar stem when available
+- Friendly stem labels: Guitar, Bass, Drums, Vocals, Piano
+- **UI redesign (practice DAW):** lyrics top (karaoke highlight), tabs middle, main waveform + stem lanes bottom
+- **Floating mixer window** with vertical faders, M/S buttons, and per-stem colours
+- View toggles (Lyrics / Tabs / Stems / Mixer) + View menu — panels available as soon as a song loads
+- Cooler pro-DAW dark theme, brighter playhead, section headers
+- Mixer channels **scale to fit the mixer window** (no fixed strip size / horizontal scroll)
+- Primary lyrics path is **online synced LRC** (lrclib.net) via song metadata, with multi-match picker
+
+### Added
+
+- `StemType::guitar` and `StemType::piano` with filename detection from Demucs output
+- `MixerWindow`, `MixerChannelStrip`, `StemLane` UI modules
+- `OnlineLyricsClient` + `OnlineLyricsDialog` + `SongMetadata` extraction
+- Toolbar / menu: **Online Lyrics** (Find Synced Lyrics Online)
+
 ## [0.9.5] — 2026-07-08
 
 ### Added

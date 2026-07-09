@@ -20,6 +20,7 @@
 - [x] Progress UI during separation
 - [x] Load separated stems into mixer
 - [x] Fallback: manual stem import (open song as single track)
+- [x] Guitar-first 6-stem model (`htdemucs_6s`) with dedicated Guitar / Piano tracks
 
 ## M4 — Stem Mixer
 

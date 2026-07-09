@@ -2,6 +2,8 @@
 
 #include "../notation/Score.h"
 
+#include <mutex>
+
 namespace jamstudio::ai
 {
 
@@ -19,6 +21,7 @@ class BasicPitchTranscriber
 {
 public:
     BasicPitchTranscriber();
+    ~BasicPitchTranscriber();
 
     [[nodiscard]] bool isAvailable() const;
 
@@ -30,9 +33,12 @@ public:
 
 private:
     [[nodiscard]] juce::File findMidiFile (const juce::File& outputDirectory) const;
+    void clearActiveProcess();
 
     juce::String basicPitchExecutable;
     std::atomic<bool> shouldCancel { false };
+    std::mutex processMutex;
+    juce::ChildProcess* activeProcess = nullptr;
 };
 
 } // namespace jamstudio::ai

@@ -226,8 +226,14 @@ void TranscriptionCorrectionDialog::applyEdits()
 
 void TranscriptionCorrectionDialog::dismiss()
 {
+    // Only close this dialog — never request application quit.
     if (auto* dw = findParentComponentOfClass<juce::DialogWindow>())
+    {
         dw->exitModalState (0);
+        return;
+    }
+
+    setVisible (false);
 }
 
 void TranscriptionCorrectionDialog::showLyrics (juce::Component* parent,
@@ -245,7 +251,9 @@ void TranscriptionCorrectionDialog::showLyrics (juce::Component* parent,
     options.dialogBackgroundColour = JamStudioTheme::getColours().panelBackground;
     options.content.setOwned (dialog);
     options.componentToCentreAround = parent;
-    options.useNativeTitleBar = true;
+    // Non-native title bar: on some Linux desktops a native dialog close can quit the app.
+    options.useNativeTitleBar = false;
+    options.escapeKeyTriggersCloseButton = true;
     options.resizable = true;
     options.launchAsync();
 }
@@ -265,7 +273,8 @@ void TranscriptionCorrectionDialog::showScore (juce::Component* parent,
     options.dialogBackgroundColour = JamStudioTheme::getColours().panelBackground;
     options.content.setOwned (dialog);
     options.componentToCentreAround = parent;
-    options.useNativeTitleBar = true;
+    options.useNativeTitleBar = false;
+    options.escapeKeyTriggersCloseButton = true;
     options.resizable = true;
     options.launchAsync();
 }

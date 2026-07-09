@@ -13,9 +13,11 @@
 #include "../notation/NotationView.h"
 #include "../notation/Score.h"
 #include "../ui/NotationHeaderBar.h"
+#include "../ui/FullPageTabsWindow.h"
 #include "../ui/JamStudioTheme.h"
+#include "../ui/MixerWindow.h"
 #include "../ui/SeparationProgressBar.h"
-#include "../ui/StemStrip.h"
+#include "../ui/StemLane.h"
 #include "../ui/ToolbarTabs.h"
 #include "../ui/TranscriptionCorrectionDialog.h"
 #include "../ui/TransportBar.h"
@@ -55,13 +57,19 @@ private:
         importScoreCmd,
         showTabViewCmd,
         showSheetViewCmd,
+        openFullPageTabsCmd,
         aiTabCmd,
         importLyricsCmd,
+        onlineLyricsCmd,
         aiLyricsCmd,
         recordCmd,
         detectTempoCmd,
         aboutCmd,
-        aiToolsCmd
+        aiToolsCmd,
+        toggleLyricsPanelCmd,
+        toggleNotationPanelCmd,
+        toggleStemsPanelCmd,
+        toggleMixerWindowCmd
     };
 
     void openSong();
@@ -73,10 +81,12 @@ private:
     void importScore();
     void importScoreFile (const juce::File& file, const juce::String& displayName);
     void importLyrics();
+    void findOnlineLyrics();
     void applyScore (const jamstudio::notation::Score& score, bool replaceLyricsFromScore);
     void setNotationDisplayMode (jamstudio::notation::NotationMode mode);
     void toggleTabView();
     void toggleSheetView();
+    void openFullPageTabs();
     void setActiveScorePart (int partIndex);
     void updateNotationPanelVisibility();
     void syncNotationUiState();
@@ -88,7 +98,8 @@ private:
     [[nodiscard]] juce::File findMelodicStemFile();
     void loadRecordingAsStem (const juce::File& recordingFile, const juce::String& displayName);
     void loadStemsIntoMixer (const juce::Array<juce::File>& stemFiles);
-    void rebuildStemStrips();
+    void rebuildStemLanes();
+    void rebuildMixerWindow();
     void setStatus (const juce::String& message);
     void refreshTheme();
     void showAiToolsSetup();
@@ -97,6 +108,15 @@ private:
     void endBackgroundTask();
     [[nodiscard]] juce::Array<jamstudio::ai::AiToolInfo> getAiToolStatuses() const;
     [[nodiscard]] juce::File getDefaultRecordingFile() const;
+
+    void updatePanelToggleStates();
+    void applyPanelVisibility();
+    void revealWorkspacePanels();
+    void toggleLyricsPanel();
+    void toggleNotationPanel();
+    void toggleStemsPanel();
+    void toggleMixerWindow();
+    void layoutStemLanes();
 
     juce::AudioDeviceManager& audioDeviceManager;
     jamstudio::audio::TransportController transportController;
@@ -115,8 +135,10 @@ private:
     jamstudio::ui::ToolbarTabs toolbarTabs;
     juce::Label statusLabel;
     jamstudio::ui::SeparationProgressBar separationProgress;
+    juce::Label lyricsSectionLabel { {}, "LYRICS" };
+    juce::Label notationSectionLabel { {}, "TABS / NOTATION" };
+    juce::Label stemsSectionLabel { {}, "STEMS" };
     jamstudio::ui::WaveformDisplay waveformDisplay;
-    juce::Label lyricsSectionLabel { {}, "Lyrics" };
     juce::Viewport notationViewport;
     jamstudio::ui::NotationHeaderBar notationHeaderBar;
     jamstudio::notation::LyricsView lyricsView;
@@ -124,12 +146,21 @@ private:
     jamstudio::ui::TransportBar transportBar;
     juce::Viewport stemViewport;
     juce::Component stemContainer;
+    jamstudio::ui::MixerWindow mixerWindow;
+    jamstudio::ui::FullPageTabsWindow fullPageTabsWindow;
 
     juce::File currentSongFile;
     juce::File currentScoreFile;
     juce::File currentLyricsFile;
     juce::File currentProjectFile;
     std::unique_ptr<juce::FileChooser> fileChooser;
+
+    bool lyricsPanelVisible = true;
+    bool notationPanelVisible = true;
+    bool stemsPanelVisible = true;
+
+    std::atomic<uint32_t> backgroundTaskGeneration { 0 };
+    bool backgroundTaskActive = false;
 };
 
 } // namespace jamstudio::app

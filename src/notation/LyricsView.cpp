@@ -23,20 +23,20 @@ public:
         if (lyrics.isEmpty())
         {
             g.setColour (colours.textSecondary);
-            g.setFont (juce::FontOptions (13.0f));
-            g.drawText ("Import LRC lyrics or use AI Lyrics from the Lyrics menu / toolbar",
-                        getLocalBounds(), juce::Justification::centred);
+            g.setFont (juce::FontOptions (14.0f));
+            g.drawText ("Lyrics ready — import LRC or run AI Lyrics after loading a song",
+                        getLocalBounds().reduced (16), juce::Justification::centred);
             return;
         }
 
-        auto y = 8;
+        auto y = 12;
 
         if (lyrics.getTitle().isNotEmpty())
         {
             g.setColour (colours.textSecondary);
             g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-            g.drawText (lyrics.getTitle(), 12, y, getWidth() - 24, 18, juce::Justification::centredLeft);
-            y += 22;
+            g.drawText (lyrics.getTitle(), 16, y, getWidth() - 32, 18, juce::Justification::centred);
+            y += 26;
         }
 
         for (int lineIndex = 0; lineIndex < lyrics.getNumLines(); ++lineIndex)
@@ -44,41 +44,70 @@ public:
             if (const auto* line = lyrics.getLine (lineIndex))
             {
                 const auto isActive = lineIndex == activeLine;
-                const auto lineHeight = isActive ? 34 : 24;
-                auto lineBounds = juce::Rectangle<int> (8, y, getWidth() - 16, lineHeight);
+                const auto lineHeight = isActive ? 42 : 26;
+                auto lineBounds = juce::Rectangle<int> (12, y, getWidth() - 24, lineHeight);
 
                 if (isActive)
                 {
-                    g.setColour (colours.lyricsHighlight.withAlpha (0.18f));
-                    g.fillRoundedRectangle (lineBounds.toFloat().reduced (2.0f), 4.0f);
+                    // Soft glow behind the active line
+                    g.setColour (colours.lyricsHighlight.withAlpha (0.12f));
+                    g.fillRoundedRectangle (lineBounds.toFloat().expanded (4.0f, 2.0f), 8.0f);
+                    g.setColour (colours.lyricsHighlight.withAlpha (0.22f));
+                    g.fillRoundedRectangle (lineBounds.toFloat(), 6.0f);
                 }
 
-                g.setFont (juce::FontOptions (isActive ? 18.0f : 14.0f,
+                g.setFont (juce::FontOptions (isActive ? 22.0f : 15.0f,
                                               isActive ? juce::Font::bold : juce::Font::plain));
-                g.setColour (isActive ? colours.text : colours.textSecondary);
 
                 if (isActive && lyrics.hasWordTimings() && ! line->words.empty())
                 {
-                    auto x = static_cast<float> (lineBounds.getX() + 8);
+                    // Centre the karaoke line as a group
+                    float totalWidth = 0.0f;
+                    juce::Array<float> wordWidths;
+
+                    for (const auto& word : line->words)
+                    {
+                        const auto w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), word.text);
+                        wordWidths.add (w);
+                        totalWidth += w + 10.0f;
+                    }
+
+                    auto x = static_cast<float> (lineBounds.getCentreX()) - totalWidth * 0.5f;
 
                     for (int wordIndex = 0; wordIndex < static_cast<int> (line->words.size()); ++wordIndex)
                     {
                         const auto& word = line->words[static_cast<size_t> (wordIndex)];
                         const auto isActiveWord = wordIndex == activeWord;
-                        g.setColour (isActiveWord ? colours.lyricsHighlight : colours.text);
-                        const auto wordWidth = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), word.text);
+                        const auto wordWidth = wordWidths[wordIndex];
+
+                        if (isActiveWord)
+                        {
+                            g.setColour (colours.lyricsHighlight.withAlpha (0.35f));
+                            g.fillRoundedRectangle (x - 4.0f,
+                                                    static_cast<float> (lineBounds.getY() + 4),
+                                                    wordWidth + 10.0f,
+                                                    static_cast<float> (lineBounds.getHeight() - 8),
+                                                    4.0f);
+                            g.setColour (colours.lyricsHighlight);
+                        }
+                        else
+                        {
+                            g.setColour (colours.text.withAlpha (0.88f));
+                        }
+
                         g.drawText (word.text, static_cast<int> (x), lineBounds.getY(),
-                                    juce::roundToInt (wordWidth) + 6, lineBounds.getHeight(),
+                                    juce::roundToInt (wordWidth) + 8, lineBounds.getHeight(),
                                     juce::Justification::centredLeft);
-                        x += wordWidth + 8.0f;
+                        x += wordWidth + 10.0f;
                     }
                 }
                 else
                 {
-                    g.drawText (line->text, lineBounds, juce::Justification::centredLeft);
+                    g.setColour (isActive ? colours.lyricsHighlight : colours.textSecondary);
+                    g.drawText (line->text, lineBounds, juce::Justification::centred);
                 }
 
-                y += lineHeight + 4;
+                y += lineHeight + 6;
             }
         }
     }
@@ -86,7 +115,7 @@ public:
     void resized() override
     {
         const auto lineCount = juce::jmax (1, lyrics.getNumLines());
-        setSize (getWidth(), 40 + lineCount * 30 + (lyrics.getTitle().isNotEmpty() ? 22 : 0));
+        setSize (getWidth(), 48 + lineCount * 36 + (lyrics.getTitle().isNotEmpty() ? 26 : 0));
     }
 
 private:
@@ -102,7 +131,7 @@ LyricsView::LyricsView (jamstudio::audio::TransportController& transport)
     viewport.setViewedComponent (content.get(), false);
     viewport.setScrollBarsShown (true, false);
     addAndMakeVisible (viewport);
-    startTimerHz (20);
+    startTimerHz (30);
 }
 
 LyricsView::~LyricsView() = default;
@@ -128,12 +157,15 @@ void LyricsView::clear()
 
 void LyricsView::paint (juce::Graphics& g)
 {
-    g.fillAll (jamstudio::ui::JamStudioTheme::getColours().lyricsBackground);
+    const auto colours = jamstudio::ui::JamStudioTheme::getColours();
+    g.fillAll (colours.lyricsBackground);
+    g.setColour (colours.border.withAlpha (0.5f));
+    g.drawRect (getLocalBounds(), 1);
 }
 
 void LyricsView::resized()
 {
-    viewport.setBounds (getLocalBounds());
+    viewport.setBounds (getLocalBounds().reduced (1));
     content->setSize (viewport.getMaximumVisibleWidth(), content->getHeight());
 }
 
@@ -162,7 +194,7 @@ void LyricsView::scrollToActiveLine()
     if (lastActiveLine < 0 || ! content)
         return;
 
-    const auto lineHeight = 30;
+    const auto lineHeight = 36;
     const auto targetY = juce::jmax (0, lastActiveLine * lineHeight - getHeight() / 3);
     viewport.setViewPosition (0, targetY);
 }

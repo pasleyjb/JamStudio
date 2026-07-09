@@ -29,6 +29,26 @@ bool BasicPitchTranscriber::isAvailable() const
     return basicPitchExecutable.isNotEmpty();
 }
 
+BasicPitchTranscriber::~BasicPitchTranscriber()
+{
+    cancel();
+}
+
+void BasicPitchTranscriber::clearActiveProcess()
+{
+    const std::lock_guard<std::mutex> lock (processMutex);
+    activeProcess = nullptr;
+}
+
+void BasicPitchTranscriber::cancel()
+{
+    shouldCancel = true;
+    const std::lock_guard<std::mutex> lock (processMutex);
+
+    if (activeProcess != nullptr)
+        activeProcess->kill();
+}
+
 void BasicPitchTranscriber::transcribeAsync (const juce::File& audioFile,
                                              std::function<void (PitchTranscriptionResult)> onComplete,
                                              PitchTranscriptionProgressCallback onProgress)
@@ -38,25 +58,30 @@ void BasicPitchTranscriber::transcribeAsync (const juce::File& audioFile,
     juce::Thread::launch ([this, audioFile, onComplete = std::move (onComplete), onProgress = std::move (onProgress)]
     {
         PitchTranscriptionResult result;
+        auto finish = [&] (PitchTranscriptionResult r)
+        {
+            clearActiveProcess();
+            juce::MessageManager::callAsync ([onComplete, r = std::move (r)] { onComplete (r); });
+        };
 
         if (shouldCancel)
         {
             result.errorMessage = "Transcription cancelled.";
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
             return;
         }
 
         if (! isAvailable())
         {
             result.errorMessage = "basic-pitch is not installed. Install with: pip install basic-pitch";
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
             return;
         }
 
         if (! audioFile.existsAsFile())
         {
             result.errorMessage = "Audio file does not exist.";
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
             return;
         }
 
@@ -85,10 +110,23 @@ void BasicPitchTranscriber::transcribeAsync (const juce::File& audioFile,
 
         juce::ChildProcess process;
 
+        {
+            const std::lock_guard<std::mutex> lock (processMutex);
+            activeProcess = &process;
+        }
+
         if (! process.start (command, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
         {
             result.errorMessage = "Failed to start basic-pitch process.";
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
+            return;
+        }
+
+        if (shouldCancel)
+        {
+            process.kill();
+            result.errorMessage = "Transcription cancelled.";
+            finish (std::move (result));
             return;
         }
 
@@ -96,44 +134,82 @@ void BasicPitchTranscriber::transcribeAsync (const juce::File& audioFile,
         {
             juce::MessageManager::callAsync ([onProgress]
             {
-                onProgress (0.05f, "Transcribing notes with basic-pitch...");
+                onProgress (0.05f, "Starting basic-pitch transcription...");
             });
         }
+
+        auto accumulatedOutput = juce::String();
+        auto lastReportedProgress = -1.0f;
+        const auto startMs = juce::Time::getMillisecondCounterHiRes();
 
         while (process.isRunning())
         {
             if (shouldCancel)
             {
                 process.kill();
-                result.errorMessage = "Transcription cancelled.";
-                juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
-                return;
+                break;
+            }
+
+            accumulatedOutput += process.readAllProcessOutput();
+
+            if (shouldCancel)
+            {
+                process.kill();
+                break;
             }
 
             if (onProgress != nullptr)
             {
-                juce::MessageManager::callAsync ([onProgress]
+                const auto elapsedSec = (juce::Time::getMillisecondCounterHiRes() - startMs) / 1000.0;
+                const auto parsed = parsePercentProgress (accumulatedOutput);
+                const auto progress = parsed >= 0.0f
+                                          ? juce::jlimit (0.05f, 0.95f, 0.05f + parsed * 0.9f)
+                                          : estimateRunningProgress (elapsedSec, 45.0);
+                const auto message = "Transcribing notes with basic-pitch... "
+                                     + juce::String (static_cast<int> (progress * 100.0f)) + "%";
+
+                if (progress > lastReportedProgress + 0.005f)
                 {
-                    onProgress (0.5f, "Transcribing notes with basic-pitch...");
-                });
+                    lastReportedProgress = progress;
+                    juce::MessageManager::callAsync ([onProgress, progress, message]
+                    {
+                        onProgress (progress, message);
+                    });
+                }
             }
 
-            juce::Thread::sleep (500);
+            juce::Thread::sleep (100);
         }
 
-        const auto processOutput = process.readAllProcessOutput();
+        accumulatedOutput += process.readAllProcessOutput();
+        clearActiveProcess();
+
+        if (shouldCancel)
+        {
+            result.errorMessage = "Transcription cancelled.";
+            finish (std::move (result));
+            return;
+        }
 
         if (process.getExitCode() != 0)
         {
-            const auto summary = extractProcessErrorSummary (processOutput);
+            const auto summary = extractProcessErrorSummary (accumulatedOutput);
 
             if (summary.isNotEmpty())
                 result.errorMessage = "basic-pitch failed: " + summary;
             else
                 result.errorMessage = "basic-pitch failed with exit code " + juce::String (process.getExitCode());
 
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
             return;
+        }
+
+        if (onProgress != nullptr)
+        {
+            juce::MessageManager::callAsync ([onProgress]
+            {
+                onProgress (0.97f, "Converting MIDI to tab...");
+            });
         }
 
         const auto midiFile = findMidiFile (outputDirectory);
@@ -141,7 +217,7 @@ void BasicPitchTranscriber::transcribeAsync (const juce::File& audioFile,
         if (! midiFile.existsAsFile())
         {
             result.errorMessage = "basic-pitch completed but no MIDI file was found.";
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
             return;
         }
 
@@ -150,7 +226,7 @@ void BasicPitchTranscriber::transcribeAsync (const juce::File& audioFile,
         if (! jamstudio::notation::MidiScoreConverter::convertFile (midiFile, result.score, convertError))
         {
             result.errorMessage = convertError;
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
             return;
         }
 
@@ -163,13 +239,8 @@ void BasicPitchTranscriber::transcribeAsync (const juce::File& audioFile,
         }
 
         result.success = true;
-        juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+        finish (std::move (result));
     });
-}
-
-void BasicPitchTranscriber::cancel()
-{
-    shouldCancel = true;
 }
 
 juce::File BasicPitchTranscriber::findMidiFile (const juce::File& outputDirectory) const

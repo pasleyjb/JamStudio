@@ -17,4 +17,10 @@ namespace jamstudio::ai
 /** Extracts a short human-readable error from subprocess output. */
 [[nodiscard]] juce::String extractProcessErrorSummary (const juce::String& output);
 
+/** Parses the latest "NN%" value from tool output (tqdm / demucs style). Returns -1 if none. */
+[[nodiscard]] float parsePercentProgress (const juce::String& output);
+
+/** Soft progress that approaches ~0.95 while a long job runs (used when tools don't print %). */
+[[nodiscard]] float estimateRunningProgress (double elapsedSeconds, double expectedSeconds = 60.0);
+
 } // namespace jamstudio::ai

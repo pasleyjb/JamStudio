@@ -5,14 +5,86 @@
 namespace jamstudio::ai
 {
 
+namespace
+{
+juce::String progressMessageFromOutput (const juce::String& output, const float progress, const double elapsedSec)
+{
+    const auto lower = output.toLowerCase();
+    const auto pct = juce::String (static_cast<int> (progress * 100.0f)) + "%";
+
+    if (lower.contains ("downloading") || lower.contains ("mib/s") || lower.contains ("kib/s"))
+        return "Downloading Whisper model... " + pct;
+
+    if (lower.contains ("detecting language"))
+        return "Detecting language...";
+
+    if (lower.contains ("detected language") || lower.contains ("[") /* segment lines */)
+        return "Transcribing lyrics... " + pct;
+
+    if (elapsedSec < 8.0)
+        return "Loading Whisper model (first run can take a minute)... " + pct;
+
+    if (elapsedSec < 25.0)
+        return "Preparing audio for transcription... " + pct;
+
+    return "Transcribing vocals with Whisper... " + pct + "  (CPU can take several minutes)";
+}
+
+juce::File findWhisperJson (const juce::File& outputDirectory, const juce::File& audioFile)
+{
+    const auto preferred = outputDirectory.getChildFile (audioFile.getFileNameWithoutExtension() + ".json");
+
+    if (preferred.existsAsFile())
+        return preferred;
+
+    for (const auto& entry : juce::RangedDirectoryIterator (outputDirectory, true, "*.json", juce::File::findFiles))
+    {
+        // Ignore our own log file name collisions
+        if (! entry.getFile().getFileName().endsWithIgnoreCase (".json"))
+            continue;
+
+        return entry.getFile();
+    }
+
+    return {};
+}
+
+juce::String shellQuote (const juce::String& value)
+{
+    // Safe single-quote wrapping for /bin/bash -lc
+    return "'" + value.replace ("'", "'\"'\"'") + "'";
+}
+} // namespace
+
 WhisperTranscriber::WhisperTranscriber()
 {
     whisperExecutable = findWorkingExecutable ({ "whisper", "python3 -m whisper", "python -m whisper" });
 }
 
+WhisperTranscriber::~WhisperTranscriber()
+{
+    cancel();
+}
+
 bool WhisperTranscriber::isAvailable() const
 {
     return whisperExecutable.isNotEmpty();
+}
+
+void WhisperTranscriber::clearActiveProcess()
+{
+    const std::lock_guard<std::mutex> lock (processMutex);
+    activeProcess = nullptr;
+}
+
+void WhisperTranscriber::cancel()
+{
+    shouldCancel = true;
+
+    const std::lock_guard<std::mutex> lock (processMutex);
+
+    if (activeProcess != nullptr)
+        activeProcess->kill();
 }
 
 void WhisperTranscriber::transcribeAsync (const juce::File& audioFile,
@@ -24,25 +96,30 @@ void WhisperTranscriber::transcribeAsync (const juce::File& audioFile,
     juce::Thread::launch ([this, audioFile, onComplete = std::move (onComplete), onProgress = std::move (onProgress)]
     {
         TranscriptionResult result;
+        auto finish = [&] (TranscriptionResult r)
+        {
+            clearActiveProcess();
+            juce::MessageManager::callAsync ([onComplete, r = std::move (r)] { onComplete (r); });
+        };
 
         if (shouldCancel)
         {
             result.errorMessage = "Transcription cancelled.";
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
             return;
         }
 
         if (! isAvailable())
         {
             result.errorMessage = "Whisper is not installed. Install with: pip install openai-whisper";
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
             return;
         }
 
         if (! audioFile.existsAsFile())
         {
             result.errorMessage = "Audio file does not exist.";
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
             return;
         }
 
@@ -54,37 +131,48 @@ void WhisperTranscriber::transcribeAsync (const juce::File& audioFile,
         outputDirectory.deleteRecursively();
         outputDirectory.createDirectory();
 
-        juce::StringArray command;
+        const auto logFile = outputDirectory.getChildFile ("whisper-run.log");
 
-        if (whisperExecutable.contains (" -m "))
-        {
-            command.addTokens (whisperExecutable, " ", "\"'");
-            command.add (audioFile.getFullPathName());
-            command.add ("--output_format");
-            command.add ("json");
-            command.add ("--word_timestamps");
-            command.add ("True");
-            command.add ("--output_dir");
-            command.add (outputDirectory.getFullPathName());
-        }
-        else
-        {
-            command.add (whisperExecutable);
-            command.add (audioFile.getFullPathName());
-            command.add ("--output_format");
-            command.add ("json");
-            command.add ("--word_timestamps");
-            command.add ("True");
-            command.add ("--output_dir");
-            command.add (outputDirectory.getFullPathName());
-        }
+        // Redirect child output to a log file so the UI thread never blocks on pipe reads.
+        // Default openai-whisper model is "turbo" (~1GB) and is very slow on CPU — use "base"
+        // for responsive practice-app lyrics (still good enough for song words).
+        juce::String shellCmd;
+        shellCmd << "export PYTHONUNBUFFERED=1; "
+                 << "exec " << shellQuote (whisperExecutable) << " "
+                 << shellQuote (audioFile.getFullPathName())
+                 << " --model base"
+                 << " --device cpu"
+                 << " --output_format json"
+                 << " --word_timestamps True"
+                 << " --fp16 False"
+                 << " --verbose True"
+                 << " --output_dir " << shellQuote (outputDirectory.getFullPathName())
+                 << " > " << shellQuote (logFile.getFullPathName()) << " 2>&1";
+
+        juce::StringArray command;
+        command.add ("/bin/bash");
+        command.add ("-lc");
+        command.add (shellCmd);
 
         juce::ChildProcess process;
 
-        if (! process.start (command, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
+        {
+            const std::lock_guard<std::mutex> lock (processMutex);
+            activeProcess = &process;
+        }
+
+        if (! process.start (command))
         {
             result.errorMessage = "Failed to start Whisper process.";
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
+            return;
+        }
+
+        if (shouldCancel)
+        {
+            process.kill();
+            result.errorMessage = "Transcription cancelled.";
+            finish (std::move (result));
             return;
         }
 
@@ -92,52 +180,91 @@ void WhisperTranscriber::transcribeAsync (const juce::File& audioFile,
         {
             juce::MessageManager::callAsync ([onProgress]
             {
-                onProgress (0.05f, "Transcribing vocals with Whisper...");
+                onProgress (0.04f, "Starting Whisper (base model, CPU)...");
             });
         }
+
+        auto lastReportedProgress = -1.0f;
+        const auto startMs = juce::Time::getMillisecondCounterHiRes();
 
         while (process.isRunning())
         {
             if (shouldCancel)
             {
                 process.kill();
-                result.errorMessage = "Transcription cancelled.";
-                juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
-                return;
+                break;
             }
+
+            // Non-blocking: poll log file instead of fread on the child pipe.
+            const auto accumulatedOutput = logFile.existsAsFile() ? logFile.loadFileAsString() : juce::String();
+            const auto elapsedSec = (juce::Time::getMillisecondCounterHiRes() - startMs) / 1000.0;
 
             if (onProgress != nullptr)
             {
-                juce::MessageManager::callAsync ([onProgress]
+                const auto parsed = parsePercentProgress (accumulatedOutput);
+                // Time-based progress always moves; % from tqdm boosts when available.
+                // Never let a stale "0%" keep the bar glued at 5%.
+                const auto fromTool = parsed >= 0.0f ? (0.08f + parsed * 0.82f) : 0.0f;
+                const auto fromTime = estimateRunningProgress (elapsedSec, 75.0);
+                const auto progress = juce::jlimit (0.04f, 0.94f, juce::jmax (fromTool, fromTime));
+                const auto message = progressMessageFromOutput (accumulatedOutput, progress, elapsedSec);
+
+                if (progress > lastReportedProgress + 0.004f)
                 {
-                    onProgress (0.5f, "Transcribing vocals with Whisper...");
-                });
+                    lastReportedProgress = progress;
+                    juce::MessageManager::callAsync ([onProgress, progress, message]
+                    {
+                        onProgress (progress, message);
+                    });
+                }
             }
 
-            juce::Thread::sleep (500);
+            juce::Thread::sleep (200);
         }
 
-        const auto processOutput = process.readAllProcessOutput();
+        // Wait briefly for process bookkeeping / final log flush
+        process.waitForProcessToFinish (2000);
+        clearActiveProcess();
+
+        const auto accumulatedOutput = logFile.existsAsFile() ? logFile.loadFileAsString() : juce::String();
+
+        if (shouldCancel)
+        {
+            result.errorMessage = "Transcription cancelled.";
+            finish (std::move (result));
+            return;
+        }
 
         if (process.getExitCode() != 0)
         {
-            const auto summary = extractProcessErrorSummary (processOutput);
+            const auto summary = extractProcessErrorSummary (accumulatedOutput);
 
             if (summary.isNotEmpty())
                 result.errorMessage = "Whisper failed: " + summary;
             else
                 result.errorMessage = "Whisper failed with exit code " + juce::String (process.getExitCode());
 
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
             return;
         }
 
-        const auto jsonFile = outputDirectory.getChildFile (audioFile.getFileNameWithoutExtension() + ".json");
+        if (onProgress != nullptr)
+        {
+            juce::MessageManager::callAsync ([onProgress]
+            {
+                onProgress (0.97f, "Reading Whisper lyrics...");
+            });
+        }
+
+        const auto jsonFile = findWhisperJson (outputDirectory, audioFile);
 
         if (! jsonFile.existsAsFile())
         {
-            result.errorMessage = "Whisper completed but no JSON output was found.";
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            result.errorMessage = "Whisper completed but no JSON output was found."
+                                  + (accumulatedOutput.isNotEmpty()
+                                         ? (" Log: " + extractProcessErrorSummary (accumulatedOutput))
+                                         : juce::String());
+            finish (std::move (result));
             return;
         }
 
@@ -146,7 +273,7 @@ void WhisperTranscriber::transcribeAsync (const juce::File& audioFile,
         if (! parseWhisperJson (jsonFile, result.lyrics, parseError))
         {
             result.errorMessage = parseError;
-            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            finish (std::move (result));
             return;
         }
 
@@ -159,13 +286,8 @@ void WhisperTranscriber::transcribeAsync (const juce::File& audioFile,
         }
 
         result.success = true;
-        juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+        finish (std::move (result));
     });
-}
-
-void WhisperTranscriber::cancel()
-{
-    shouldCancel = true;
 }
 
 bool WhisperTranscriber::parseWhisperJson (const juce::File& jsonFile,

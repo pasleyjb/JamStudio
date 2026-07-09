@@ -12,10 +12,10 @@ juce::Array<AiToolInfo> AiToolsCatalog::getToolStatuses (const DemucsSeparator& 
     tools.add ({
         "demucs",
         "Demucs",
-        "Stem separation (vocals, drums, bass, other)",
+        "Stem separation with dedicated guitar (htdemucs_6s)",
         demucs.isAvailable(),
         "pipx install demucs && pipx inject demucs torchcodec",
-        "First run downloads PyTorch models. If separation fails on save, run: pipx inject demucs torchcodec"
+        "Uses the 6-stem model so Guitar is its own track (not mixed into Other). First run downloads models."
     });
 
     tools.add ({

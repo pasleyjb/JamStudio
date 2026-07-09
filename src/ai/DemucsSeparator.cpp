@@ -56,6 +56,27 @@ bool DemucsSeparator::isAvailable() const
     return demucsExecutable.isNotEmpty();
 }
 
+void DemucsSeparator::setModelName (const juce::String& name)
+{
+    if (name.isNotEmpty())
+        modelName = name;
+}
+
+juce::String DemucsSeparator::getModelName() const
+{
+    return modelName;
+}
+
+void DemucsSeparator::setShifts (const int newShifts)
+{
+    shifts = juce::jlimit (0, 10, newShifts);
+}
+
+int DemucsSeparator::getShifts() const
+{
+    return shifts;
+}
+
 void DemucsSeparator::separateAsync (const juce::File& inputFile,
                                      std::function<void (SeparationResult)> onComplete,
                                      SeparationProgressCallback onProgress)
@@ -94,18 +115,40 @@ void DemucsSeparator::separateAsync (const juce::File& inputFile,
         juce::ChildProcess process;
         const auto command = buildCommand (inputFile, outputDirectory);
 
+        {
+            const std::lock_guard<std::mutex> lock (processMutex);
+            activeProcess = &process;
+        }
+
         if (! process.start (command, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
         {
+            {
+                const std::lock_guard<std::mutex> lock (processMutex);
+                activeProcess = nullptr;
+            }
             result.errorMessage = "Failed to start Demucs process.";
+            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            return;
+        }
+
+        if (shouldCancel)
+        {
+            process.kill();
+            {
+                const std::lock_guard<std::mutex> lock (processMutex);
+                activeProcess = nullptr;
+            }
+            result.errorMessage = "Separation cancelled.";
             juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
             return;
         }
 
         if (onProgress != nullptr)
         {
-            juce::MessageManager::callAsync ([onProgress]
+            const auto startMessage = "Starting stem separation (" + modelName + ")...";
+            juce::MessageManager::callAsync ([onProgress, startMessage]
             {
-                onProgress (0.0f, "Starting stem separation...");
+                onProgress (0.0f, startMessage);
             });
         }
 
@@ -117,12 +160,16 @@ void DemucsSeparator::separateAsync (const juce::File& inputFile,
             if (shouldCancel)
             {
                 process.kill();
-                result.errorMessage = "Separation cancelled.";
-                juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
-                return;
+                break;
             }
 
             accumulatedOutput += process.readAllProcessOutput();
+
+            if (shouldCancel)
+            {
+                process.kill();
+                break;
+            }
 
             if (onProgress != nullptr)
             {
@@ -139,10 +186,22 @@ void DemucsSeparator::separateAsync (const juce::File& inputFile,
                 }
             }
 
-            juce::Thread::sleep (200);
+            juce::Thread::sleep (100);
         }
 
         accumulatedOutput += process.readAllProcessOutput();
+
+        {
+            const std::lock_guard<std::mutex> lock (processMutex);
+            activeProcess = nullptr;
+        }
+
+        if (shouldCancel)
+        {
+            result.errorMessage = "Separation cancelled.";
+            juce::MessageManager::callAsync ([onComplete, result] { onComplete (result); });
+            return;
+        }
 
         if (process.getExitCode() != 0)
         {
@@ -179,6 +238,10 @@ void DemucsSeparator::separateAsync (const juce::File& inputFile,
 void DemucsSeparator::cancel()
 {
     shouldCancel = true;
+    const std::lock_guard<std::mutex> lock (processMutex);
+
+    if (activeProcess != nullptr)
+        activeProcess->kill();
 }
 
 juce::File DemucsSeparator::getOutputDirectory (const juce::File& inputFile) const
@@ -212,19 +275,23 @@ juce::StringArray DemucsSeparator::buildCommand (const juce::File& inputFile,
     juce::StringArray command;
 
     if (demucsExecutable.contains (" -m "))
-    {
         command.addTokens (demucsExecutable, " ", "\"'");
-        command.add ("-o");
-        command.add (outputDirectory.getFullPathName());
-        command.add (inputFile.getFullPathName());
-    }
     else
-    {
         command.add (demucsExecutable);
-        command.add ("-o");
-        command.add (outputDirectory.getFullPathName());
-        command.add (inputFile.getFullPathName());
+
+    // htdemucs_6s produces dedicated guitar + piano stems (better for practice).
+    command.add ("-n");
+    command.add (modelName);
+
+    if (shifts > 0)
+    {
+        command.add ("--shifts");
+        command.add (juce::String (shifts));
     }
+
+    command.add ("-o");
+    command.add (outputDirectory.getFullPathName());
+    command.add (inputFile.getFullPathName());
 
     return command;
 }

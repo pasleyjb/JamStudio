@@ -7,14 +7,14 @@
 namespace jamstudio::ui
 {
 
-/** Audacity-style tabbed toolbar hosting contextual tool buttons. */
+/** Tabbed tool ribbon. Panel show/hide lives under the View tab (not on the workspace). */
 class ToolbarTabs : public juce::Component
 {
 public:
     enum class Tab
     {
-        transport = 0,
-        project,
+        project = 0,
+        view,
         stems,
         notation,
         lyrics,
@@ -32,10 +32,16 @@ public:
         std::function<void()> importScore;
         std::function<void()> showTabView;
         std::function<void()> showSheetView;
+        std::function<void()> openFullPageTabs;
         std::function<void()> aiTab;
         std::function<void()> importLyrics;
+        std::function<void()> onlineLyrics;
         std::function<void()> aiLyrics;
         std::function<void()> toggleRecording;
+        std::function<void()> toggleLyricsPanel;
+        std::function<void()> toggleNotationPanel;
+        std::function<void()> toggleStemsPanel;
+        std::function<void()> toggleMixerWindow;
     };
 
     explicit ToolbarTabs (Actions actions);
@@ -46,24 +52,26 @@ public:
     void setRecordingActive (bool recording);
     void setToolsEnabled (bool enabled);
     void setNotationViewState (jamstudio::notation::NotationMode mode);
+    void setPanelVisibilityState (bool lyricsVisible, bool notationVisible,
+                                  bool stemsVisible, bool mixerVisible);
 
 private:
     void showTab (Tab tab);
     void layoutPanel (juce::Component& panel, const std::vector<juce::Component*>& buttons);
+    void styleToggle (juce::TextButton& button, bool on);
 
     Actions toolbarActions;
-    Tab activeTab = Tab::transport;
+    Tab activeTab = Tab::project;
 
-    juce::TextButton transportTab { "Transport" };
     juce::TextButton projectTab { "Project" };
+    juce::TextButton viewTab { "View" };
     juce::TextButton stemsTab { "Stems" };
     juce::TextButton notationTab { "Notation" };
     juce::TextButton lyricsTab { "Lyrics" };
     juce::TextButton recordTab { "Record" };
 
-    juce::Component transportPanel;
-    juce::Label transportHint;
     juce::Component projectPanel;
+    juce::Component viewPanel;
     juce::Component stemsPanel;
     juce::Component notationPanel;
     juce::Component lyricsPanel;
@@ -78,10 +86,17 @@ private:
     IndicatorButton importScoreButton { "importScore", "Import File" };
     IndicatorButton tabViewButton { "tabView", "Tab" };
     IndicatorButton sheetViewButton { "sheetView", "Sheet" };
+    IndicatorButton fullPageTabsButton { "fullPageTabs", "Full Page" };
     IndicatorButton aiTabButton { "aiTab", "AI Tab" };
     IndicatorButton importLyricsButton { "importLyrics", "Import LRC" };
+    IndicatorButton onlineLyricsButton { "onlineLyrics", "Online Lyrics" };
     IndicatorButton aiLyricsButton { "aiLyrics", "AI Lyrics" };
     IndicatorButton recordButton { "record", "Record" };
+
+    juce::TextButton showLyricsPanelButton { "Lyrics Panel" };
+    juce::TextButton showNotationPanelButton { "Tabs Panel" };
+    juce::TextButton showStemsPanelButton { "Stems Panel" };
+    juce::TextButton showMixerPanelButton { "Mixer Window" };
 };
 
 } // namespace jamstudio::ui

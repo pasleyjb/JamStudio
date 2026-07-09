@@ -11,7 +11,7 @@ juce_add_gui_app(JamStudio
     PRODUCT_NAME "JamStudio"
     COMPANY_NAME "JamStudio"
     BUNDLE_ID "com.jamstudio.app"
-    NEEDS_CURL FALSE
+    NEEDS_CURL TRUE
     NEEDS_WEB_BROWSER FALSE)
 
 juce_generate_juce_header(JamStudio)
@@ -45,18 +45,26 @@ target_sources(JamStudio PRIVATE
     src/notation/TranscriptionEditor.cpp
     src/notation/ScoreLyricsExtractor.cpp
     src/notation/TabLibraryClient.cpp
+    src/notation/SongMetadata.cpp
+    src/notation/OnlineLyricsClient.cpp
     src/project/ProjectManager.cpp
     src/project/RecentProjects.cpp
     src/ui/JamStudioTheme.cpp
     src/ui/JamStudioLookAndFeel.cpp
     src/ui/IndicatorButton.cpp
+    src/ui/TapeDeckButton.cpp
     src/ui/ToolbarTabs.cpp
     src/ui/AiToolsSetupDialog.cpp
     src/ui/StemMiniWaveform.cpp
     src/ui/StemStrip.cpp
+    src/ui/StemLane.cpp
+    src/ui/MixerChannelStrip.cpp
+    src/ui/MixerWindow.cpp
     src/ui/NotationHeaderBar.cpp
+    src/ui/FullPageTabsWindow.cpp
     src/ui/TabLibraryBrowserDialog.cpp
     src/ui/TranscriptionCorrectionDialog.cpp
+    src/ui/OnlineLyricsDialog.cpp
     src/ui/TransportBar.cpp
     src/ui/WaveformDisplay.cpp
     src/ui/SeparationProgressBar.cpp)
@@ -73,7 +81,7 @@ target_compile_definitions(JamStudio PRIVATE
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_REPORT_APP_USAGE=0
     JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0)
+    JUCE_USE_CURL=1)
 
 target_link_libraries(JamStudio PRIVATE
     juce::juce_audio_utils

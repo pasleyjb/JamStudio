@@ -2,11 +2,12 @@
 
 #include "../audio/TransportController.h"
 #include "IndicatorButton.h"
+#include "TapeDeckButton.h"
 
 namespace jamstudio::ui
 {
 
-/** Slim Audacity-style transport row with master volume and tempo controls. */
+/** Transport row with tape-deck play/pause/stop, scrubber, master, and tempo. */
 class TransportBar : public juce::Component,
                      public juce::Timer
 {
@@ -31,13 +32,14 @@ public:
 
 private:
     void updateMetronomeIndicator();
+    void updateTransportIndicators();
 
     jamstudio::audio::TransportController& transportController;
     DetectTempoCallback detectTempoCallback;
 
-    IndicatorButton playButton { "play", "Play" };
-    IndicatorButton pauseButton { "pause", "Pause" };
-    IndicatorButton stopButton { "stop", "Stop" };
+    TapeDeckButton playButton { "play", TapeDeckButton::Icon::play };
+    TapeDeckButton pauseButton { "pause", TapeDeckButton::Icon::pause };
+    TapeDeckButton stopButton { "stop", TapeDeckButton::Icon::stop };
     juce::Slider positionSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxLeft };
     juce::Label positionLabel;
     juce::Label masterLabel { {}, "Master" };
