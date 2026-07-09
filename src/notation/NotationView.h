@@ -25,6 +25,12 @@ public:
     void setPrintFriendly (bool shouldBePrintFriendly);
     void setFollowPlayback (bool shouldFollow);
 
+    /**
+     * Tell the horizontal strip how tall the parent viewport is so measures
+     * scale up (bigger frets / wider measures) instead of leaving empty space.
+     */
+    void setStripViewportHeight (int heightPixels);
+
     [[nodiscard]] LayoutMode getLayoutMode() const noexcept { return layoutMode; }
     [[nodiscard]] int getContentHeight() const noexcept;
     [[nodiscard]] int getContentWidth() const noexcept;
@@ -51,17 +57,24 @@ private:
     void drawTabNote (juce::Graphics& g, const NoteEvent& note, juce::Rectangle<int> bounds,
                       int x, bool forPrint) const;
 
+    [[nodiscard]] int measureWidthPx() const noexcept;
+    [[nodiscard]] int measureHeightPx() const noexcept;
+    [[nodiscard]] int lyricRowHeightPx() const noexcept;
+    [[nodiscard]] float displayScale() const noexcept;
+
     jamstudio::audio::TransportController& transportController;
     Score score;
     LayoutMode layoutMode = LayoutMode::horizontalStrip;
     bool printFriendly = false;
     bool followPlayback = true;
+    int stripViewportHeight = 0;
     int lastHighlightedMeasure = -1;
     double lastHighlightedBeat = -1.0;
     double lastScrolledBeat = -1.0;
-    static constexpr int measureWidth = 180;
-    static constexpr int measureHeight = 160;
-    static constexpr int lyricRowHeight = 22;
+
+    static constexpr int baseMeasureWidth = 180;
+    static constexpr int baseMeasureHeight = 160;
+    static constexpr int baseLyricRowHeight = 22;
     static constexpr int pageMargin = 24;
     static constexpr int rowGap = 16;
 };

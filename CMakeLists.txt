@@ -11,10 +11,22 @@ juce_add_gui_app(JamStudio
     PRODUCT_NAME "JamStudio"
     COMPANY_NAME "JamStudio"
     BUNDLE_ID "com.jamstudio.app"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/JamStudioIcon256.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/resources/JamStudioIcon48.png"
     NEEDS_CURL TRUE
     NEEDS_WEB_BROWSER FALSE)
 
 juce_generate_juce_header(JamStudio)
+
+# Brand artwork (window icon + wizard splash + mode tiles)
+juce_add_binary_data(JamStudioAssets
+    HEADER_NAME "JamStudioAssets.h"
+    NAMESPACE JamStudioAssets
+    SOURCES
+        resources/JamStudioIcon.jpg
+        resources/JamStudioIcon256.png
+        resources/Practice.jpg
+        resources/wizardbkgrnd.jpg)
 
 target_sources(JamStudio PRIVATE
     src/app/AppMenuBar.cpp
@@ -54,6 +66,7 @@ target_sources(JamStudio PRIVATE
     src/project/RecentProjects.cpp
     src/ui/JamStudioTheme.cpp
     src/ui/JamStudioLookAndFeel.cpp
+    src/ui/BrandAssets.cpp
     src/ui/IndicatorButton.cpp
     src/ui/TapeDeckButton.cpp
     src/ui/ToolbarTabs.cpp
@@ -65,6 +78,7 @@ target_sources(JamStudio PRIVATE
     src/ui/MixerWindow.cpp
     src/ui/NotationHeaderBar.cpp
     src/ui/FullPageTabsWindow.cpp
+    src/ui/FullPageLyricsWindow.cpp
     src/ui/TabLibraryBrowserDialog.cpp
     src/ui/TranscriptionCorrectionDialog.cpp
     src/ui/OnlineLyricsDialog.cpp
@@ -74,7 +88,9 @@ target_sources(JamStudio PRIVATE
     src/ui/SeparationProgressBar.cpp
     src/ui/StartupWizard.cpp)
 
-target_include_directories(JamStudio PRIVATE src)
+target_include_directories(JamStudio PRIVATE
+    src
+    ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_JamStudioAssets/JuceLibraryCode)
 
 target_compile_definitions(JamStudio PRIVATE
     JUCE_USE_FLAC=1
@@ -89,6 +105,7 @@ target_compile_definitions(JamStudio PRIVATE
     JUCE_USE_CURL=1)
 
 target_link_libraries(JamStudio PRIVATE
+    JamStudioAssets
     juce::juce_audio_utils
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)

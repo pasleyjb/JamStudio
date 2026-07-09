@@ -44,6 +44,13 @@ MixerChannelStrip::MixerChannelStrip (const int stemIndex,
 
     volumeSlider.setRange (0.0, 1.0, 0.01);
     volumeSlider.setSliderSnapsToMousePosition (true);
+    volumeSlider.setMouseDragSensitivity (180);
+    volumeSlider.setVelocityBasedMode (false);
+    volumeSlider.setPopupDisplayEnabled (true, true, this);
+    volumeSlider.setTextValueSuffix (" %");
+    volumeSlider.setNumDecimalPlacesToDisplay (0);
+    volumeSlider.setColour (juce::Slider::textBoxTextColourId,
+                            JamStudioTheme::getColours().text);
     volumeSlider.onValueChange = [this]
     {
         levelLabel.setText (juce::String (static_cast<int> (volumeSlider.getValue() * 100)),
@@ -212,13 +219,13 @@ void MixerChannelStrip::resized()
     levelLabel.setBounds (bounds.removeFromBottom (levelH));
     bounds.removeFromBottom (juce::jmax (2, getHeight() / 80));
 
-    // Fader + meter side-by-side
+    // Fader + meter side-by-side — leave room for realistic cap width.
     const auto meterW = juce::jlimit (8, 14, bounds.getWidth() / 4);
     meterBounds = bounds.removeFromRight (meterW).reduced (1, 2);
     bounds.removeFromRight (juce::jmax (2, getWidth() / 20));
 
-    const auto sidePad = juce::jmax (2, getWidth() / 14);
-    volumeSlider.setBounds (bounds.reduced (sidePad, 0));
+    const auto sidePad = juce::jmax (1, getWidth() / 18);
+    volumeSlider.setBounds (bounds.reduced (sidePad, 2));
 }
 
 } // namespace jamstudio::ui

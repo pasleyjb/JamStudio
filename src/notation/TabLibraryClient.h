@@ -57,6 +57,11 @@ public:
     [[nodiscard]] static juce::Array<TabLibraryEntry> search (const TabLibraryCatalog& catalog,
                                                              const juce::String& query);
 
+    /** Ranked search using artist + title (preferred for automatic practice setup). */
+    [[nodiscard]] static juce::Array<TabLibraryEntry> searchByMetadata (const TabLibraryCatalog& catalog,
+                                                                        const juce::String& title,
+                                                                        const juce::String& artist);
+
 private:
     [[nodiscard]] static TabLibraryFetchResult loadCatalog();
     [[nodiscard]] static TabLibraryFetchResult parseCatalogJson (const juce::String& jsonText,

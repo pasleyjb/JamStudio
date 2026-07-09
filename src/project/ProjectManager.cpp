@@ -139,7 +139,7 @@ juce::File ProjectManager::resolveStemFile (const juce::String& storedPath,
         }
     }
 
-    // Last resort: permanent Documents/JamStudio/Stems cache by filename
+    // Permanent Documents/JamStudio/Stems cache by exact filename
     const auto stemsCache = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
                                 .getChildFile ("JamStudio")
                                 .getChildFile ("Stems");
@@ -151,9 +151,49 @@ juce::File ProjectManager::resolveStemFile (const juce::String& storedPath,
         for (const auto& entry : juce::RangedDirectoryIterator (stemsCache, true, name,
                                                                 juce::File::findFiles))
             return entry.getFile();
+
+        // Match bare stem role names (guitar.wav, Guitar.wav, etc.)
+        const auto bare = absolute.getFileNameWithoutExtension().toLowerCase();
+
+        if (bare.isNotEmpty())
+        {
+            for (const auto& entry : juce::RangedDirectoryIterator (stemsCache, true, "*",
+                                                                    juce::File::findFiles))
+            {
+                const auto f = entry.getFile();
+                const auto n = f.getFileNameWithoutExtension().toLowerCase();
+
+                if (n == bare || n.contains (bare) || bare.contains (n))
+                {
+                    if (f.hasFileExtension ("wav") || f.hasFileExtension ("flac")
+                        || f.hasFileExtension ("mp3") || f.hasFileExtension ("ogg"))
+                        return f;
+                }
+            }
+        }
     }
 
     return {};
+}
+
+int ProjectManager::countResolvedStems (const ProjectData& data, const juce::File& projectFile)
+{
+    int count = 0;
+
+    for (const auto& stem : data.stems)
+        if (resolveStemFile (stem.filePath, projectFile).existsAsFile())
+            ++count;
+
+    return count;
+}
+
+bool ProjectManager::needsStemRecovery (const ProjectData& data, const juce::File& projectFile)
+{
+    // Projects that only ever stored the full song (1 entry) don't need demucs recovery.
+    if (data.stems.size() < 2)
+        return false;
+
+    return countResolvedStems (data, projectFile) < 2;
 }
 
 bool ProjectManager::relocateStemMedia (const juce::File& projectFile,

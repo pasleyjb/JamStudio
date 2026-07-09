@@ -36,27 +36,62 @@ public:
     void resized() override;
 
 private:
+    enum class CardIcon
+    {
+        practice,      // guitar / learning
+        performance,   // play / stage
+        recording,     // record disc
+        openProject,   // folder
+        newSong,       // disc / audio file
+        back           // chevron
+    };
+
+    /** Square icon tile with caption under the glyph. */
+    class IconCardButton : public juce::Button
+    {
+    public:
+        IconCardButton (const juce::String& name,
+                        CardIcon icon,
+                        const juce::String& caption,
+                        const juce::String& detail = {});
+
+        void setCustomIcon (juce::Image image);
+
+        void paintButton (juce::Graphics& g,
+                          bool shouldDrawButtonAsHighlighted,
+                          bool shouldDrawButtonAsDown) override;
+
+    private:
+        void drawIcon (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour) const;
+
+        CardIcon iconType;
+        juce::String caption;
+        juce::String detail;
+        juce::Image customIcon;
+    };
+
     void showPage (int pageIndex);
+    static void layoutHorizontalCards (juce::Rectangle<int> area,
+                                       const std::vector<juce::Component*>& cards,
+                                       int gap);
 
     ModeChosenCallback onModeChosen;
     PracticeChoiceCallback onPracticeChoice;
 
+    juce::Image wizardBackground;
     juce::Label titleLabel;
     juce::Label subtitleLabel;
 
     juce::Component modePage;
-    juce::TextButton practiceButton { "1. Practice" };
-    juce::TextButton performanceButton { "2. Performance" };
-    juce::TextButton recordingButton { "3. Recording" };
-    juce::Label practiceDesc;
-    juce::Label performanceDesc;
-    juce::Label recordingDesc;
+    IconCardButton practiceButton;
+    IconCardButton performanceButton;
+    IconCardButton recordingButton;
 
     juce::Component practicePage;
     juce::Label practiceTitle;
-    juce::TextButton openProjectButton { "Open Existing Project" };
-    juce::TextButton newSongButton { "New Practice from Song" };
-    juce::TextButton practiceBackButton { "Back" };
+    IconCardButton openProjectButton;
+    IconCardButton newSongButton;
+    IconCardButton practiceBackButton;
     juce::Label practiceHint;
 
     int currentPage = 0;

@@ -1,30 +1,236 @@
 #include "StartupWizard.h"
 
+#include "BrandAssets.h"
 #include "JamStudioTheme.h"
 
 namespace jamstudio::ui
 {
 
-StartupWizard::StartupWizard()
+//==============================================================================
+StartupWizard::IconCardButton::IconCardButton (const juce::String& name,
+                                               const CardIcon icon,
+                                               const juce::String& captionText,
+                                               const juce::String& detailText)
+    : juce::Button (name),
+      iconType (icon),
+      caption (captionText),
+      detail (detailText)
 {
-    titleLabel.setText ("Welcome to JamStudio", juce::dontSendNotification);
-    titleLabel.setFont (juce::FontOptions (28.0f, juce::Font::bold));
-    titleLabel.setJustificationType (juce::Justification::centred);
-    addAndMakeVisible (titleLabel);
+    setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    setTooltip (detailText.isNotEmpty() ? detailText : captionText);
+}
 
-    subtitleLabel.setText ("What do you want to do?", juce::dontSendNotification);
-    subtitleLabel.setFont (juce::FontOptions (16.0f));
-    subtitleLabel.setJustificationType (juce::Justification::centred);
-    subtitleLabel.setColour (juce::Label::textColourId, JamStudioTheme::getColours().textSecondary);
-    addAndMakeVisible (subtitleLabel);
+void StartupWizard::IconCardButton::setCustomIcon (juce::Image image)
+{
+    customIcon = std::move (image);
+    repaint();
+}
 
-    // Mode page
-    addAndMakeVisible (modePage);
-    auto styleModeButton = [] (juce::TextButton& b)
+void StartupWizard::IconCardButton::paintButton (juce::Graphics& g,
+                                                 const bool shouldDrawButtonAsHighlighted,
+                                                 const bool shouldDrawButtonAsDown)
+{
+    const auto colours = JamStudioTheme::getColours();
+    auto bounds = getLocalBounds().toFloat().reduced (2.0f);
+
+    // Free-floating tile (soft shadow, no parent window chrome)
+    g.setColour (juce::Colours::black.withAlpha (0.28f));
+    g.fillRoundedRectangle (bounds.translated (0.0f, 3.0f), 16.0f);
+
+    auto face = colours.buttonFace;
+
+    if (shouldDrawButtonAsDown)
+        face = face.darker (0.18f);
+    else if (shouldDrawButtonAsHighlighted)
+        face = face.brighter (0.08f);
+
+    g.setGradientFill (juce::ColourGradient (face.brighter (0.16f),
+                                             bounds.getTopLeft(),
+                                             face.darker (0.16f),
+                                             bounds.getBottomRight(),
+                                             false));
+    g.fillRoundedRectangle (bounds, 16.0f);
+
+    g.setColour (shouldDrawButtonAsHighlighted ? colours.accent.withAlpha (0.9f)
+                                               : colours.border.withAlpha (0.85f));
+    g.drawRoundedRectangle (bounds, 16.0f, shouldDrawButtonAsHighlighted ? 2.2f : 1.3f);
+
+    if (shouldDrawButtonAsHighlighted)
     {
-        b.setColour (juce::TextButton::buttonColourId, JamStudioTheme::getColours().buttonFace);
-        b.setColour (juce::TextButton::textColourOffId, JamStudioTheme::getColours().text);
-    };
+        g.setColour (colours.accent.withAlpha (0.10f));
+        g.fillRoundedRectangle (bounds.reduced (1.5f), 12.0f);
+    }
+
+    // Layout: icon upper 58%, caption lower band
+    auto inner = bounds.reduced (bounds.getWidth() * 0.12f, bounds.getHeight() * 0.10f);
+    auto iconArea = inner.removeFromTop (inner.getHeight() * 0.58f);
+    auto textArea = inner;
+
+    auto iconColour = shouldDrawButtonAsHighlighted ? colours.accent : colours.text;
+
+    if (shouldDrawButtonAsDown)
+        iconColour = iconColour.darker (0.12f);
+
+    // Keep icon drawing square inside iconArea
+    const auto side = juce::jmin (iconArea.getWidth(), iconArea.getHeight());
+    auto iconSquare = juce::Rectangle<float> (side, side).withCentre (iconArea.getCentre());
+
+    if (customIcon.isValid())
+    {
+        // Fit custom art (e.g. Practice.jpg headstock) with a little padding.
+        auto dest = iconSquare.reduced (side * 0.04f);
+
+        if (shouldDrawButtonAsDown)
+            dest = dest.translated (0.0f, 1.0f);
+
+        g.setOpacity (shouldDrawButtonAsHighlighted ? 1.0f : 0.96f);
+        g.drawImage (customIcon, dest, juce::RectanglePlacement::centred | juce::RectanglePlacement::onlyReduceInSize);
+        g.setOpacity (1.0f);
+
+        if (shouldDrawButtonAsHighlighted)
+        {
+            g.setColour (colours.accent.withAlpha (0.12f));
+            g.fillRoundedRectangle (dest, 6.0f);
+        }
+    }
+    else
+    {
+        drawIcon (g, iconSquare.reduced (side * 0.06f), iconColour);
+    }
+
+    g.setColour (colours.text);
+    g.setFont (juce::FontOptions (juce::jlimit (13.0f, 18.0f, bounds.getHeight() * 0.11f),
+                                  juce::Font::bold));
+    g.drawText (caption, textArea.removeFromTop (textArea.getHeight() * 0.55f),
+                juce::Justification::centred, true);
+
+    if (detail.isNotEmpty())
+    {
+        g.setColour (colours.textSecondary);
+        g.setFont (juce::FontOptions (juce::jlimit (10.0f, 13.0f, bounds.getHeight() * 0.08f)));
+        g.drawFittedText (detail, textArea.toNearestInt(), juce::Justification::centredTop, 2);
+    }
+}
+
+void StartupWizard::IconCardButton::drawIcon (juce::Graphics& g,
+                                              juce::Rectangle<float> area,
+                                              const juce::Colour colour) const
+{
+    g.setColour (colour);
+    const auto cx = area.getCentreX();
+    const auto cy = area.getCentreY();
+    const auto w = area.getWidth();
+    const auto h = area.getHeight();
+
+    switch (iconType)
+    {
+        case CardIcon::practice:
+        {
+            // Fallback only when Practice.jpg is missing — simple open-book headstock outline.
+            juce::Path head;
+            const auto tipY = area.getY() + h * 0.06f;
+            const auto peakY = area.getY() + h * 0.20f;
+            const auto nutY = area.getY() + h * 0.58f;
+            const auto headW = w * 0.42f;
+            const auto neckW = w * 0.20f;
+            head.startNewSubPath (cx - neckW * 0.5f, nutY);
+            head.lineTo (cx - headW, area.getY() + h * 0.42f);
+            head.lineTo (cx - headW * 0.9f, peakY);
+            head.lineTo (cx, tipY);
+            head.lineTo (cx + headW * 0.9f, peakY);
+            head.lineTo (cx + headW, area.getY() + h * 0.42f);
+            head.lineTo (cx + neckW * 0.5f, nutY);
+            head.closeSubPath();
+            g.fillPath (head);
+            g.fillRect (cx - neckW * 0.5f, nutY, neckW, area.getBottom() - nutY - h * 0.06f);
+            break;
+        }
+
+        case CardIcon::performance:
+        {
+            // Play triangle inside a ring (stage / go live)
+            g.drawEllipse (area.reduced (w * 0.06f), juce::jmax (2.0f, w * 0.07f));
+            juce::Path play;
+            const auto inset = area.reduced (w * 0.28f, h * 0.24f);
+            play.addTriangle (inset.getX() + inset.getWidth() * 0.05f, inset.getY(),
+                              inset.getX() + inset.getWidth() * 0.05f, inset.getBottom(),
+                              inset.getRight(), inset.getCentreY());
+            g.fillPath (play);
+            break;
+        }
+
+        case CardIcon::recording:
+        {
+            // Outer ring + solid record disc
+            g.drawEllipse (area.reduced (w * 0.04f), juce::jmax (2.0f, w * 0.08f));
+            g.setColour (juce::Colour (0xffef4444));
+            g.fillEllipse (area.reduced (w * 0.26f));
+            break;
+        }
+
+        case CardIcon::openProject:
+        {
+            // Folder
+            juce::Path folder;
+            const auto top = area.getY() + h * 0.18f;
+            folder.startNewSubPath (area.getX() + w * 0.08f, top + h * 0.12f);
+            folder.lineTo (area.getX() + w * 0.08f, top);
+            folder.lineTo (area.getX() + w * 0.38f, top);
+            folder.lineTo (area.getX() + w * 0.46f, top + h * 0.12f);
+            folder.lineTo (area.getRight() - w * 0.08f, top + h * 0.12f);
+            folder.lineTo (area.getRight() - w * 0.08f, area.getBottom() - h * 0.12f);
+            folder.lineTo (area.getX() + w * 0.08f, area.getBottom() - h * 0.12f);
+            folder.closeSubPath();
+            g.fillPath (folder);
+            break;
+        }
+
+        case CardIcon::newSong:
+        {
+            // Audio disc + note
+            g.drawEllipse (area.reduced (w * 0.08f), juce::jmax (2.0f, w * 0.07f));
+            g.fillEllipse (area.reduced (w * 0.38f));
+            juce::Path note;
+            const auto nx = cx + w * 0.12f;
+            note.addEllipse (nx - w * 0.10f, cy + h * 0.08f, w * 0.18f, h * 0.14f);
+            note.addRectangle (nx + w * 0.05f, cy - h * 0.28f, w * 0.06f, h * 0.40f);
+            g.fillPath (note);
+            break;
+        }
+
+        case CardIcon::back:
+        {
+            juce::Path chevron;
+            const auto midY = cy;
+            chevron.startNewSubPath (cx + w * 0.18f, area.getY() + h * 0.18f);
+            chevron.lineTo (cx - w * 0.18f, midY);
+            chevron.lineTo (cx + w * 0.18f, area.getBottom() - h * 0.18f);
+            g.strokePath (chevron, juce::PathStrokeType (juce::jmax (2.5f, w * 0.10f),
+                                                         juce::PathStrokeType::curved,
+                                                         juce::PathStrokeType::rounded));
+            break;
+        }
+    }
+}
+
+//==============================================================================
+StartupWizard::StartupWizard()
+    : practiceButton ("practice", CardIcon::practice, "Practice", "Stems · tabs · lyrics"),
+      performanceButton ("performance", CardIcon::performance, "Performance", "Play along"),
+      recordingButton ("recording", CardIcon::recording, "Recording", "Track yourself"),
+      openProjectButton ("openProject", CardIcon::openProject, "Open Project", "Saved .jamstudio"),
+      newSongButton ("newSong", CardIcon::newSong, "New from Song", "Auto setup"),
+      practiceBackButton ("practiceBack", CardIcon::back, "Back", {})
+{
+    wizardBackground = BrandAssets::loadWizardBackground();
+    practiceButton.setCustomIcon (BrandAssets::loadPracticeIcon());
+
+    // Mode title/subtitle removed — free-floating tiles only.
+    titleLabel.setVisible (false);
+    subtitleLabel.setVisible (false);
+
+    // Mode page — horizontal icon cards
+    addAndMakeVisible (modePage);
 
     practiceButton.onClick = [this]
     {
@@ -43,38 +249,22 @@ StartupWizard::StartupWizard()
             onModeChosen (Mode::recording);
     };
 
-    styleModeButton (practiceButton);
-    styleModeButton (performanceButton);
-    styleModeButton (recordingButton);
     modePage.addAndMakeVisible (practiceButton);
     modePage.addAndMakeVisible (performanceButton);
     modePage.addAndMakeVisible (recordingButton);
-
-    practiceDesc.setText ("Learn a song: auto stems, tabs & lyrics → saved project",
-                          juce::dontSendNotification);
-    performanceDesc.setText ("Play along with a full mix and live mixer control",
-                             juce::dontSendNotification);
-    recordingDesc.setText ("Record yourself over backing tracks",
-                           juce::dontSendNotification);
-
-    for (auto* l : { &practiceDesc, &performanceDesc, &recordingDesc })
-    {
-        l->setJustificationType (juce::Justification::centred);
-        l->setColour (juce::Label::textColourId, JamStudioTheme::getColours().textSecondary);
-        modePage.addAndMakeVisible (*l);
-    }
 
     // Practice page
     addChildComponent (practicePage);
     practiceTitle.setText ("Practice setup", juce::dontSendNotification);
     practiceTitle.setFont (juce::FontOptions (22.0f, juce::Font::bold));
     practiceTitle.setJustificationType (juce::Justification::centred);
+    practiceTitle.setColour (juce::Label::textColourId, juce::Colours::white);
     practicePage.addAndMakeVisible (practiceTitle);
 
-    practiceHint.setText ("Open a saved project, or choose a song file to stem + fetch tabs & lyrics automatically.",
+    practiceHint.setText ("Open a saved project, or pick a song to stem and fetch tabs & lyrics.",
                           juce::dontSendNotification);
     practiceHint.setJustificationType (juce::Justification::centred);
-    practiceHint.setColour (juce::Label::textColourId, JamStudioTheme::getColours().textSecondary);
+    practiceHint.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.88f));
     practicePage.addAndMakeVisible (practiceHint);
 
     openProjectButton.onClick = [this]
@@ -121,9 +311,9 @@ void StartupWizard::showPage (const int pageIndex)
     currentPage = pageIndex;
     modePage.setVisible (pageIndex == 0);
     practicePage.setVisible (pageIndex == 1);
-    subtitleLabel.setText (pageIndex == 0 ? "What do you want to do?"
-                                          : "How do you want to practice?",
-                           juce::dontSendNotification);
+    // Keep welcome/subtitle labels hidden — tiles speak for themselves.
+    titleLabel.setVisible (false);
+    subtitleLabel.setVisible (false);
     resized();
     repaint();
 }
@@ -131,59 +321,102 @@ void StartupWizard::showPage (const int pageIndex)
 void StartupWizard::paint (juce::Graphics& g)
 {
     const auto colours = JamStudioTheme::getColours();
-    g.fillAll (colours.windowBackground.withAlpha (0.97f));
+    const auto bounds = getLocalBounds();
 
-    auto card = getLocalBounds().reduced (juce::jmax (40, getWidth() / 8),
-                                          juce::jmax (40, getHeight() / 10)).toFloat();
-    g.setColour (colours.panelBackground);
-    g.fillRoundedRectangle (card, 12.0f);
-    g.setColour (colours.border);
-    g.drawRoundedRectangle (card, 12.0f, 1.5f);
+    // Full-bleed wizard background photo (cover-fit), free-floating UI on top.
+    if (wizardBackground.isValid())
+    {
+        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+        g.drawImage (wizardBackground, bounds.toFloat(),
+                     juce::RectanglePlacement::centred | juce::RectanglePlacement::fillDestination);
+
+        // Darken so floating tiles + white title stay readable.
+        g.setColour (juce::Colours::black.withAlpha (0.42f));
+        g.fillRect (bounds);
+
+        // Soft vignette toward edges
+        g.setGradientFill (juce::ColourGradient (juce::Colours::transparentBlack,
+                                                 bounds.getCentreX(), bounds.getCentreY(),
+                                                 juce::Colours::black.withAlpha (0.35f),
+                                                 0.0f, 0.0f, true));
+        g.fillRect (bounds);
+    }
+    else
+    {
+        g.setGradientFill (juce::ColourGradient (colours.windowBackground,
+                                                 0.0f, 0.0f,
+                                                 colours.windowBackground.darker (0.12f),
+                                                 0.0f, static_cast<float> (getHeight()),
+                                                 false));
+        g.fillAll();
+    }
+
+}
+
+void StartupWizard::layoutHorizontalCards (juce::Rectangle<int> area,
+                                           const std::vector<juce::Component*>& cards,
+                                           const int gap)
+{
+    if (cards.empty() || area.isEmpty())
+        return;
+
+    const int n = static_cast<int> (cards.size());
+    const int maxSide = juce::jmin (area.getHeight(),
+                                    (area.getWidth() - gap * (n - 1)) / n);
+    // Large free-floating tiles (was capped ~180).
+    const int side = juce::jlimit (140, 260, maxSide);
+    const int totalW = n * side + (n - 1) * gap;
+    auto row = juce::Rectangle<int> (totalW, side).withCentre (area.getCentre());
+
+    for (auto* card : cards)
+    {
+        if (card != nullptr)
+            card->setBounds (row.removeFromLeft (side));
+        row.removeFromLeft (gap);
+    }
 }
 
 void StartupWizard::resized()
 {
-    auto outer = getLocalBounds().reduced (juce::jmax (48, getWidth() / 8),
-                                           juce::jmax (48, getHeight() / 10));
-    titleLabel.setBounds (outer.removeFromTop (40));
-    outer.removeFromTop (6);
-    subtitleLabel.setBounds (outer.removeFromTop (28));
-    outer.removeFromTop (16);
+    // Free-floating tiles centered — no welcome text taking vertical space.
+    auto outer = getLocalBounds().reduced (juce::jmax (20, getWidth() / 16),
+                                           juce::jmax (20, getHeight() / 14));
+
+    titleLabel.setBounds ({});
+    subtitleLabel.setBounds ({});
 
     modePage.setBounds (outer);
     practicePage.setBounds (outer);
 
-    // Mode buttons
+    // Mode: three large equal squares floating horizontally
     {
-        auto area = modePage.getLocalBounds().reduced (24, 8);
-        const auto btnH = 56;
-        const auto gap = 28;
-
-        practiceButton.setBounds (area.removeFromTop (btnH));
-        practiceDesc.setBounds (area.removeFromTop (24));
-        area.removeFromTop (gap);
-
-        performanceButton.setBounds (area.removeFromTop (btnH));
-        performanceDesc.setBounds (area.removeFromTop (24));
-        area.removeFromTop (gap);
-
-        recordingButton.setBounds (area.removeFromTop (btnH));
-        recordingDesc.setBounds (area.removeFromTop (24));
+        auto area = modePage.getLocalBounds().reduced (8, 8);
+        layoutHorizontalCards (area,
+                               { &practiceButton, &performanceButton, &recordingButton },
+                               28);
     }
 
-    // Practice page
+    // Practice page: optional short labels + large tiles
     {
-        auto area = practicePage.getLocalBounds().reduced (24, 8);
-        practiceTitle.setBounds (area.removeFromTop (36));
-        area.removeFromTop (8);
-        practiceHint.setBounds (area.removeFromTop (48));
-        area.removeFromTop (20);
+        auto area = practicePage.getLocalBounds().reduced (8, 8);
+        practiceTitle.setBounds (area.removeFromTop (32));
+        area.removeFromTop (4);
+        practiceHint.setBounds (area.removeFromTop (36));
+        area.removeFromTop (10);
 
-        openProjectButton.setBounds (area.removeFromTop (52));
-        area.removeFromTop (12);
-        newSongButton.setBounds (area.removeFromTop (52));
-        area.removeFromTop (20);
-        practiceBackButton.setBounds (area.removeFromTop (40).withSizeKeepingCentre (120, 36));
+        const int gap = 28;
+        const int n = 3;
+        const int maxSide = juce::jmin (area.getHeight(),
+                                        (area.getWidth() - gap * (n - 1)) / n);
+        const int side = juce::jlimit (140, 260, maxSide);
+        const int totalW = n * side + (n - 1) * gap;
+        auto row = juce::Rectangle<int> (totalW, side).withCentre (area.getCentre());
+
+        practiceBackButton.setBounds (row.removeFromLeft (side));
+        row.removeFromLeft (gap);
+        openProjectButton.setBounds (row.removeFromLeft (side));
+        row.removeFromLeft (gap);
+        newSongButton.setBounds (row.removeFromLeft (side));
     }
 }
 

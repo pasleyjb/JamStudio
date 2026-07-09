@@ -50,7 +50,8 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
       notationView (transportController),
       transportBar (transportController),
       mixerWindow (transportController),
-      fullPageTabsWindow (transportController)
+      fullPageTabsWindow (transportController),
+      fullPageLyricsWindow (transportController)
 {
     setSize (1280, 900);
     refreshTheme();
@@ -58,15 +59,24 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     juce::Desktop::getInstance().addDarkModeSettingListener (this);
 
     statusLabel.setJustificationType (juce::Justification::centredLeft);
-    statusLabel.setColour (juce::Label::backgroundColourId,
-                           jamstudio::ui::JamStudioTheme::getColours().statusBackground);
+    statusLabel.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    statusLabel.setColour (juce::Label::textColourId,
+                           jamstudio::ui::JamStudioTheme::getColours().text);
+    statusLabel.setFont (juce::FontOptions (13.0f));
     setStatus ("Choose Practice, Performance, or Recording to begin.");
+
+    statusCancelButton.setVisible (false);
+    statusCancelButton.setColour (juce::TextButton::buttonColourId,
+                                  jamstudio::ui::JamStudioTheme::getColours().buttonFace);
 
     // Top workspace toolbar permanently removed — use menus and View toggles.
     toolbarTabs.setVisible (false);
 
+    // Progress strip never shown — status lives in the bottom border bar.
+    separationProgress.setVisible (false);
+
     addAndMakeVisible (statusLabel);
-    addAndMakeVisible (separationProgress);
+    addAndMakeVisible (statusCancelButton);
     addAndMakeVisible (transportBar);
 
     for (auto* label : { &lyricsSectionLabel, &notationSectionLabel, &stemsSectionLabel })
@@ -136,6 +146,7 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
 
     // Secondary windows must not appear until the user opens them.
     fullPageTabsWindow.showWindow (false);
+    fullPageLyricsWindow.showWindow (false);
     mixerWindow.showMixer (false);
 
     setupStartupWizard();
@@ -148,6 +159,7 @@ MainComponent::~MainComponent()
         practiceSetupPipeline->cancel();
     mixerWindow.showMixer (false);
     fullPageTabsWindow.showWindow (false);
+    fullPageLyricsWindow.showWindow (false);
     audioRecorder.stopRecording();
     audioDeviceManager.removeAudioCallback (&audioRecorder);
     demucsSeparator.cancel();
@@ -184,10 +196,10 @@ void MainComponent::applyPanelVisibility()
 
 void MainComponent::revealWorkspacePanels()
 {
-    // Practice-friendly: lyrics + tabs (2 panels). Stems stay in the Mixer window.
+    // Lyrics + large tabs + stem waveform lanes (mixer is extra detail).
     lyricsPanelVisible = true;
     notationPanelVisible = true;
-    stemsPanelVisible = false;
+    stemsPanelVisible = true;
     applyPanelVisibility();
     mixerWindow.showMixer (true);
     updatePanelToggleStates();
@@ -219,36 +231,43 @@ void MainComponent::toggleMixerWindow()
 
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (jamstudio::ui::JamStudioTheme::getColours().windowBackground);
+    const auto colours = jamstudio::ui::JamStudioTheme::getColours();
+    g.fillAll (colours.windowBackground);
+
+    // Bottom status border bar (messages live here — not a top progress strip).
+    auto statusArea = getLocalBounds().removeFromBottom (30);
+    g.setColour (colours.statusBackground);
+    g.fillRect (statusArea);
+    g.setColour (colours.border);
+    g.drawHorizontalLine (statusArea.getY(), 0.0f, static_cast<float> (getWidth()));
+    g.drawRect (statusArea, 1);
 }
 
 void MainComponent::resized()
 {
     if (startupWizard.isVisible())
     {
-        startupWizard.setBounds (getLocalBounds());
+        // Free-floating wizard covers the main area; status bar still peeks at the bottom.
+        auto all = getLocalBounds();
+        auto statusBar = all.removeFromBottom (30);
+        layoutStatusBar (statusBar);
+        startupWizard.setBounds (all);
         return;
     }
 
-    auto bounds = getLocalBounds().reduced (8);
+    auto bounds = getLocalBounds();
 
-    // Toolbar intentionally omitted — never allocated screen space.
+    // Status border bar pinned to the very bottom of the workspace.
+    auto statusBar = bounds.removeFromBottom (30);
+    layoutStatusBar (statusBar);
 
-    if (separationProgress.isVisible())
-    {
-        separationProgress.setBounds (bounds.removeFromTop (42));
-        bounds.removeFromTop (4);
-    }
+    bounds = bounds.reduced (8);
 
-    statusLabel.setBounds (bounds.removeFromTop (22));
-    bounds.removeFromTop (6);
-
-    // Bottom dock: compact waveform → transport → optional stem lanes
-    // Keeps upper area free so the tab panel can stay large.
+    // Bottom dock: overview waveform → transport → stem lanes with mini-waves
     const int stemLaneCount = stemContainer.getNumChildComponents();
-    const int stemLaneHeight = 40;
+    const int stemLaneHeight = 52;
     const int stemsBlockHeight = stemsPanelVisible
-        ? (18 + juce::jlimit (48, 140, juce::jmax (1, stemLaneCount) * stemLaneHeight + 8))
+        ? (18 + juce::jlimit (64, 260, juce::jmax (1, stemLaneCount) * stemLaneHeight + 8))
         : 0;
     const int waveHeight = 72;
     const int transportHeight = 48;
@@ -302,14 +321,29 @@ void MainComponent::resized()
 
         notationViewport.setVisible (true);
         notationViewport.setBounds (bounds);
-        notationView.setSize (juce::jmax (notationViewport.getWidth(), notationView.getWidth()),
+        // Scale frets/measures to the actual panel size (not a fixed 160px strip).
+        notationView.setStripViewportHeight (notationViewport.getHeight());
+        notationView.setSize (juce::jmax (notationViewport.getWidth(), notationView.getContentWidth()),
                               juce::jmax (notationViewport.getHeight(), notationView.getContentHeight()));
     }
 }
 
+void MainComponent::layoutStatusBar (juce::Rectangle<int> statusBar)
+{
+    auto area = statusBar.reduced (8, 3);
+
+    if (statusCancelButton.isVisible())
+    {
+        statusCancelButton.setBounds (area.removeFromRight (88).reduced (0, 1));
+        area.removeFromRight (8);
+    }
+
+    statusLabel.setBounds (area);
+}
+
 void MainComponent::layoutStemLanes()
 {
-    constexpr int laneHeight = 40;
+    constexpr int laneHeight = 52;
     const auto containerWidth = juce::jmax (stemViewport.getMaximumVisibleWidth(), stemViewport.getWidth());
     stemContainer.setSize (containerWidth, juce::jmax (1, stemContainer.getNumChildComponents()) * laneHeight + 4);
 
@@ -379,6 +413,8 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
         menu.addItem (onlineLyricsCmd, "Find Synced Lyrics Online...", true, false);
         menu.addItem (importLyricsCmd, "Import LRC File...", true, false);
         menu.addItem (aiLyricsCmd, "AI Vocal Transcription (Whisper)", whisperTranscriber.isAvailable(), false);
+        menu.addSeparator();
+        menu.addItem (openFullPageLyricsCmd, "Open Full Page Lyrics (Printable)...", true, false);
         menu.addItem (toggleLyricsPanelCmd, "Show Lyrics Panel", true, lyricsPanelVisible);
     }
     else if (menuName == "Transport")
@@ -413,6 +449,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case showTabViewCmd: toggleTabView(); break;
         case showSheetViewCmd: toggleSheetView(); break;
         case openFullPageTabsCmd: openFullPageTabs(); break;
+        case openFullPageLyricsCmd: openFullPageLyrics(); break;
         case aiTabCmd: transcribeTab(); break;
         case importLyricsCmd: importLyrics(); break;
         case onlineLyricsCmd: findOnlineLyrics(); break;
@@ -582,12 +619,37 @@ void MainComponent::loadProjectFile (const juce::File& file)
         return;
     }
 
+    const auto resolvedStemCount = jamstudio::project::ProjectManager::countResolvedStems (data, file);
+    const auto needsRecovery = jamstudio::project::ProjectManager::needsStemRecovery (data, file);
+
     if (! jamstudio::project::ProjectManager::applyState (data, transportController, transportBar,
                                                         currentScore, currentLyrics,
                                                         currentSongFile, currentScoreFile, currentLyricsFile,
                                                         error, file))
     {
-        setStatus ("Failed to restore project: " + error);
+        // Still try to surface embedded score/lyrics even when all audio is gone.
+        if (data.hasEmbeddedScore)
+            juce::ignoreUnused (jamstudio::notation::Score::fromVar (data.embeddedScore, currentScore));
+
+        if (data.hasEmbeddedLyrics)
+            juce::ignoreUnused (jamstudio::notation::LyricsTrack::fromVar (data.embeddedLyrics, currentLyrics));
+
+        if (! currentScore.isEmpty())
+            applyScore (currentScore, false);
+
+        if (! currentLyrics.isEmpty())
+            lyricsView.setLyrics (currentLyrics);
+
+        currentProjectFile = file;
+        setStatus ("Failed to restore audio: " + error);
+        revealWorkspacePanels();
+
+        if (needsRecovery && juce::File (data.songFilePath).existsAsFile() && demucsSeparator.isAvailable())
+        {
+            currentSongFile = juce::File (data.songFilePath);
+            recoverMissingProjectStems (file);
+        }
+
         return;
     }
 
@@ -621,6 +683,7 @@ void MainComponent::loadProjectFile (const juce::File& file)
     rebuildStemLanes();
     rebuildMixerWindow();
     revealWorkspacePanels();
+
     juce::StringArray loadedParts;
 
     if (! currentScore.isEmpty())
@@ -629,8 +692,127 @@ void MainComponent::loadProjectFile (const juce::File& file)
     if (! currentLyrics.isEmpty())
         loadedParts.add ("lyrics");
 
+    if (resolvedStemCount >= 2)
+        loadedParts.add (juce::String (resolvedStemCount) + " stems");
+    else if (transportController.getStemMixer().getNumStems() > 0)
+        loadedParts.add ("mix only");
+
     setStatus ("Project loaded: " + file.getFileName()
                + (loadedParts.isEmpty() ? "" : " (" + loadedParts.joinIntoString (" + ") + ")"));
+
+    // Old projects pointed at /tmp demucs output — re-separate and pack into .media permanently.
+    if (needsRecovery && currentSongFile.existsAsFile())
+    {
+        if (demucsSeparator.isAvailable())
+            recoverMissingProjectStems (file);
+        else
+            setStatus ("Project loaded with lyrics/tabs, but stems are missing (were under /tmp). "
+                       "Install Demucs (Help → AI Tools), then open this project again to recover.");
+    }
+}
+
+void MainComponent::recoverMissingProjectStems (const juce::File& projectFile)
+{
+    if (! currentSongFile.existsAsFile())
+    {
+        setStatus ("Cannot recover stems — original song file not found.");
+        return;
+    }
+
+    if (! demucsSeparator.isAvailable())
+    {
+        setStatus ("Cannot recover stems — Demucs is not available.");
+        return;
+    }
+
+    if (backgroundTaskActive)
+    {
+        setStatus ("A background job is already running; stems will not recover yet.");
+        return;
+    }
+
+    beginBackgroundTask ("Recovering missing stems from song (one-time)...",
+                         [this] { demucsSeparator.cancel(); });
+
+    const auto jobGeneration = backgroundTaskGeneration.load();
+    const auto songForRecovery = currentSongFile;
+    const auto projectToUpdate = projectFile;
+
+    demucsSeparator.separateAsync (songForRecovery,
+        [this, jobGeneration, projectToUpdate] (const jamstudio::ai::SeparationResult& result)
+        {
+            if (jobGeneration != backgroundTaskGeneration.load())
+                return;
+
+            endBackgroundTask();
+
+            if (! result.success || result.stemFiles.isEmpty())
+            {
+                setStatus (result.errorMessage.isNotEmpty()
+                               ? result.errorMessage
+                               : "Stem recovery failed. Try Stems → Separate Stems, then Save Project.");
+                return;
+            }
+
+            loadStemsIntoMixer (result.stemFiles);
+            mixerWindow.showMixer (true);
+
+            // Pack into permanent project media and rewrite the .jamstudio paths.
+            auto data = jamstudio::project::ProjectManager::captureState (
+                currentSongFile, currentScoreFile, currentLyricsFile,
+                currentScore, currentLyrics, transportController, transportBar);
+
+            if (jamstudio::project::ProjectManager::saveProject (projectToUpdate, data))
+            {
+                currentProjectFile = projectToUpdate;
+                recentProjects.add (projectToUpdate);
+
+                juce::Array<juce::File> permanent;
+
+                for (const auto& stem : data.stems)
+                {
+                    const juce::File f (stem.filePath);
+
+                    if (f.existsAsFile())
+                        permanent.add (f);
+                }
+
+                if (! permanent.isEmpty())
+                {
+                    loadStemsIntoMixer (permanent);
+
+                    auto& mixer = transportController.getStemMixer();
+
+                    for (int i = 0; i < mixer.getNumStems() && i < data.stems.size(); ++i)
+                    {
+                        const auto& s = data.stems.getReference (i);
+                        mixer.setStemMuted (i, s.muted);
+                        mixer.setStemSolo (i, s.solo);
+                        mixer.setStemVolume (i, s.volume);
+
+                        if (s.name.isNotEmpty())
+                            mixer.setStemName (i, s.name);
+                    }
+                }
+
+                setStatus ("Stems recovered and saved to "
+                           + projectToUpdate.getFileNameWithoutExtension()
+                           + ".media/stems/ (" + juce::String (result.stemFiles.size()) + " channels).");
+            }
+            else
+            {
+                setStatus ("Stems recovered in session, but could not update project file. "
+                           "Use Project → Save Project to keep them.");
+            }
+        },
+        [this, jobGeneration] (const float progress, const juce::String& message)
+        {
+            if (jobGeneration != backgroundTaskGeneration.load() || ! backgroundTaskActive)
+                return;
+
+            const auto pct = juce::roundToInt (progress * 100.0f);
+            setStatus ("Recovering stems: " + (pct > 0 ? (juce::String (pct) + "% — ") : juce::String()) + message);
+        });
 }
 
 void MainComponent::importLyrics()
@@ -660,6 +842,8 @@ void MainComponent::importLyrics()
         currentLyricsFile = file;
         currentLyrics = importedLyrics;
         lyricsView.setLyrics (currentLyrics);
+        if (fullPageLyricsWindow.isLyricsWindowVisible())
+            fullPageLyricsWindow.setLyrics (currentLyrics);
         lyricsPanelVisible = true;
         applyPanelVisibility();
         toolbarTabs.setActiveTab (jamstudio::ui::ToolbarTabs::Tab::lyrics);
@@ -693,6 +877,8 @@ void MainComponent::findOnlineLyrics()
             currentLyricsFile = juce::File();
             currentLyrics = std::move (lyrics);
             lyricsView.setLyrics (currentLyrics);
+            if (fullPageLyricsWindow.isLyricsWindowVisible())
+                fullPageLyricsWindow.setLyrics (currentLyrics);
             lyricsPanelVisible = true;
             applyPanelVisibility();
             toolbarTabs.setActiveTab (jamstudio::ui::ToolbarTabs::Tab::lyrics);
@@ -932,6 +1118,19 @@ void MainComponent::openFullPageTabs()
     setStatus ("Full page tabs open — use Print or Export PNG for a printable copy.");
 }
 
+void MainComponent::openFullPageLyrics()
+{
+    if (currentLyrics.isEmpty())
+    {
+        setStatus ("Load or generate lyrics before opening full-page lyrics.");
+        return;
+    }
+
+    fullPageLyricsWindow.setLyrics (currentLyrics);
+    fullPageLyricsWindow.showWindow (true);
+    setStatus ("Full page lyrics open — use Print or Export PNG for a printable sheet.");
+}
+
 void MainComponent::setActiveScorePart (const int partIndex)
 {
     if (currentScore.isEmpty())
@@ -1079,21 +1278,21 @@ void MainComponent::beginBackgroundTask (const juce::String& message, std::funct
     const auto generation = backgroundTaskGeneration.load();
     backgroundTaskActive = true;
 
-    separationProgress.setVisible (true);
-    separationProgress.setProgress (0.0f, message);
-    separationProgress.setCancelCallback ([this, generation, onCancel = std::move (onCancel)]
+    // No top progress strip — message + Cancel live in the bottom status bar.
+    separationProgress.setVisible (false);
+    statusCancelButton.setVisible (true);
+    statusCancelButton.onClick = [this, generation, onCancel = std::move (onCancel)]
     {
-        // Only act if this is still the active job (avoids stale callbacks).
         if (generation != backgroundTaskGeneration.load())
             return;
 
         if (onCancel)
             onCancel();
 
-        // End UI immediately — do not quit the app. Completion callback may also fire later.
         endBackgroundTask();
         setStatus ("Cancelled.");
-    });
+    };
+
     setStatus (message);
     resized();
 }
@@ -1104,7 +1303,10 @@ void MainComponent::endBackgroundTask()
         return;
 
     backgroundTaskActive = false;
+    statusCancelButton.setVisible (false);
+    statusCancelButton.onClick = nullptr;
     separationProgress.reset();
+    separationProgress.setVisible (false);
     resized();
 }
 
@@ -1167,8 +1369,8 @@ void MainComponent::transcribeLyrics()
             if (jobGeneration != backgroundTaskGeneration.load() || ! backgroundTaskActive)
                 return;
 
-            separationProgress.setProgress (progress, message);
-            setStatus (message);
+            const auto pct = juce::roundToInt (progress * 100.0f);
+            setStatus ((pct > 0 ? (juce::String (pct) + "% — ") : juce::String()) + message);
         });
 }
 
@@ -1224,8 +1426,8 @@ void MainComponent::transcribeTab()
             if (jobGeneration != backgroundTaskGeneration.load() || ! backgroundTaskActive)
                 return;
 
-            separationProgress.setProgress (progress, message);
-            setStatus (message);
+            const auto pct = juce::roundToInt (progress * 100.0f);
+            setStatus ((pct > 0 ? (juce::String (pct) + "% — ") : juce::String()) + message);
         });
 }
 
@@ -1278,8 +1480,8 @@ void MainComponent::separateStems()
             if (jobGeneration != backgroundTaskGeneration.load() || ! backgroundTaskActive)
                 return;
 
-            separationProgress.setProgress (progress, message);
-            setStatus (message);
+            const auto pct = juce::roundToInt (progress * 100.0f);
+            setStatus ((pct > 0 ? (juce::String (pct) + "% — ") : juce::String()) + message);
         });
 }
 
@@ -1583,8 +1785,8 @@ void MainComponent::startPracticeFromSongFile (const juce::File& songFile)
             if (jobGeneration != backgroundTaskGeneration.load() || ! backgroundTaskActive)
                 return;
 
-            separationProgress.setProgress (progress, message);
-            setStatus (message);
+            const auto pct = juce::roundToInt (progress * 100.0f);
+            setStatus ((pct > 0 ? (juce::String (pct) + "% — ") : juce::String()) + message);
         },
         [this, jobGeneration] (PracticeSetupResult result)
         {

@@ -20,8 +20,19 @@ public:
     void drawTabButton (juce::TabBarButton& button, juce::Graphics& g,
                         bool isMouseOver, bool isMouseDown) override;
 
+    /** Console-style faders (mixer) + clean horizontal tracks (transport). */
+    void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
+                           float sliderPos, float minSliderPos, float maxSliderPos,
+                           juce::Slider::SliderStyle style, juce::Slider& slider) override;
+
+    int getSliderThumbRadius (juce::Slider& slider) override;
+
 private:
     void applyPalette();
+    void drawVerticalFader (juce::Graphics& g, juce::Rectangle<float> bounds,
+                            float sliderPos, juce::Slider& slider);
+    void drawHorizontalFader (juce::Graphics& g, juce::Rectangle<float> bounds,
+                              float sliderPos, juce::Slider& slider);
 };
 
 } // namespace jamstudio::ui

@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "AppMenuBar.h"
+#include "../ui/BrandAssets.h"
 #include "../ui/JamStudioTheme.h"
 
 namespace jamstudio::app
@@ -12,6 +13,9 @@ MainWindow::MainWindow (juce::AudioDeviceManager& deviceManager)
                       DocumentWindow::allButtons)
 {
     setUsingNativeTitleBar (true);
+
+    if (const auto icon = jamstudio::ui::BrandAssets::loadWindowIcon (256); icon.isValid())
+        setIcon (icon);
 
     auto* content = new MainComponent (deviceManager);
     setContentOwned (content, true);

@@ -15,6 +15,7 @@
 #include "../notation/Score.h"
 #include "../ui/NotationHeaderBar.h"
 #include "../ui/FullPageTabsWindow.h"
+#include "../ui/FullPageLyricsWindow.h"
 #include "../ui/JamStudioTheme.h"
 #include "../ui/MixerWindow.h"
 #include "../ui/SeparationProgressBar.h"
@@ -61,6 +62,7 @@ private:
         showTabViewCmd,
         showSheetViewCmd,
         openFullPageTabsCmd,
+        openFullPageLyricsCmd,
         aiTabCmd,
         importLyricsCmd,
         onlineLyricsCmd,
@@ -80,6 +82,8 @@ private:
     void saveProject();
     void loadProject();
     void loadProjectFile (const juce::File& file);
+    /** Re-run Demucs when a project's separated stems are missing; packs into .media and re-saves. */
+    void recoverMissingProjectStems (const juce::File& projectFile);
     void showRecentProjectsMenu();
     void browseTabLibrary();
     void importScore();
@@ -91,6 +95,7 @@ private:
     void toggleTabView();
     void toggleSheetView();
     void openFullPageTabs();
+    void openFullPageLyrics();
     void setActiveScorePart (int partIndex);
     void updateNotationPanelVisibility();
     void syncNotationUiState();
@@ -123,6 +128,7 @@ private:
     void toggleStemsPanel();
     void toggleMixerWindow();
     void layoutStemLanes();
+    void layoutStatusBar (juce::Rectangle<int> statusBar);
 
     void setupStartupWizard();
     void hideStartupWizard();
@@ -153,6 +159,8 @@ private:
     jamstudio::ui::StartupWizard startupWizard;
     std::unique_ptr<PracticeSetupPipeline> practiceSetupPipeline;
     juce::Label statusLabel;
+    juce::TextButton statusCancelButton { "Cancel" };
+    /** Kept for code compatibility — never shown (status bar carries messages). */
     jamstudio::ui::SeparationProgressBar separationProgress;
     juce::Label lyricsSectionLabel { {}, "LYRICS" };
     juce::Label notationSectionLabel { {}, "TABS / NOTATION" };
@@ -167,6 +175,7 @@ private:
     juce::Component stemContainer;
     jamstudio::ui::MixerWindow mixerWindow;
     jamstudio::ui::FullPageTabsWindow fullPageTabsWindow;
+    jamstudio::ui::FullPageLyricsWindow fullPageLyricsWindow;
 
     juce::File currentSongFile;
     juce::File currentScoreFile;
@@ -176,8 +185,8 @@ private:
 
     bool lyricsPanelVisible = true;
     bool notationPanelVisible = true;
-    /** Stem lanes off by default — use Mixer window; keeps tabs large. */
-    bool stemsPanelVisible = false;
+    /** Stem lanes with mini-waveforms under the transport (mixer still available). */
+    bool stemsPanelVisible = true;
     bool workspaceReady = false;
     jamstudio::ui::StartupWizard::Mode currentMode = jamstudio::ui::StartupWizard::Mode::practice;
 

@@ -54,6 +54,17 @@ public:
     /** Resolve a stored stem path (absolute, relative, or same-name under .media/stems). */
     [[nodiscard]] static juce::File resolveStemFile (const juce::String& storedPath,
                                                      const juce::File& projectFile);
+
+    /** How many of the project's listed stems can still be found on disk. */
+    [[nodiscard]] static int countResolvedStems (const ProjectData& data,
+                                                 const juce::File& projectFile);
+
+    /**
+     * True when the project expected separated stems (2+) but none/few remain —
+     * typical after /tmp cleanup of demucs output.
+     */
+    [[nodiscard]] static bool needsStemRecovery (const ProjectData& data,
+                                                 const juce::File& projectFile);
 };
 
 } // namespace jamstudio::project

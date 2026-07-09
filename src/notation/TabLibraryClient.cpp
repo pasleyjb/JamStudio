@@ -1,5 +1,7 @@
 #include "TabLibraryClient.h"
 
+#include "SongMetadata.h"
+
 namespace jamstudio::notation
 {
 
@@ -212,6 +214,78 @@ juce::Array<TabLibraryEntry> TabLibraryClient::search (const TabLibraryCatalog& 
 
         if (haystack.contains (trimmedQuery))
             matches.add (entry);
+    }
+
+    return matches;
+}
+
+juce::Array<TabLibraryEntry> TabLibraryClient::searchByMetadata (const TabLibraryCatalog& catalog,
+                                                                 const juce::String& title,
+                                                                 const juce::String& artist)
+{
+    struct Ranked
+    {
+        TabLibraryEntry entry;
+        double score = 0.0;
+    };
+
+    juce::Array<Ranked> ranked;
+    SongMetadata probe;
+    probe.title = title;
+    probe.artist = artist;
+
+    for (const auto& entry : catalog.entries)
+    {
+        auto score = probe.scoreCandidate (entry.title, entry.artist);
+
+        // Also allow free-text presence of tokens when scoring is weak but related
+        if (score < 30.0 && title.isNotEmpty())
+        {
+            const auto hay = (entry.title + " " + entry.artist).toLowerCase();
+            const auto t = title.toLowerCase();
+            const auto a = artist.toLowerCase();
+
+            if (hay.contains (t))
+                score += 40.0;
+
+            if (a.isNotEmpty() && hay.contains (a))
+                score += 50.0;
+        }
+
+        if (score >= 35.0)
+            ranked.add ({ entry, score });
+    }
+
+    struct RankSorter
+    {
+        static int compareElements (const Ranked& x, const Ranked& y)
+        {
+            if (x.score > y.score) return -1;
+            if (y.score > x.score) return 1;
+            return 0;
+        }
+    };
+
+    RankSorter sorter;
+    ranked.sort (sorter);
+
+    juce::Array<TabLibraryEntry> matches;
+
+    for (const auto& r : ranked)
+        matches.add (r.entry);
+
+    // Fallback: old free-text search with "artist title" query only
+    if (matches.isEmpty())
+    {
+        juce::StringArray parts;
+
+        if (artist.isNotEmpty())
+            parts.add (artist);
+
+        if (title.isNotEmpty())
+            parts.add (title);
+
+        matches = search (catalog, parts.joinIntoString (" "));
     }
 
     return matches;

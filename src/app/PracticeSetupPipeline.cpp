@@ -169,10 +169,12 @@ void PracticeSetupPipeline::fetchWebTabs()
 {
     webTabsAttempted = true;
     const auto job = generation.load();
-    const auto query = metadata.searchQuery();
+    const auto title = metadata.title;
+    const auto artist = metadata.artist;
+    const auto queryLabel = metadata.displayLabel();
 
     tabLibraryClient.fetchCatalogAsync (
-        [this, job, query] (jamstudio::notation::TabLibraryFetchResult catalogResult)
+        [this, job, title, artist, queryLabel] (jamstudio::notation::TabLibraryFetchResult catalogResult)
         {
             if (! isStillActive (job))
                 return;
@@ -185,18 +187,32 @@ void PracticeSetupPipeline::fetchWebTabs()
                 return;
             }
 
-            const auto matches = jamstudio::notation::TabLibraryClient::search (catalogResult.catalog, query);
+            // Prefer artist + title ranking (not title-only substring matches).
+            const auto matches = jamstudio::notation::TabLibraryClient::searchByMetadata (
+                catalogResult.catalog, title, artist);
 
             if (matches.isEmpty())
             {
-                result.notes.add ("No matching tabs online for \"" + query + "\".");
+                result.notes.add ("No matching tabs online for \"" + queryLabel + "\".");
                 webTabsDone = true;
                 afterWebAssets();
                 return;
             }
 
             const auto entry = matches.getReference (0);
-            reportProgress (0.48f, "Downloading tabs: " + entry.title + "...");
+            const auto matchScore = metadata.scoreCandidate (entry.title, entry.artist);
+
+            // Reject weak title-only hits when we know the artist (wrong band's arrangement).
+            if (artist.isNotEmpty() && matchScore < 40.0)
+            {
+                result.notes.add ("Online tabs for \"" + entry.title + "\" did not match artist \""
+                                  + artist + "\" — using AI tabs instead.");
+                webTabsDone = true;
+                afterWebAssets();
+                return;
+            }
+
+            reportProgress (0.48f, "Downloading tabs: " + entry.artist + " — " + entry.title + "...");
 
             tabLibraryClient.downloadScoreAsync (entry, catalogResult.catalog,
                 [this, job, entry] (jamstudio::notation::TabLibraryDownloadResult download)
@@ -215,9 +231,14 @@ void PracticeSetupPipeline::fetchWebTabs()
                             && ! parsed.isEmpty())
                         {
                             result.score = std::move (parsed);
-                            result.score.setTitle (entry.title);
+                            result.score.setTitle (entry.artist.isNotEmpty()
+                                                       ? entry.artist + " — " + entry.title
+                                                       : entry.title);
                             result.scoreSource = "web";
-                            result.notes.add ("Tabs from online library: " + entry.title);
+                            result.notes.add ("Tabs from online library: "
+                                              + (entry.artist.isNotEmpty()
+                                                     ? entry.artist + " — " + entry.title
+                                                     : entry.title));
                         }
                         else
                         {
@@ -265,25 +286,24 @@ void PracticeSetupPipeline::fetchWebLyrics()
                 return;
             }
 
-            // Prefer synced, non-instrumental, closest duration.
+            // Rank by artist + title (+ album/duration). Never prefer a famous cover
+            // just because the title matches (e.g. Johnny Cash vs album artist).
             int bestIndex = -1;
             double bestScore = -1.0e9;
 
             for (int i = 0; i < candidates.size(); ++i)
             {
                 const auto& c = candidates.getReference (i);
-                double score = 0.0;
+                auto score = metadata.scoreCandidate (c.trackName, c.artistName,
+                                                      c.albumName, c.durationSeconds);
 
                 if (c.hasSyncedLyrics)
-                    score += 100.0;
+                    score += 25.0;
                 else if (c.plainLyrics.isNotEmpty())
-                    score += 40.0;
+                    score += 8.0;
 
                 if (c.instrumental)
-                    score -= 50.0;
-
-                if (metadata.durationSeconds > 0.0 && c.durationSeconds > 0.0)
-                    score -= std::abs (metadata.durationSeconds - c.durationSeconds);
+                    score -= 60.0;
 
                 if (score > bestScore)
                 {
@@ -292,8 +312,16 @@ void PracticeSetupPipeline::fetchWebLyrics()
                 }
             }
 
-            if (bestIndex < 0)
+            // Minimum confidence: require real title match; if artist known, require it too.
+            const double minAccept = metadata.artist.isNotEmpty() ? 50.0 : 35.0;
+
+            if (bestIndex < 0 || bestScore < minAccept)
             {
+                result.notes.add ("Online lyrics did not match "
+                                  + metadata.displayLabel()
+                                  + " closely enough (best score "
+                                  + juce::String (bestScore, 1)
+                                  + ") — will try AI lyrics.");
                 webLyricsDone = true;
                 afterWebAssets();
                 return;
@@ -308,7 +336,8 @@ void PracticeSetupPipeline::fetchWebLyrics()
             {
                 result.lyrics = std::move (lyrics);
                 result.lyricsSource = "web";
-                result.notes.add ("Lyrics from web: " + best.displayLine());
+                result.notes.add ("Lyrics from web: " + best.displayLine()
+                                  + "  [match " + juce::String (bestScore, 0) + "]");
                 webLyricsDone = true;
                 afterWebAssets();
                 return;

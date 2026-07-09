@@ -51,14 +51,60 @@ void NotationView::setFollowPlayback (const bool shouldFollow)
     followPlayback = shouldFollow;
 }
 
+void NotationView::setStripViewportHeight (const int heightPixels)
+{
+    const auto h = juce::jmax (0, heightPixels);
+
+    if (stripViewportHeight == h)
+        return;
+
+    stripViewportHeight = h;
+    updateContentSize();
+    repaint();
+}
+
+float NotationView::displayScale() const noexcept
+{
+    if (layoutMode == LayoutMode::fullPageRows || printFriendly)
+        return 1.0f;
+
+    // Scale tab strip into the space *below* the score title (never over it).
+    const auto target = stripViewportHeight > 0 ? stripViewportHeight : getHeight();
+
+    if (target <= 0)
+        return 1.0f;
+
+    const auto lyrics = score.hasLyrics() ? baseLyricRowHeight : 0;
+    // Leave a clear band for "Song — Part" title at the top of the strip.
+    const auto chrome = 40; // title row + padding under it
+    const auto idealBody = juce::jmax (baseMeasureHeight, target - chrome - lyrics);
+    // Cap so frets stay large but don't eat the title (was up to 2.4×).
+    return juce::jlimit (1.0f, 1.75f, static_cast<float> (idealBody) / static_cast<float> (baseMeasureHeight));
+}
+
+int NotationView::measureWidthPx() const noexcept
+{
+    return juce::roundToInt (static_cast<float> (baseMeasureWidth) * displayScale());
+}
+
+int NotationView::measureHeightPx() const noexcept
+{
+    return juce::roundToInt (static_cast<float> (baseMeasureHeight) * displayScale());
+}
+
+int NotationView::lyricRowHeightPx() const noexcept
+{
+    return juce::roundToInt (static_cast<float> (baseLyricRowHeight) * juce::jmax (1.0f, displayScale() * 0.85f));
+}
+
 int NotationView::getMeasuresPerRow() const noexcept
 {
     if (layoutMode == LayoutMode::horizontalStrip)
         return juce::jmax (1, score.getNumMeasures());
 
-    // ~ letter page width when full-page (~4 measures across at 180px)
-    const auto available = juce::jmax (measureWidth, getWidth() > 0 ? getWidth() - pageMargin * 2 : 720);
-    return juce::jmax (1, available / measureWidth);
+    const auto mw = measureWidthPx();
+    const auto available = juce::jmax (mw, getWidth() > 0 ? getWidth() - pageMargin * 2 : 720);
+    return juce::jmax (1, available / mw);
 }
 
 int NotationView::getContentWidth() const noexcept
@@ -66,22 +112,28 @@ int NotationView::getContentWidth() const noexcept
     if (score.isEmpty())
         return 400;
 
+    const auto mw = measureWidthPx();
+
     if (layoutMode == LayoutMode::horizontalStrip)
-        return score.getNumMeasures() * measureWidth + 40;
+        return score.getNumMeasures() * mw + 40;
 
     const auto cols = getMeasuresPerRow();
-    return cols * measureWidth + pageMargin * 2;
+    return cols * mw + pageMargin * 2;
 }
 
 int NotationView::getContentHeight() const noexcept
 {
     if (score.isEmpty())
-        return 200;
+        return juce::jmax (200, stripViewportHeight);
 
-    const auto rowH = measureHeight + (score.hasLyrics() ? lyricRowHeight : 0) + rowGap;
+    const auto rowH = measureHeightPx() + (score.hasLyrics() ? lyricRowHeightPx() : 0) + rowGap;
 
     if (layoutMode == LayoutMode::horizontalStrip)
-        return rowH + 28;
+    {
+        // Fill the viewport so the strip doesn't sit as a thin band in a tall panel.
+        const auto natural = rowH + 28;
+        return juce::jmax (natural, stripViewportHeight);
+    }
 
     const auto cols = getMeasuresPerRow();
     const auto rows = juce::jmax (1, (score.getNumMeasures() + cols - 1) / cols);
@@ -93,18 +145,27 @@ juce::Rectangle<int> NotationView::getMeasureBounds (const int measureIndex) con
     if (score.isEmpty() || ! juce::isPositiveAndBelow (measureIndex, score.getNumMeasures()))
         return {};
 
-    const auto rowH = measureHeight + (score.hasLyrics() ? lyricRowHeight : 0) + rowGap;
+    const auto mw = measureWidthPx();
+    const auto mh = measureHeightPx();
+    const auto rowH = mh + (score.hasLyrics() ? lyricRowHeightPx() : 0) + rowGap;
 
     if (layoutMode == LayoutMode::horizontalStrip)
-        return { 12 + measureIndex * measureWidth, 28, measureWidth - 8, measureHeight };
+    {
+        // Always sit below the title band so frets never cover "Song — Part".
+        constexpr int titleBand = 34;
+        const auto contentH = mh + (score.hasLyrics() ? lyricRowHeightPx() : 0);
+        const auto availBelow = juce::jmax (0, getHeight() - titleBand);
+        const auto y = titleBand + juce::jmax (0, (availBelow - contentH) / 2);
+        return { 12 + measureIndex * mw, y, mw - 8, mh };
+    }
 
     const auto cols = getMeasuresPerRow();
     const auto row = measureIndex / cols;
     const auto col = measureIndex % cols;
-    return { pageMargin + col * measureWidth,
+    return { pageMargin + col * mw,
              pageMargin + 28 + row * rowH,
-             measureWidth - 8,
-             measureHeight };
+             mw - 8,
+             mh };
 }
 
 void NotationView::updateContentSize()
@@ -121,6 +182,7 @@ void NotationView::paint (juce::Graphics& g)
 void NotationView::paintScore (juce::Graphics& g, const bool forPrint) const
 {
     const auto colours = jamstudio::ui::JamStudioTheme::getColours();
+    const auto scale = forPrint ? 1.0f : displayScale();
 
     if (forPrint)
         g.fillAll (juce::Colours::white);
@@ -138,10 +200,17 @@ void NotationView::paintScore (juce::Graphics& g, const bool forPrint) const
     }
 
     g.setColour (forPrint ? juce::Colours::black : colours.text);
-    g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
-    const auto titleY = layoutMode == LayoutMode::fullPageRows ? pageMargin : 4;
+    // Keep the strip title modest — don't scale it with the frets.
+    const auto titleScale = layoutMode == LayoutMode::horizontalStrip
+                                ? 1.0f
+                                : juce::jmax (1.0f, scale * 0.9f);
+    g.setFont (juce::FontOptions (15.0f * titleScale, juce::Font::bold));
+    const auto titleY = layoutMode == LayoutMode::fullPageRows ? pageMargin : 6;
+    const auto titleH = layoutMode == LayoutMode::horizontalStrip
+                            ? 24
+                            : juce::roundToInt (22.0f * juce::jmax (1.0f, scale * 0.85f));
     g.drawText (score.getTitle() + "  —  " + score.getActivePart().name,
-                pageMargin, titleY, getWidth() - pageMargin * 2, 20,
+                pageMargin, titleY, getWidth() - pageMargin * 2, titleH,
                 juce::Justification::centredLeft);
 
     const auto position = transportController.getPosition();
@@ -216,13 +285,12 @@ void NotationView::scrollToBeat (const double beat)
 
     if (layoutMode == LayoutMode::horizontalStrip)
     {
-        const auto playheadX = static_cast<int> (score.getXPositionForBeat (beat, measureWidth));
+        const auto playheadX = static_cast<int> (score.getXPositionForBeat (beat, measureWidthPx()));
         const auto targetX = juce::jmax (0, playheadX - viewport->getViewWidth() / 3);
         viewport->setViewPosition (targetX, viewport->getViewPositionY());
         return;
     }
 
-    // Full-page rows: keep the active row near the top third of the viewport.
     const auto targetY = juce::jmax (0, bounds.getY() - viewport->getViewHeight() / 4);
     viewport->setViewPosition (0, targetY);
 }
@@ -234,6 +302,10 @@ void NotationView::drawMeasure (juce::Graphics& g,
                                 const NoteEvent* activeLyricNote,
                                 const bool forPrint) const
 {
+    const auto scale = forPrint ? 1.0f : displayScale();
+    const auto lyricH = lyricRowHeightPx();
+    const auto headerH = juce::roundToInt (18.0f * juce::jmax (1.0f, scale * 0.85f));
+
     if (forPrint)
     {
         g.setColour (juce::Colours::white);
@@ -244,24 +316,25 @@ void NotationView::drawMeasure (juce::Graphics& g,
     else
     {
         g.setColour (isActive ? juce::Colour (0xff2f4f78) : juce::Colour (0xff242424));
-        g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
+        g.fillRoundedRectangle (bounds.toFloat(), 6.0f);
         g.setColour (juce::Colour (0xff505050));
-        g.drawRoundedRectangle (bounds.toFloat(), 4.0f, 1.0f);
+        g.drawRoundedRectangle (bounds.toFloat(), 6.0f, 1.2f);
     }
 
     auto measureBounds = bounds;
 
     g.setColour (forPrint ? juce::Colours::black : juce::Colours::white.withAlpha (0.8f));
-    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-    g.drawText (juce::String (measure.number), measureBounds.removeFromTop (18), juce::Justification::centred);
+    g.setFont (juce::FontOptions (12.0f * juce::jmax (1.0f, scale * 0.9f), juce::Font::bold));
+    g.drawText (juce::String (measure.number), measureBounds.removeFromTop (headerH),
+                juce::Justification::centred);
 
     auto noteArea = measureBounds;
 
     if (score.hasLyrics())
-        noteArea.removeFromBottom (lyricRowHeight);
+        noteArea.removeFromBottom (lyricH);
 
-    noteArea = noteArea.reduced (6, 4);
-    auto x = noteArea.getX() + 8;
+    noteArea = noteArea.reduced (juce::roundToInt (6.0f * scale), juce::roundToInt (4.0f * scale));
+    auto x = noteArea.getX() + juce::roundToInt (8.0f * scale);
 
     for (const auto& note : measure.notes)
     {
@@ -273,8 +346,9 @@ void NotationView::drawMeasure (juce::Graphics& g,
         if (note.isTuplet)
         {
             g.setColour (forPrint ? juce::Colours::darkgrey : juce::Colours::orange.withAlpha (0.8f));
-            g.setFont (juce::FontOptions (9.0f));
-            g.drawText ("3", x - 4, noteArea.getY() + 2, 12, 10, juce::Justification::centred);
+            g.setFont (juce::FontOptions (9.0f * scale));
+            g.drawText ("3", x - 4, noteArea.getY() + 2, juce::roundToInt (14.0f * scale),
+                        juce::roundToInt (12.0f * scale), juce::Justification::centred);
         }
 
         if (note.lyricText.isNotEmpty())
@@ -284,7 +358,9 @@ void NotationView::drawMeasure (juce::Graphics& g,
             drawLyric (g, note, bounds, x, isLyricActive, forPrint);
         }
 
-        const auto spacing = juce::jlimit (14, 40, static_cast<int> (note.durationBeats * 8.0));
+        const auto spacing = juce::jlimit (juce::roundToInt (14.0f * scale),
+                                           juce::roundToInt (48.0f * scale),
+                                           static_cast<int> (note.durationBeats * 8.0 * scale));
         x += spacing;
     }
 }
@@ -296,19 +372,23 @@ void NotationView::drawLyric (juce::Graphics& g,
                               const bool isActive,
                               const bool forPrint) const
 {
-    auto lyricArea = bounds.withTrimmedTop (bounds.getHeight() - lyricRowHeight).reduced (4, 0);
+    const auto scale = forPrint ? 1.0f : displayScale();
+    const auto lyricH = lyricRowHeightPx();
+    auto lyricArea = bounds.withTrimmedTop (bounds.getHeight() - lyricH).reduced (4, 0);
 
     if (isActive && ! forPrint)
     {
         g.setColour (juce::Colour (0xffffcc00).withAlpha (0.35f));
         g.fillRoundedRectangle (static_cast<float> (x - 8), static_cast<float> (lyricArea.getY()),
-                                28.0f, static_cast<float> (lyricArea.getHeight()), 3.0f);
+                                28.0f * scale, static_cast<float> (lyricArea.getHeight()), 3.0f);
     }
 
     g.setColour (forPrint ? juce::Colours::black
                           : (isActive ? juce::Colours::white : juce::Colours::white.withAlpha (0.75f)));
-    g.setFont (juce::FontOptions (isActive ? 13.0f : 11.0f, isActive ? juce::Font::bold : juce::Font::plain));
-    g.drawText (note.lyricText, x - 10, lyricArea.getY(), 36, lyricArea.getHeight(), juce::Justification::centred);
+    g.setFont (juce::FontOptions ((isActive ? 13.0f : 11.0f) * scale,
+                                  isActive ? juce::Font::bold : juce::Font::plain));
+    g.drawText (note.lyricText, x - 10, lyricArea.getY(), juce::roundToInt (40.0f * scale),
+                lyricArea.getHeight(), juce::Justification::centred);
 }
 
 void NotationView::drawStandardNote (juce::Graphics& g,
@@ -317,8 +397,9 @@ void NotationView::drawStandardNote (juce::Graphics& g,
                                      const int x,
                                      const bool forPrint) const
 {
-    const auto staffTop = bounds.getY() + 20;
-    const auto lineSpacing = 8;
+    const auto scale = forPrint ? 1.0f : displayScale();
+    const auto staffTop = bounds.getY() + juce::roundToInt (20.0f * scale);
+    const auto lineSpacing = juce::roundToInt (8.0f * scale);
     const auto lineColour = forPrint ? juce::Colours::black : juce::Colour (0xff606060);
 
     for (int line = 0; line < 5; ++line)
@@ -331,18 +412,23 @@ void NotationView::drawStandardNote (juce::Graphics& g,
     if (note.isRest)
     {
         g.setColour (forPrint ? juce::Colours::black : juce::Colours::white.withAlpha (0.7f));
-        g.drawText ("r", x - 6, staffTop + 8, 20, 16, juce::Justification::centred);
+        g.setFont (juce::FontOptions (12.0f * scale));
+        g.drawText ("r", x - 6, staffTop + 8, juce::roundToInt (22.0f * scale),
+                    juce::roundToInt (18.0f * scale), juce::Justification::centred);
         return;
     }
 
     const auto pitchOffset = note.midiPitch >= 0 ? (note.midiPitch % 12) : 0;
     const auto y = staffTop + (4 * lineSpacing) - (pitchOffset * lineSpacing / 3);
+    const auto r = 5.0f * scale;
 
     g.setColour (forPrint ? juce::Colours::black : juce::Colours::white);
-    g.fillEllipse (static_cast<float> (x - 5), static_cast<float> (y - 5), 10.0f, 10.0f);
+    g.fillEllipse (static_cast<float> (x) - r, static_cast<float> (y) - r, r * 2.0f, r * 2.0f);
 
-    g.setFont (juce::FontOptions (10.0f));
-    g.drawText (note.label, x - 12, y - 24, 30, 14, juce::Justification::centred);
+    g.setFont (juce::FontOptions (10.0f * scale));
+    g.drawText (note.label, x - 12, y - juce::roundToInt (24.0f * scale),
+                juce::roundToInt (30.0f * scale), juce::roundToInt (16.0f * scale),
+                juce::Justification::centred);
 }
 
 void NotationView::drawTabNote (juce::Graphics& g,
@@ -351,15 +437,20 @@ void NotationView::drawTabNote (juce::Graphics& g,
                                 const int x,
                                 const bool forPrint) const
 {
-    const auto tabTop = bounds.getY() + 18;
-    const auto lineSpacing = 12;
+    const auto scale = forPrint ? 1.0f : displayScale();
+    // Fill the measure body with 6 strings — line spacing grows with the panel.
+    const auto usable = juce::jmax (48, bounds.getHeight() - juce::roundToInt (8.0f * scale));
+    const auto lineSpacing = juce::jmax (10, usable / 6);
+    const auto tabTop = bounds.getY() + juce::jmax (4, (bounds.getHeight() - lineSpacing * 5) / 2);
     const auto lineColour = forPrint ? juce::Colours::black : juce::Colour (0xff606060);
+    const auto stroke = juce::jmax (1.0f, scale * 1.1f);
 
     for (int line = 0; line < 6; ++line)
     {
         g.setColour (lineColour);
-        g.drawHorizontalLine (tabTop + line * lineSpacing, static_cast<float> (bounds.getX()),
-                              static_cast<float> (bounds.getRight()));
+        const auto y = static_cast<float> (tabTop + line * lineSpacing);
+        g.drawLine (static_cast<float> (bounds.getX()), y,
+                    static_cast<float> (bounds.getRight()), y, stroke);
     }
 
     if (note.isRest)
@@ -367,10 +458,12 @@ void NotationView::drawTabNote (juce::Graphics& g,
 
     const auto stringIndex = juce::jlimit (1, 6, note.stringNumber);
     const auto y = tabTop + (stringIndex - 1) * lineSpacing;
+    const auto fontSize = juce::jlimit (12.0f, 28.0f, 12.0f * scale * 1.15f);
+    const auto cell = juce::roundToInt (fontSize * 1.6f);
 
     g.setColour (forPrint ? juce::Colours::black : juce::Colours::white);
-    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-    g.drawText (note.label, x - 8, y - 8, 20, 16, juce::Justification::centred);
+    g.setFont (juce::FontOptions (fontSize, juce::Font::bold));
+    g.drawText (note.label, x - cell / 2, y - cell / 2, cell, cell, juce::Justification::centred);
 }
 
 } // namespace jamstudio::notation

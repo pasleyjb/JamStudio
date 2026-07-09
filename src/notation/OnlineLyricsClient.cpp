@@ -132,7 +132,7 @@ void OnlineLyricsClient::searchAsync (const SongMetadata& metadata, SearchCallba
             }
         };
 
-        // 1) Structured query when we have both fields
+        // 1) Artist + title (best)
         if (metadata.title.isNotEmpty() && metadata.artist.isNotEmpty())
         {
             juce::String url = juce::String (kSearchUrl)
@@ -145,7 +145,15 @@ void OnlineLyricsClient::searchAsync (const SongMetadata& metadata, SearchCallba
             runSearch (url);
         }
 
-        // 2) Free-text query fallback
+        // 2) Title + album when artist tag missing (common for ripped CDs)
+        if (results.isEmpty() && metadata.title.isNotEmpty() && metadata.album.isNotEmpty())
+        {
+            runSearch (juce::String (kSearchUrl)
+                       + "?track_name=" + urlEncode (metadata.title)
+                       + "&album_name=" + urlEncode (metadata.album));
+        }
+
+        // 3) Free-text: always "Artist Title" when possible — never title alone if artist exists
         if (results.isEmpty())
         {
             const auto q = metadata.searchQuery();
@@ -154,31 +162,45 @@ void OnlineLyricsClient::searchAsync (const SongMetadata& metadata, SearchCallba
                 runSearch (juce::String (kSearchUrl) + "?q=" + urlEncode (q));
         }
 
-        // Sort: synced first, then closer duration match
+        // Sort by artist+title identity, then synced, then duration
         struct Sorter
         {
-            double targetDuration = 0.0;
+            SongMetadata meta;
 
             int compareElements (const OnlineLyricsCandidate& a, const OnlineLyricsCandidate& b) const
             {
-                if (a.hasSyncedLyrics != b.hasSyncedLyrics)
-                    return a.hasSyncedLyrics ? -1 : 1;
+                const auto sa = meta.scoreCandidate (a.trackName, a.artistName, a.albumName, a.durationSeconds)
+                                + (a.hasSyncedLyrics ? 20.0 : 0.0)
+                                + (a.instrumental ? -40.0 : 0.0);
+                const auto sb = meta.scoreCandidate (b.trackName, b.artistName, b.albumName, b.durationSeconds)
+                                + (b.hasSyncedLyrics ? 20.0 : 0.0)
+                                + (b.instrumental ? -40.0 : 0.0);
 
-                if (targetDuration > 1.0 && a.durationSeconds > 0.0 && b.durationSeconds > 0.0)
-                {
-                    const auto da = std::abs (a.durationSeconds - targetDuration);
-                    const auto db = std::abs (b.durationSeconds - targetDuration);
-
-                    if (da < db - 0.5) return -1;
-                    if (db < da - 0.5) return 1;
-                }
-
+                if (sa > sb + 0.5) return -1;
+                if (sb > sa + 0.5) return 1;
                 return a.displayLine().compareIgnoreCase (b.displayLine());
             }
         };
 
-        Sorter sorter { metadata.durationSeconds };
+        Sorter sorter { metadata };
         results.sort (sorter);
+
+        // Drop obvious mismatches when we know the artist (keep list useful for manual UI)
+        if (metadata.artist.isNotEmpty())
+        {
+            juce::Array<OnlineLyricsCandidate> filtered;
+
+            for (const auto& c : results)
+            {
+                const auto s = metadata.scoreCandidate (c.trackName, c.artistName, c.albumName, c.durationSeconds);
+
+                if (s >= -20.0) // reject hard artist mismatches
+                    filtered.add (c);
+            }
+
+            if (filtered.size() > 0)
+                results = std::move (filtered);
+        }
 
         // Cap list for UI
         while (results.size() > 40)
