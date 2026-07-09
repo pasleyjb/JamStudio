@@ -364,6 +364,7 @@ bool WhisperTranscriber::parseWhisperJson (const juce::File& jsonFile,
                 return false;
             }
 
+            lyrics.finalizeTiming();
             return true;
         }
     }

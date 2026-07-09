@@ -92,8 +92,164 @@ ProjectData ProjectManager::captureState (const juce::File& songFile,
     return data;
 }
 
-bool ProjectManager::saveProject (const juce::File& projectFile, const ProjectData& data)
+juce::File ProjectManager::getMediaStemsDirectory (const juce::File& projectFile)
 {
+    return projectFile.getParentDirectory()
+        .getChildFile (projectFile.getFileNameWithoutExtension() + ".media")
+        .getChildFile ("stems");
+}
+
+juce::File ProjectManager::resolveStemFile (const juce::String& storedPath,
+                                            const juce::File& projectFile)
+{
+    if (storedPath.isEmpty())
+        return {};
+
+    const juce::File absolute (storedPath);
+
+    if (absolute.existsAsFile())
+        return absolute;
+
+    if (projectFile != juce::File())
+    {
+        const auto projectDir = projectFile.getParentDirectory();
+
+        // Relative to project directory
+        const auto relative = projectDir.getChildFile (storedPath);
+
+        if (relative.existsAsFile())
+            return relative;
+
+        // Same filename under "{Name}.media/stems/"
+        const auto mediaMatch = getMediaStemsDirectory (projectFile)
+                                    .getChildFile (absolute.getFileName());
+
+        if (mediaMatch.existsAsFile())
+            return mediaMatch;
+
+        // Search media stems folder recursively (demucs nested folders, etc.)
+        const auto mediaRoot = getMediaStemsDirectory (projectFile);
+
+        if (mediaRoot.isDirectory())
+        {
+            for (const auto& entry : juce::RangedDirectoryIterator (mediaRoot, true,
+                                                                    absolute.getFileName(),
+                                                                    juce::File::findFiles))
+                return entry.getFile();
+        }
+    }
+
+    // Last resort: permanent Documents/JamStudio/Stems cache by filename
+    const auto stemsCache = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                                .getChildFile ("JamStudio")
+                                .getChildFile ("Stems");
+
+    if (stemsCache.isDirectory())
+    {
+        const auto name = absolute.getFileName();
+
+        for (const auto& entry : juce::RangedDirectoryIterator (stemsCache, true, name,
+                                                                juce::File::findFiles))
+            return entry.getFile();
+    }
+
+    return {};
+}
+
+bool ProjectManager::relocateStemMedia (const juce::File& projectFile,
+                                        ProjectData& data,
+                                        juce::String& errorMessage)
+{
+    if (data.stems.isEmpty())
+        return true;
+
+    const auto mediaDir = getMediaStemsDirectory (projectFile);
+
+    if (! mediaDir.createDirectory() && ! mediaDir.isDirectory())
+    {
+        errorMessage = "Could not create project media folder: " + mediaDir.getFullPathName();
+        return false;
+    }
+
+    for (auto& stem : data.stems)
+    {
+        auto source = resolveStemFile (stem.filePath, projectFile);
+
+        if (! source.existsAsFile())
+            source = juce::File (stem.filePath);
+
+        if (! source.existsAsFile())
+        {
+            errorMessage = "Missing stem file (cannot pack into project): " + stem.filePath
+                           + "\n\nRe-run Practice setup for this song, or separate stems again, "
+                             "then Save Project.";
+            return false;
+        }
+
+        // Stable, flat name: prefer mixer name (Guitar.wav) so reloads stay clear.
+        auto destName = stem.name.trim();
+
+        if (destName.isEmpty())
+            destName = source.getFileNameWithoutExtension();
+
+        destName = juce::File::createLegalFileName (destName);
+
+        if (! destName.endsWithIgnoreCase (".wav") && ! destName.endsWithIgnoreCase (".flac")
+            && ! destName.endsWithIgnoreCase (".mp3") && ! destName.endsWithIgnoreCase (".ogg")
+            && ! destName.endsWithIgnoreCase (".aiff"))
+            destName += source.getFileExtension().isNotEmpty() ? source.getFileExtension()
+                                                               : ".wav";
+
+        auto dest = mediaDir.getChildFile (destName);
+
+        // Avoid collisions (e.g. two "Other")
+        if (dest.existsAsFile() && dest.getFullPathName() != source.getFullPathName())
+        {
+            // If contents already there from a previous save with same path identity, keep it.
+            if (dest.getSize() == source.getSize()
+                && dest.getLastModificationTime() >= source.getLastModificationTime())
+            {
+                stem.filePath = dest.getFullPathName();
+                continue;
+            }
+
+            dest = mediaDir.getNonexistentChildFile (dest.getFileNameWithoutExtension(),
+                                                     dest.getFileExtension());
+        }
+
+        if (source.getFullPathName() != dest.getFullPathName())
+        {
+            dest.deleteFile();
+
+            if (! source.copyFileTo (dest))
+            {
+                errorMessage = "Failed to copy stem to permanent project media:\n"
+                               + dest.getFullPathName();
+                return false;
+            }
+        }
+
+        stem.filePath = dest.getFullPathName();
+    }
+
+    return true;
+}
+
+bool ProjectManager::saveProject (const juce::File& projectFile, ProjectData& data)
+{
+    juce::String mediaError;
+
+    // Always pack stems next to the project so reopening never depends on /tmp.
+    if (! relocateStemMedia (projectFile, data, mediaError))
+    {
+        // Still try to write JSON with original paths if copy failed mid-session —
+        // but surface the error by failing save so the user knows.
+        juce::ignoreUnused (mediaError);
+        // Prefer failing when we have stems that should be permanent.
+        if (! data.stems.isEmpty())
+            return false;
+    }
+
     auto* root = new juce::DynamicObject();
     root->setProperty ("version", data.version);
     root->setProperty ("songFile", data.songFilePath);
@@ -184,20 +340,23 @@ bool ProjectManager::applyState (const ProjectData& data,
                                  juce::File& songFile,
                                  juce::File& scoreFile,
                                  juce::File& lyricsFile,
-                                 juce::String& errorMessage)
+                                 juce::String& errorMessage,
+                                 const juce::File& projectFile)
 {
     transport.stop();
 
     juce::Array<juce::File> stemFiles;
+    juce::StringArray missing;
 
     for (const auto& stem : data.stems)
     {
-        const juce::File file (stem.filePath);
+        const auto file = resolveStemFile (stem.filePath, projectFile);
 
         if (! file.existsAsFile())
         {
-            errorMessage = "Missing stem file: " + stem.filePath;
-            return false;
+            missing.add (stem.name.isNotEmpty() ? stem.name + " → " + stem.filePath
+                                                : stem.filePath);
+            continue;
         }
 
         stemFiles.add (file);
@@ -219,8 +378,16 @@ bool ProjectManager::applyState (const ProjectData& data,
 
     if (stemFiles.isEmpty())
     {
-        errorMessage = "Project does not contain any audio files.";
+        errorMessage = "Missing stem file(s). Stems were likely saved under /tmp and cleaned up.\n"
+                       "Re-run Practice → New from Song (or Separate Stems), then Save Project.\n\n"
+                       + missing.joinIntoString ("\n");
         return false;
+    }
+
+    if (missing.size() > 0 && stemFiles.size() < data.stems.size())
+    {
+        // Partial load is better than hard fail when some media survived.
+        errorMessage = {};
     }
 
     auto& mixer = transport.getStemMixer();
@@ -228,13 +395,28 @@ bool ProjectManager::applyState (const ProjectData& data,
 
     for (int i = 0; i < mixer.getNumStems() && i < data.stems.size(); ++i)
     {
+        // Match by order of successfully resolved stems — rebuild stem state carefully.
         const auto& stemState = data.stems.getReference (i);
-        mixer.setStemMuted (i, stemState.muted);
-        mixer.setStemSolo (i, stemState.solo);
-        mixer.setStemVolume (i, stemState.volume);
+        const auto resolved = resolveStemFile (stemState.filePath, projectFile);
 
-        if (stemState.name.isNotEmpty())
-            mixer.setStemName (i, stemState.name);
+        if (! resolved.existsAsFile())
+            continue;
+
+        // Find mixer index for this file
+        for (int mi = 0; mi < mixer.getNumStems(); ++mi)
+        {
+            if (const auto* s = mixer.getStem (mi);
+                s != nullptr && s->getFile() == resolved)
+            {
+                mixer.setStemMuted (mi, stemState.muted);
+                mixer.setStemSolo (mi, stemState.solo);
+                mixer.setStemVolume (mi, stemState.volume);
+
+                if (stemState.name.isNotEmpty())
+                    mixer.setStemName (mi, stemState.name);
+                break;
+            }
+        }
     }
 
     if (data.songFilePath.isNotEmpty())

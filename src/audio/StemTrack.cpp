@@ -99,29 +99,63 @@ void StemTrack::tickMeterPeakHold (const float deltaSeconds) noexcept
         meterLevel.store (0.0f, std::memory_order_relaxed);
 }
 
+double StemTrack::getFileSampleRate() const noexcept
+{
+    if (reader != nullptr && reader->sampleRate > 0.0)
+        return reader->sampleRate;
+
+    return 44100.0;
+}
+
 void StemTrack::readIntoBuffer (juce::AudioBuffer<float>& output,
-                                const int64 startSample,
-                                const int numSamples,
+                                const double startSeconds,
+                                const int numOutputSamples,
+                                const double deviceSampleRate,
                                 const bool anySoloActive) const
 {
-    if (reader == nullptr || numSamples <= 0)
+    if (reader == nullptr || numOutputSamples <= 0 || deviceSampleRate <= 0.0)
         return;
 
     const bool isAudible = anySoloActive ? solo : ! muted;
 
     if (! isAudible || volume <= 0.0f)
     {
-        // Fall toward silence on mute.
         const auto previous = meterLevel.load (std::memory_order_relaxed);
         meterLevel.store (previous * 0.85f, std::memory_order_relaxed);
         return;
     }
 
-    juce::AudioBuffer<float> tempBuffer (static_cast<int> (reader->numChannels), numSamples);
+    const auto fileSR = getFileSampleRate();
+    const double startSampleF = juce::jmax (0.0, startSeconds) * fileSR;
+    const double ratio = fileSR / deviceSampleRate; // file samples per output sample
+    const int sourceSamples = juce::jmax (2, static_cast<int> (std::ceil (numOutputSamples * ratio)) + 2);
+    const auto startSample = static_cast<juce::int64> (startSampleF);
+
+    juce::AudioBuffer<float> sourceBuffer (static_cast<int> (reader->numChannels), sourceSamples);
+    sourceBuffer.clear();
+
+    if (! reader->read (&sourceBuffer, 0, sourceSamples, startSample, true, true))
+        return;
+
+    juce::AudioBuffer<float> tempBuffer (sourceBuffer.getNumChannels(), numOutputSamples);
     tempBuffer.clear();
 
-    if (! reader->read (&tempBuffer, 0, numSamples, startSample, true, true))
-        return;
+    const double phase0 = startSampleF - static_cast<double> (startSample);
+
+    for (int ch = 0; ch < sourceBuffer.getNumChannels(); ++ch)
+    {
+        const auto* src = sourceBuffer.getReadPointer (ch);
+        auto* dst = tempBuffer.getWritePointer (ch);
+
+        for (int i = 0; i < numOutputSamples; ++i)
+        {
+            const double pos = phase0 + static_cast<double> (i) * ratio;
+            const auto i0 = juce::jlimit (0, sourceSamples - 1, static_cast<int> (pos));
+            const auto i1 = juce::jmin (sourceSamples - 1, i0 + 1);
+            const auto frac = static_cast<float> (pos - static_cast<double> (i0));
+            dst[i] = src[i0] * (1.0f - frac) + src[i1] * frac;
+        }
+    }
 
     updateMeterFromBuffer (tempBuffer, volume);
 
@@ -131,7 +165,7 @@ void StemTrack::readIntoBuffer (juce::AudioBuffer<float>& output,
     for (int channel = 0; channel < outputChannels; ++channel)
     {
         const auto sourceChannel = juce::jmin (channel, sourceChannels - 1);
-        output.addFrom (channel, 0, tempBuffer, sourceChannel, 0, numSamples, volume);
+        output.addFrom (channel, 0, tempBuffer, sourceChannel, 0, numOutputSamples, volume);
     }
 }
 

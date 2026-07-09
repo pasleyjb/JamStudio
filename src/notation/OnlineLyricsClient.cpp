@@ -292,6 +292,7 @@ bool OnlineLyricsClient::candidateToLyrics (const OnlineLyricsCandidate& candida
                           ? candidate.artistName + " — " + candidate.trackName
                           : candidate.trackName);
 
+    out.finalizeTiming();
     return true;
 }
 

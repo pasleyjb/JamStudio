@@ -21,6 +21,7 @@ target_sources(JamStudio PRIVATE
     src/app/Main.cpp
     src/app/MainWindow.cpp
     src/app/MainComponent.cpp
+    src/app/PracticeSetupPipeline.cpp
     src/audio/StemTrack.cpp
     src/audio/StemMixer.cpp
     src/audio/Metronome.cpp
@@ -29,6 +30,8 @@ target_sources(JamStudio PRIVATE
     src/audio/AudioRecorder.cpp
     src/audio/RecordingExporter.cpp
     src/audio/RecordingTakeManager.cpp
+    src/midi/MidiMappingProfile.cpp
+    src/midi/MidiControlSurface.cpp
     src/ai/CommandUtils.cpp
     src/ai/DemucsSeparator.cpp
     src/ai/WhisperTranscriber.cpp
@@ -65,9 +68,11 @@ target_sources(JamStudio PRIVATE
     src/ui/TabLibraryBrowserDialog.cpp
     src/ui/TranscriptionCorrectionDialog.cpp
     src/ui/OnlineLyricsDialog.cpp
+    src/ui/MidiControlDialog.cpp
     src/ui/TransportBar.cpp
     src/ui/WaveformDisplay.cpp
-    src/ui/SeparationProgressBar.cpp)
+    src/ui/SeparationProgressBar.cpp
+    src/ui/StartupWizard.cpp)
 
 target_include_directories(JamStudio PRIVATE src)
 

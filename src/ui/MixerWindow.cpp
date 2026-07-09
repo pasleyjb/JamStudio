@@ -69,6 +69,17 @@ public:
         repaint();
     }
 
+    void syncFromMixer (const jamstudio::audio::StemMixer& mixer)
+    {
+        if (strips.size() != mixer.getNumStems())
+            return;
+
+        for (int i = 0; i < strips.size(); ++i)
+            if (auto* stem = mixer.getStem (i))
+                if (auto* strip = strips[i])
+                    strip->syncFromTrack (*stem);
+    }
+
     void paint (juce::Graphics& g) override
     {
         const auto colours = JamStudioTheme::getColours();
@@ -140,21 +151,36 @@ private:
 MixerWindow::MixerWindow (jamstudio::audio::TransportController& transport)
     : DocumentWindow ("Mixer",
                       JamStudioTheme::getColours().windowBackground,
-                      DocumentWindow::closeButton),
+                      DocumentWindow::minimiseButton
+                          | DocumentWindow::maximiseButton
+                          | DocumentWindow::closeButton),
       transportController (transport)
 {
     juce::ignoreUnused (transportController);
-    setUsingNativeTitleBar (true);
+
+    // Keep off-screen until showMixer(true). Default visible=true would flash a peer.
+    windowOpen = false;
+    setVisible (false);
+    setWantsKeyboardFocus (false);
+
+    // Non-native chrome so min / max / close always hit our button handlers (Linux WMs
+    // often swallow native title-bar clicks on secondary DocumentWindows).
+    setUsingNativeTitleBar (false);
     content = std::make_unique<Content> (transport);
-    setContentNonOwned (content.get(), true);
+    setContentNonOwned (content.get(), false);
     setResizable (true, true);
     setResizeLimits (360, 320, 2400, 900);
-    centreWithSize (680, 460);
+    setSize (680, 460);
+    restoredBounds = getBounds();
+
     setVisible (false);
+    if (isOnDesktop())
+        removeFromDesktop();
 }
 
 MixerWindow::~MixerWindow()
 {
+    hideMixer();
     setContentNonOwned (nullptr, false);
     content.reset();
 }
@@ -165,23 +191,85 @@ void MixerWindow::rebuild (jamstudio::audio::StemMixer& mixer, StemChangedCallba
         content->rebuild (mixer, std::move (onChanged));
 }
 
+void MixerWindow::syncFromMixer (const jamstudio::audio::StemMixer& mixer)
+{
+    if (content != nullptr)
+        content->syncFromMixer (mixer);
+}
+
 void MixerWindow::closeButtonPressed()
 {
+    hideMixer();
+}
+
+void MixerWindow::userTriedToCloseWindow()
+{
+    hideMixer();
+}
+
+void MixerWindow::minimiseButtonPressed()
+{
+    setMinimised (true);
+}
+
+void MixerWindow::maximiseButtonPressed()
+{
+    if (isFullScreen())
+    {
+        setFullScreen (false);
+        setBounds (restoredBounds);
+    }
+    else
+    {
+        restoredBounds = getBounds();
+        setFullScreen (true);
+    }
+}
+
+void MixerWindow::hideMixer()
+{
+    const auto wasOpen = windowOpen || isVisible() || isOnDesktop();
+
+    if (! isMinimised() && ! isFullScreen() && getWidth() > 0 && getHeight() > 0)
+        restoredBounds = getBounds();
+
+    windowOpen = false;
+    setMinimised (false);
+    setFullScreen (false);
     setVisible (false);
 
-    if (visibilityChanged != nullptr)
+    if (isOnDesktop())
+        removeFromDesktop();
+
+    if (wasOpen && visibilityChanged != nullptr)
         visibilityChanged (false);
 }
 
 void MixerWindow::showMixer (const bool shouldShow)
 {
-    setVisible (shouldShow);
+    if (! shouldShow)
+    {
+        hideMixer();
+        return;
+    }
 
-    if (shouldShow)
-        toFront (true);
+    if (! restoredBounds.isEmpty())
+        setBounds (restoredBounds);
+    else
+        centreWithSize (680, 460);
+
+    setFullScreen (false);
+    setMinimised (false);
+
+    if (! isOnDesktop())
+        addToDesktop (getDesktopWindowStyleFlags());
+
+    setVisible (true);
+    toFront (true);
+    windowOpen = true;
 
     if (visibilityChanged != nullptr)
-        visibilityChanged (shouldShow);
+        visibilityChanged (true);
 }
 
 void MixerWindow::setVisibilityChangedCallback (std::function<void (bool visible)> callback)

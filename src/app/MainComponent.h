@@ -8,6 +8,7 @@
 #include "../audio/RecordingExporter.h"
 #include "../audio/RecordingTakeManager.h"
 #include "../audio/TransportController.h"
+#include "../midi/MidiControlSurface.h"
 #include "../notation/LyricsView.h"
 #include "../notation/LyricsTrack.h"
 #include "../notation/NotationView.h"
@@ -18,11 +19,13 @@
 #include "../ui/MixerWindow.h"
 #include "../ui/SeparationProgressBar.h"
 #include "../ui/StemLane.h"
+#include "../ui/StartupWizard.h"
 #include "../ui/ToolbarTabs.h"
 #include "../ui/TranscriptionCorrectionDialog.h"
 #include "../ui/TransportBar.h"
 #include "../project/RecentProjects.h"
 #include "../ui/WaveformDisplay.h"
+#include "PracticeSetupPipeline.h"
 
 namespace jamstudio::app
 {
@@ -66,6 +69,7 @@ private:
         detectTempoCmd,
         aboutCmd,
         aiToolsCmd,
+        midiControlCmd,
         toggleLyricsPanelCmd,
         toggleNotationPanelCmd,
         toggleStemsPanelCmd,
@@ -103,6 +107,8 @@ private:
     void setStatus (const juce::String& message);
     void refreshTheme();
     void showAiToolsSetup();
+    void showMidiControlSetup();
+    void refreshMixerUiFromMidi();
     void detectTempoFromSong (const juce::File& audioFile, bool announceResult);
     void beginBackgroundTask (const juce::String& message, std::function<void()> onCancel);
     void endBackgroundTask();
@@ -118,8 +124,18 @@ private:
     void toggleMixerWindow();
     void layoutStemLanes();
 
+    void setupStartupWizard();
+    void hideStartupWizard();
+    void enterWorkspaceMode (jamstudio::ui::StartupWizard::Mode mode);
+    void handlePracticeChoice (jamstudio::ui::StartupWizard::PracticeChoice choice);
+    void startPracticeFromSongFile (const juce::File& songFile);
+    void applyPracticeSetupResult (PracticeSetupResult result);
+    void autoSavePracticeProject (const juce::String& projectTitle);
+    [[nodiscard]] static juce::File getProjectsDirectory();
+
     juce::AudioDeviceManager& audioDeviceManager;
     jamstudio::audio::TransportController transportController;
+    jamstudio::midi::MidiControlSurface midiControlSurface;
     jamstudio::audio::AudioRecorder audioRecorder;
     jamstudio::audio::RecordingExporter recordingExporter;
     jamstudio::audio::RecordingTakeManager recordingTakeManager;
@@ -132,7 +148,10 @@ private:
 
     juce::AudioThumbnailCache thumbnailCache { 16 };
 
+    /** Kept for internal callbacks only — never shown (workspace chrome is menus + View). */
     jamstudio::ui::ToolbarTabs toolbarTabs;
+    jamstudio::ui::StartupWizard startupWizard;
+    std::unique_ptr<PracticeSetupPipeline> practiceSetupPipeline;
     juce::Label statusLabel;
     jamstudio::ui::SeparationProgressBar separationProgress;
     juce::Label lyricsSectionLabel { {}, "LYRICS" };
@@ -157,7 +176,10 @@ private:
 
     bool lyricsPanelVisible = true;
     bool notationPanelVisible = true;
-    bool stemsPanelVisible = true;
+    /** Stem lanes off by default — use Mixer window; keeps tabs large. */
+    bool stemsPanelVisible = false;
+    bool workspaceReady = false;
+    jamstudio::ui::StartupWizard::Mode currentMode = jamstudio::ui::StartupWizard::Mode::practice;
 
     std::atomic<uint32_t> backgroundTaskGeneration { 0 };
     bool backgroundTaskActive = false;

@@ -246,9 +246,11 @@ void DemucsSeparator::cancel()
 
 juce::File DemucsSeparator::getOutputDirectory (const juce::File& inputFile) const
 {
-    return juce::File::getSpecialLocation (juce::File::tempDirectory)
+    // Permanent location (not /tmp) so projects can still find stems after reboot.
+    // Project save also copies stems into "{Name}.media/stems/" next to the .jamstudio file.
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
         .getChildFile ("JamStudio")
-        .getChildFile ("stems")
+        .getChildFile ("Stems")
         .getChildFile (inputFile.getFileNameWithoutExtension());
 }
 

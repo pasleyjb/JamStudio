@@ -73,3 +73,13 @@ practice with a metronome.
 - AI-assisted arrangement and composition
 - Full multitrack DAW editing
 - Cross-platform Qt-based notation UI
+- Expanded MCU/HUI control-surface protocol depth
+
+## Hardware control
+
+| Feature | Status |
+|---|---|
+| USB / class-compliant MIDI controllers | Done (v0.9.6+) |
+| Built-in profiles (nanoKONTROL, APC, X-Touch, Launch Control, MCU lite) | Done |
+| MIDI Learn + custom map persistence | Done |
+| Software test inject (no hardware) | Done |

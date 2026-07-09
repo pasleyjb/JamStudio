@@ -27,6 +27,10 @@
 - `MixerWindow`, `MixerChannelStrip`, `StemLane` UI modules
 - `OnlineLyricsClient` + `OnlineLyricsDialog` + `SongMetadata` extraction
 - Toolbar / menu: **Online Lyrics** (Find Synced Lyrics Online)
+- **MIDI control surface** for USB mixers/controllers (profiles + MIDI Learn + virtual test inject)
+  - Built-in maps: Generic DAW, nanoKONTROL2, APC Mini, Launch Control, X-Touch Mini, MCU lite
+  - Maps stem faders/mute/solo, master, play/pause/stop, record, metronome
+  - Help → MIDI Control Surface…
 
 ## [0.9.5] — 2026-07-08
 

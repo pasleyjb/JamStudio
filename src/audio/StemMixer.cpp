@@ -14,9 +14,24 @@ void StemMixer::clear()
 {
     stop();
     stems.clear();
-    currentSamplePosition = 0;
-    totalSamples = 0;
+    positionSeconds = 0.0;
+    lengthSeconds = 0.0;
     sendChangeMessage();
+}
+
+void StemMixer::recomputeLength()
+{
+    lengthSeconds = 0.0;
+
+    for (const auto& stem : stems)
+    {
+        if (const auto* reader = stem->getReader())
+        {
+            const auto sr = reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
+            lengthSeconds = juce::jmax (lengthSeconds,
+                                        static_cast<double> (reader->lengthInSamples) / sr);
+        }
+    }
 }
 
 bool StemMixer::loadStem (const juce::File& file)
@@ -26,10 +41,8 @@ bool StemMixer::loadStem (const juce::File& file)
     if (! track->loadFromFile (file, formatManager))
         return false;
 
-    if (const auto* reader = track->getReader())
-        totalSamples = juce::jmax (totalSamples, reader->lengthInSamples);
-
     stems.push_back (std::move (track));
+    recomputeLength();
     sendChangeMessage();
     return true;
 }
@@ -122,12 +135,8 @@ bool StemMixer::removeStemByFile (const juce::File& file)
         if ((*it)->getFile().getFullPathName() == targetPath)
         {
             stems.erase (it);
-            totalSamples = 0;
-
-            for (const auto& stem : stems)
-                if (const auto* reader = stem->getReader())
-                    totalSamples = juce::jmax (totalSamples, reader->lengthInSamples);
-
+            recomputeLength();
+            positionSeconds = juce::jmin (positionSeconds, lengthSeconds);
             sendChangeMessage();
             return true;
         }
@@ -160,29 +169,29 @@ void StemMixer::pause()
 void StemMixer::stop()
 {
     playing = false;
-    currentSamplePosition = 0;
+    positionSeconds = 0.0;
     sendChangeMessage();
 }
 
 void StemMixer::setPosition (const double seconds)
 {
-    currentSamplePosition = secondsToSamples (seconds);
+    positionSeconds = juce::jlimit (0.0, juce::jmax (0.0, lengthSeconds), seconds);
     sendChangeMessage();
 }
 
 double StemMixer::getPosition() const noexcept
 {
-    return samplesToSeconds (currentSamplePosition);
+    return positionSeconds;
 }
 
 double StemMixer::getLengthInSeconds() const noexcept
 {
-    return samplesToSeconds (totalSamples);
+    return lengthSeconds;
 }
 
 void StemMixer::prepareToPlay (const int /*samplesPerBlockExpected*/, const double newSampleRate)
 {
-    sampleRate = newSampleRate;
+    deviceSampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
 }
 
 void StemMixer::releaseResources()
@@ -194,26 +203,28 @@ void StemMixer::getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToF
 {
     bufferToFill.clearActiveBufferRegion();
 
-    if (! playing || stems.empty() || sampleRate <= 0.0)
+    if (! playing || stems.empty() || deviceSampleRate <= 0.0)
         return;
 
     const auto numSamples = bufferToFill.numSamples;
     const auto anySolo = anyStemSoloed();
+    const auto startSeconds = positionSeconds;
 
     for (const auto& stem : stems)
         stem->readIntoBuffer (*bufferToFill.buffer,
-                              currentSamplePosition,
+                              startSeconds,
                               numSamples,
+                              deviceSampleRate,
                               anySolo);
 
     if (masterVolume < 0.999f)
         bufferToFill.buffer->applyGain (bufferToFill.startSample, numSamples, masterVolume);
 
-    currentSamplePosition += numSamples;
+    positionSeconds += static_cast<double> (numSamples) / deviceSampleRate;
 
-    if (currentSamplePosition >= totalSamples)
+    if (positionSeconds >= lengthSeconds && lengthSeconds > 0.0)
     {
-        currentSamplePosition = totalSamples;
+        positionSeconds = lengthSeconds;
         playing = false;
         sendChangeMessage();
     }
@@ -226,19 +237,6 @@ bool StemMixer::anyStemSoloed() const noexcept
             return true;
 
     return false;
-}
-
-int64 StemMixer::secondsToSamples (const double seconds) const noexcept
-{
-    return static_cast<int64> (seconds * sampleRate);
-}
-
-double StemMixer::samplesToSeconds (const int64 samples) const noexcept
-{
-    if (sampleRate <= 0.0)
-        return 0.0;
-
-    return static_cast<double> (samples) / sampleRate;
 }
 
 } // namespace jamstudio::audio

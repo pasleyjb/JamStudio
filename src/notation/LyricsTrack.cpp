@@ -1,5 +1,8 @@
 #include "LyricsTrack.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace jamstudio::notation
 {
 
@@ -94,6 +97,62 @@ void LyricsTrack::addLine (LyricLine line)
     lines.push_back (std::move (line));
 }
 
+void LyricsTrack::finalizeTiming()
+{
+    if (lines.empty())
+        return;
+
+    std::stable_sort (lines.begin(), lines.end(),
+                      [] (const LyricLine& a, const LyricLine& b)
+                      {
+                          return a.startSeconds < b.startSeconds;
+                      });
+
+    for (size_t i = 0; i < lines.size(); ++i)
+    {
+        auto& line = lines[i];
+
+        if (line.endSeconds <= line.startSeconds)
+        {
+            if (i + 1 < lines.size())
+                line.endSeconds = lines[i + 1].startSeconds;
+            else
+                line.endSeconds = line.startSeconds + 8.0;
+        }
+
+        for (size_t w = 0; w < line.words.size(); ++w)
+        {
+            auto& word = line.words[w];
+
+            if (word.endSeconds <= word.startSeconds)
+            {
+                if (w + 1 < line.words.size())
+                    word.endSeconds = line.words[w + 1].startSeconds;
+                else
+                    word.endSeconds = line.endSeconds;
+            }
+        }
+    }
+}
+
+void LyricsTrack::applyTimeOffset (const double offsetSeconds)
+{
+    if (std::abs (offsetSeconds) < 1.0e-9)
+        return;
+
+    for (auto& line : lines)
+    {
+        line.startSeconds = juce::jmax (0.0, line.startSeconds + offsetSeconds);
+        line.endSeconds = juce::jmax (line.startSeconds, line.endSeconds + offsetSeconds);
+
+        for (auto& word : line.words)
+        {
+            word.startSeconds = juce::jmax (0.0, word.startSeconds + offsetSeconds);
+            word.endSeconds = juce::jmax (word.startSeconds, word.endSeconds + offsetSeconds);
+        }
+    }
+}
+
 const LyricLine* LyricsTrack::getLine (const int index) const noexcept
 {
     if (! juce::isPositiveAndBelow (index, static_cast<int> (lines.size())))
@@ -107,11 +166,15 @@ int LyricsTrack::getActiveLineIndex (const double seconds) const noexcept
     if (lines.empty())
         return -1;
 
-    auto active = 0;
+    // Before the first lyric line — nothing active yet.
+    if (seconds + 1.0e-6 < lines.front().startSeconds)
+        return -1;
+
+    auto active = -1;
 
     for (int i = 0; i < static_cast<int> (lines.size()); ++i)
     {
-        if (lines[static_cast<size_t> (i)].startSeconds <= seconds)
+        if (lines[static_cast<size_t> (i)].startSeconds <= seconds + 1.0e-6)
             active = i;
         else
             break;
@@ -184,6 +247,9 @@ bool LyricsTrack::fromVar (const juce::var& data, LyricsTrack& track)
         for (const auto& lineVar : *lineArray)
             track.addLine (varToLine (lineVar));
     }
+
+    if (! track.isEmpty())
+        track.finalizeTiming();
 
     return ! track.isEmpty();
 }

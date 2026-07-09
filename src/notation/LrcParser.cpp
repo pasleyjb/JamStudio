@@ -43,19 +43,46 @@ juce::String extractLyricText (const juce::String& line)
 
 bool LrcParser::parseTimestamp (const juce::String& timestamp, double& seconds)
 {
+    // Supports [mm:ss.xx], [mm:ss:xx], and [hh:mm:ss.xx]
     const auto parts = juce::StringArray::fromTokens (timestamp, ":", "");
 
     if (parts.size() < 2)
         return false;
 
-    const auto minutes = parts[0].getIntValue();
-    auto secParts = juce::StringArray::fromTokens (parts[1], ".", "");
-    const auto secs = secParts[0].getIntValue();
+    double minutes = 0.0;
+    juce::String secToken;
+
+    if (parts.size() >= 3 && parts[0].containsOnly ("0123456789")
+        && parts[1].containsOnly ("0123456789")
+        && ! parts[2].containsOnly ("0123456789"))
+    {
+        // hh:mm:ss.xx
+        minutes = parts[0].getDoubleValue() * 60.0 + parts[1].getDoubleValue();
+        secToken = parts[2];
+    }
+    else if (parts.size() >= 3 && parts[2].containsOnly ("0123456789"))
+    {
+        // mm:ss:xx (centiseconds with colon separator — common in some LRC variants)
+        minutes = parts[0].getDoubleValue();
+        const auto secs = parts[1].getDoubleValue();
+        const auto frac = parts[2].getDoubleValue()
+                          / std::pow (10.0, juce::jmax (1, parts[2].length()));
+        seconds = minutes * 60.0 + secs + frac;
+        return true;
+    }
+    else
+    {
+        minutes = parts[0].getDoubleValue();
+        secToken = parts[1];
+    }
+
+    auto secParts = juce::StringArray::fromTokens (secToken, ".", "");
+    const auto secs = secParts[0].getDoubleValue();
     const auto fraction = secParts.size() > 1
-        ? secParts[1].getIntValue() / std::pow (10.0, secParts[1].length())
+        ? secParts[1].getDoubleValue() / std::pow (10.0, juce::jmax (1, secParts[1].length()))
         : 0.0;
 
-    seconds = static_cast<double> (minutes * 60 + secs) + fraction;
+    seconds = minutes * 60.0 + secs + fraction;
     return true;
 }
 
@@ -136,6 +163,7 @@ bool LrcParser::parseText (const juce::String& lrcText, LyricsTrack& track, juce
         return false;
     }
 
+    track.finalizeTiming();
     return true;
 }
 

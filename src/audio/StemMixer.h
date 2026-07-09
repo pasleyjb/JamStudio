@@ -44,15 +44,15 @@ public:
 
 private:
     [[nodiscard]] bool anyStemSoloed() const noexcept;
-    [[nodiscard]] int64 secondsToSamples (double seconds) const noexcept;
-    [[nodiscard]] double samplesToSeconds (int64 samples) const noexcept;
     void sortStemsForPractice();
+    void recomputeLength();
 
     juce::AudioFormatManager& formatManager;
     std::vector<std::unique_ptr<StemTrack>> stems;
-    double sampleRate = 44100.0;
-    int64 currentSamplePosition = 0;
-    int64 totalSamples = 0;
+    double deviceSampleRate = 44100.0;
+    /** Playback cursor in real song seconds (independent of device sample rate). */
+    double positionSeconds = 0.0;
+    double lengthSeconds = 0.0;
     bool playing = false;
     float masterVolume = 1.0f;
 };

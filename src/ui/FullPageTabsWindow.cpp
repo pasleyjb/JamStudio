@@ -21,8 +21,15 @@ public:
 
         printButton.onClick = [this] { printTabs(); };
         exportButton.onClick = [this] { exportPng(); };
+        closeButton.onClick = [this]
+        {
+            if (onCloseRequested != nullptr)
+                onCloseRequested();
+        };
+
         addAndMakeVisible (printButton);
         addAndMakeVisible (exportButton);
+        addAndMakeVisible (closeButton);
 
         notationView.setLayoutMode (jamstudio::notation::NotationView::LayoutMode::fullPageRows);
         notationView.setPrintFriendly (true);
@@ -31,6 +38,11 @@ public:
         viewport.setViewedComponent (&notationView, false);
         viewport.setScrollBarsShown (true, false);
         addAndMakeVisible (viewport);
+    }
+
+    void setCloseCallback (std::function<void()> callback)
+    {
+        onCloseRequested = std::move (callback);
     }
 
     void setScore (const jamstudio::notation::Score& score)
@@ -57,6 +69,8 @@ public:
         auto bounds = getLocalBounds().reduced (10);
 
         auto header = bounds.removeFromTop (34);
+        closeButton.setBounds (header.removeFromRight (80).reduced (2));
+        header.removeFromRight (6);
         printButton.setBounds (header.removeFromRight (90).reduced (2));
         header.removeFromRight (6);
         exportButton.setBounds (header.removeFromRight (110).reduced (2));
@@ -205,30 +219,45 @@ private:
     juce::Label hintLabel;
     juce::TextButton printButton { "Print" };
     juce::TextButton exportButton { "Export PNG" };
+    juce::TextButton closeButton { "Close" };
     juce::Viewport viewport;
     jamstudio::notation::NotationView notationView;
     std::unique_ptr<juce::FileChooser> fileChooser;
+    std::function<void()> onCloseRequested;
 };
 
 FullPageTabsWindow::FullPageTabsWindow (jamstudio::audio::TransportController& transport)
     : DocumentWindow ("JamStudio — Full Page Tabs",
                       JamStudioTheme::getColours().windowBackground,
-                      DocumentWindow::allButtons),
+                      DocumentWindow::closeButton),
       transportController (transport)
 {
     juce::ignoreUnused (transportController);
-    setUsingNativeTitleBar (true);
+
+    // DocumentWindow components default to visible=true; force hidden BEFORE any layout
+    // so centreWithSize / setContent never places a peer on the desktop at startup.
+    windowOpen = false;
+    setVisible (false);
+    setWantsKeyboardFocus (false);
+
+    // Non-native title bar so the window chrome close control always hits closeButtonPressed().
+    setUsingNativeTitleBar (false);
     content = std::make_unique<Content> (transport);
-    setContentNonOwned (content.get(), true);
+    content->setCloseCallback ([this] { hideWindow(); });
+    setContentNonOwned (content.get(), false); // don't auto-resize/show from content size
     setResizable (true, true);
     setResizeLimits (800, 600, 4000, 3000);
-    setFullScreen (false);
-    centreWithSize (1100, 800);
+    setSize (1100, 800);
+
+    // Stay completely off the desktop until the user opens Full Page Tabs from the menu.
     setVisible (false);
+    if (isOnDesktop())
+        removeFromDesktop();
 }
 
 FullPageTabsWindow::~FullPageTabsWindow()
 {
+    hideWindow();
     setContentNonOwned (nullptr, false);
     content.reset();
 }
@@ -241,24 +270,61 @@ void FullPageTabsWindow::setScore (const jamstudio::notation::Score& score)
 
 void FullPageTabsWindow::showWindow (const bool shouldShow)
 {
-    setVisible (shouldShow);
-
     if (shouldShow)
     {
-        setFullScreen (true);
-        toFront (true);
-    }
+        // Large windowed mode (not exclusive fullscreen) so close always works on Linux WMs.
+        if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        {
+            const auto area = display->userBounds.reduced (40.0f).getSmallestIntegerContainer();
+            setBounds (area);
+        }
+        else
+        {
+            centreWithSize (1100, 800);
+        }
 
-    if (visibilityChanged != nullptr)
-        visibilityChanged (shouldShow);
+        setFullScreen (false);
+
+        if (! isOnDesktop())
+            addToDesktop (getDesktopWindowStyleFlags());
+
+        setVisible (true);
+        toFront (true);
+        windowOpen = true;
+
+        if (visibilityChanged != nullptr)
+            visibilityChanged (true);
+    }
+    else
+    {
+        hideWindow();
+    }
+}
+
+void FullPageTabsWindow::hideWindow()
+{
+    const auto wasOpen = windowOpen || isVisible() || isOnDesktop();
+
+    windowOpen = false;
+    setFullScreen (false);
+    setVisible (false);
+
+    // Critical: leave the desktop entirely so the window cannot linger / reappear at startup.
+    if (isOnDesktop())
+        removeFromDesktop();
+
+    if (wasOpen && visibilityChanged != nullptr)
+        visibilityChanged (false);
 }
 
 void FullPageTabsWindow::closeButtonPressed()
 {
-    setVisible (false);
+    hideWindow();
+}
 
-    if (visibilityChanged != nullptr)
-        visibilityChanged (false);
+void FullPageTabsWindow::userTriedToCloseWindow()
+{
+    hideWindow();
 }
 
 void FullPageTabsWindow::setVisibilityChangedCallback (std::function<void (bool visible)> callback)

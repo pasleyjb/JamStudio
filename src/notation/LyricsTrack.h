@@ -30,6 +30,12 @@ public:
     void addLine (double startSeconds, const juce::String& text);
     void addLine (LyricLine line);
 
+    /** Sort by start time and fill missing end times from the next line. */
+    void finalizeTiming();
+
+    /** Shift all timestamps (positive = later). Useful when web LRC is slightly off. */
+    void applyTimeOffset (double offsetSeconds);
+
     [[nodiscard]] bool isEmpty() const noexcept { return lines.empty(); }
     [[nodiscard]] bool hasWordTimings() const noexcept { return wordTimingsAvailable; }
     [[nodiscard]] const juce::String& getTitle() const noexcept { return title; }

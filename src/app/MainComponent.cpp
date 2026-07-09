@@ -3,6 +3,7 @@
 #include "../audio/StemType.h"
 #include "../audio/TempoDetector.h"
 #include "../ui/AiToolsSetupDialog.h"
+#include "../ui/MidiControlDialog.h"
 #include "../ui/OnlineLyricsDialog.h"
 #include "../ui/TabLibraryBrowserDialog.h"
 #include "../ui/JamStudioLookAndFeel.h"
@@ -18,6 +19,7 @@ namespace jamstudio::app
 MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     : audioDeviceManager (deviceManager),
       transportController (deviceManager),
+      midiControlSurface (deviceManager, transportController),
       recordingExporter (transportController.getFormatManager()),
       recentProjects (juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                           .getChildFile ("JamStudio")
@@ -58,9 +60,11 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     statusLabel.setJustificationType (juce::Justification::centredLeft);
     statusLabel.setColour (juce::Label::backgroundColourId,
                            jamstudio::ui::JamStudioTheme::getColours().statusBackground);
-    setStatus ("Ready. Open a song. Use toolbar View tab to show/hide Lyrics, Tabs, Stems, Mixer.");
+    setStatus ("Choose Practice, Performance, or Recording to begin.");
 
-    addAndMakeVisible (toolbarTabs);
+    // Top workspace toolbar permanently removed — use menus and View toggles.
+    toolbarTabs.setVisible (false);
+
     addAndMakeVisible (statusLabel);
     addAndMakeVisible (separationProgress);
     addAndMakeVisible (transportBar);
@@ -120,13 +124,30 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     });
     updatePanelToggleStates();
     applyPanelVisibility();
+
+    midiControlSurface.setStatusCallback ([this] (const juce::String& msg) { setStatus (msg); });
+    midiControlSurface.setUiRefreshCallback ([this] { refreshMixerUiFromMidi(); });
+    midiControlSurface.setRecordToggleCallback ([this] { toggleRecording(); });
+    midiControlSurface.setEnabled (midiControlSurface.getSettings().enabled);
+
+    practiceSetupPipeline = std::make_unique<PracticeSetupPipeline> (
+        demucsSeparator, whisperTranscriber, basicPitchTranscriber,
+        transportController.getFormatManager());
+
+    // Secondary windows must not appear until the user opens them.
+    fullPageTabsWindow.showWindow (false);
+    mixerWindow.showMixer (false);
+
+    setupStartupWizard();
 }
 
 MainComponent::~MainComponent()
 {
     fileChooser.reset();
-    mixerWindow.setVisible (false);
-    fullPageTabsWindow.setVisible (false);
+    if (practiceSetupPipeline != nullptr)
+        practiceSetupPipeline->cancel();
+    mixerWindow.showMixer (false);
+    fullPageTabsWindow.showWindow (false);
     audioRecorder.stopRecording();
     audioDeviceManager.removeAudioCallback (&audioRecorder);
     demucsSeparator.cancel();
@@ -163,9 +184,10 @@ void MainComponent::applyPanelVisibility()
 
 void MainComponent::revealWorkspacePanels()
 {
+    // Practice-friendly: lyrics + tabs (2 panels). Stems stay in the Mixer window.
     lyricsPanelVisible = true;
     notationPanelVisible = true;
-    stemsPanelVisible = true;
+    stemsPanelVisible = false;
     applyPanelVisibility();
     mixerWindow.showMixer (true);
     updatePanelToggleStates();
@@ -202,10 +224,15 @@ void MainComponent::paint (juce::Graphics& g)
 
 void MainComponent::resized()
 {
+    if (startupWizard.isVisible())
+    {
+        startupWizard.setBounds (getLocalBounds());
+        return;
+    }
+
     auto bounds = getLocalBounds().reduced (8);
 
-    toolbarTabs.setBounds (bounds.removeFromTop (54));
-    bounds.removeFromTop (4);
+    // Toolbar intentionally omitted — never allocated screen space.
 
     if (separationProgress.isVisible())
     {
@@ -216,24 +243,22 @@ void MainComponent::resized()
     statusLabel.setBounds (bounds.removeFromTop (22));
     bounds.removeFromTop (6);
 
-    // Bottom dock: main waveform → transport → stem lanes
+    // Bottom dock: compact waveform → transport → optional stem lanes
+    // Keeps upper area free so the tab panel can stay large.
     const int stemLaneCount = stemContainer.getNumChildComponents();
     const int stemLaneHeight = 40;
     const int stemsBlockHeight = stemsPanelVisible
-        ? (18 + juce::jlimit (56, 220, juce::jmax (1, stemLaneCount) * stemLaneHeight + 8))
+        ? (18 + juce::jlimit (48, 140, juce::jmax (1, stemLaneCount) * stemLaneHeight + 8))
         : 0;
-    const int waveHeight = 96;
+    const int waveHeight = 72;
     const int transportHeight = 48;
     const int bottomStackHeight = waveHeight + 4 + transportHeight
                                   + (stemsPanelVisible ? 8 + stemsBlockHeight : 0);
 
     auto bottom = bounds.removeFromBottom (bottomStackHeight);
 
-    // Top of bottom stack: main waveform
     waveformDisplay.setBounds (bottom.removeFromTop (waveHeight));
     bottom.removeFromTop (4);
-
-    // Directly under waveform: transport deck
     transportBar.setBounds (bottom.removeFromTop (transportHeight));
 
     if (stemsPanelVisible)
@@ -245,15 +270,21 @@ void MainComponent::resized()
         layoutStemLanes();
     }
 
-    // Upper / middle: lyrics then tabs
+    // Count visible upper panels so we can favour tabs when both are open.
+    const int upperPanels = (lyricsPanelVisible ? 1 : 0) + (notationPanelVisible ? 1 : 0);
+
+    // Compact karaoke strip (2–3 lines) — not a huge scrolling list.
     if (lyricsPanelVisible)
     {
-        const auto lyricsHeight = juce::jlimit (100, 170, bounds.getHeight() / 4);
+        const int lyricsHeight = upperPanels == 1
+            ? juce::jlimit (120, 220, bounds.getHeight() / 3)
+            : juce::jlimit (100, 140, 120);
         lyricsSectionLabel.setBounds (bounds.removeFromTop (16));
         lyricsView.setBounds (bounds.removeFromTop (lyricsHeight));
         bounds.removeFromTop (6);
     }
 
+    // Tabs take all remaining space (primary practice surface).
     if (notationPanelVisible)
     {
         notationSectionLabel.setBounds (bounds.removeFromTop (16));
@@ -358,6 +389,7 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     else if (menuName == "Help")
     {
         menu.addItem (aiToolsCmd, "AI Tools Setup...", true, false);
+        menu.addItem (midiControlCmd, "MIDI Control Surface...", true, false);
         menu.addSeparator();
         menu.addItem (aboutCmd, "About JamStudio", true, false);
     }
@@ -393,6 +425,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
             break;
         case recordCmd: toggleRecording(); break;
         case aiToolsCmd: showAiToolsSetup(); break;
+        case midiControlCmd: showMidiControlSetup(); break;
         case toggleLyricsPanelCmd: toggleLyricsPanel(); break;
         case toggleNotationPanelCmd: toggleNotationPanel(); break;
         case toggleStemsPanelCmd: toggleStemsPanel(); break;
@@ -471,7 +504,7 @@ void MainComponent::saveProject()
         if (! file.hasFileExtension ("jamstudio"))
             file = file.withFileExtension (".jamstudio");
 
-        const auto data = jamstudio::project::ProjectManager::captureState (
+        auto data = jamstudio::project::ProjectManager::captureState (
             currentSongFile, currentScoreFile, currentLyricsFile,
             currentScore, currentLyrics, transportController, transportBar);
 
@@ -479,11 +512,42 @@ void MainComponent::saveProject()
         {
             currentProjectFile = file;
             recentProjects.add (file);
-            setStatus ("Project saved: " + file.getFileName());
+
+            // Switch mixer to permanent stem copies under {Name}.media/stems/
+            juce::Array<juce::File> permanentStems;
+
+            for (const auto& stem : data.stems)
+            {
+                const juce::File f (stem.filePath);
+
+                if (f.existsAsFile())
+                    permanentStems.add (f);
+            }
+
+            if (! permanentStems.isEmpty())
+            {
+                loadStemsIntoMixer (permanentStems);
+
+                auto& mixer = transportController.getStemMixer();
+
+                for (int i = 0; i < mixer.getNumStems() && i < data.stems.size(); ++i)
+                {
+                    const auto& s = data.stems.getReference (i);
+                    mixer.setStemMuted (i, s.muted);
+                    mixer.setStemSolo (i, s.solo);
+                    mixer.setStemVolume (i, s.volume);
+
+                    if (s.name.isNotEmpty())
+                        mixer.setStemName (i, s.name);
+                }
+            }
+
+            setStatus ("Project saved: " + file.getFileName()
+                       + " (stems stored in " + file.getFileNameWithoutExtension() + ".media/)");
         }
         else
         {
-            setStatus ("Failed to save project.");
+            setStatus ("Failed to save project — stem files missing or could not be copied.");
         }
     });
 }
@@ -520,7 +584,8 @@ void MainComponent::loadProjectFile (const juce::File& file)
 
     if (! jamstudio::project::ProjectManager::applyState (data, transportController, transportBar,
                                                         currentScore, currentLyrics,
-                                                        currentSongFile, currentScoreFile, currentLyricsFile, error))
+                                                        currentSongFile, currentScoreFile, currentLyricsFile,
+                                                        error, file))
     {
         setStatus ("Failed to restore project: " + error);
         return;
@@ -967,6 +1032,20 @@ void MainComponent::showAiToolsSetup()
     jamstudio::ui::AiToolsSetupDialog::show (this, getAiToolStatuses());
 }
 
+void MainComponent::showMidiControlSetup()
+{
+    jamstudio::ui::MidiControlDialog::show (this, midiControlSurface);
+}
+
+void MainComponent::refreshMixerUiFromMidi()
+{
+    auto& mixer = transportController.getStemMixer();
+    mixerWindow.syncFromMixer (mixer);
+    transportBar.setMasterVolume (mixer.getMasterVolume());
+    transportBar.setMetronomeEnabled (transportController.getMetronome().isEnabled());
+    transportBar.updatePositionSlider();
+}
+
 void MainComponent::detectTempoFromSong (const juce::File& audioFile, const bool announceResult)
 {
     if (! audioFile.existsAsFile())
@@ -1000,7 +1079,6 @@ void MainComponent::beginBackgroundTask (const juce::String& message, std::funct
     const auto generation = backgroundTaskGeneration.load();
     backgroundTaskActive = true;
 
-    toolbarTabs.setToolsEnabled (false);
     separationProgress.setVisible (true);
     separationProgress.setProgress (0.0f, message);
     separationProgress.setCancelCallback ([this, generation, onCancel = std::move (onCancel)]
@@ -1026,7 +1104,6 @@ void MainComponent::endBackgroundTask()
         return;
 
     backgroundTaskActive = false;
-    toolbarTabs.setToolsEnabled (true);
     separationProgress.reset();
     resized();
 }
@@ -1350,6 +1427,286 @@ juce::File MainComponent::getDefaultRecordingFile() const
         .getChildFile ("JamStudio")
         .getChildFile ("Recordings")
         .getChildFile ("recording-" + timestamp + ".wav");
+}
+
+juce::File MainComponent::getProjectsDirectory()
+{
+    auto dir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                   .getChildFile ("JamStudio")
+                   .getChildFile ("Projects");
+    dir.createDirectory();
+    return dir;
+}
+
+void MainComponent::setupStartupWizard()
+{
+    addAndMakeVisible (startupWizard);
+    startupWizard.toFront (false);
+
+    startupWizard.setModeChosenCallback ([this] (const jamstudio::ui::StartupWizard::Mode mode)
+    {
+        if (mode == jamstudio::ui::StartupWizard::Mode::practice)
+        {
+            currentMode = mode;
+            setStatus ("Practice: open a project or choose a song to set up automatically.");
+            return;
+        }
+
+        enterWorkspaceMode (mode);
+    });
+
+    startupWizard.setPracticeChoiceCallback ([this] (const jamstudio::ui::StartupWizard::PracticeChoice choice)
+    {
+        handlePracticeChoice (choice);
+    });
+
+    workspaceReady = false;
+    setStatus ("Welcome — choose Practice, Performance, or Recording.");
+    resized();
+}
+
+void MainComponent::hideStartupWizard()
+{
+    startupWizard.setVisible (false);
+    workspaceReady = true;
+    resized();
+}
+
+void MainComponent::enterWorkspaceMode (const jamstudio::ui::StartupWizard::Mode mode)
+{
+    currentMode = mode;
+    hideStartupWizard();
+    revealWorkspacePanels();
+
+    switch (mode)
+    {
+        case jamstudio::ui::StartupWizard::Mode::practice:
+            setStatus ("Practice workspace ready. Open a song or project from the File/Project menus.");
+            break;
+        case jamstudio::ui::StartupWizard::Mode::performance:
+            setStatus ("Performance mode — open a project or song, use the mixer and transport to play along.");
+            break;
+        case jamstudio::ui::StartupWizard::Mode::recording:
+            setStatus ("Recording mode — open a backing track, then Record from Transport menu.");
+            break;
+    }
+}
+
+void MainComponent::handlePracticeChoice (const jamstudio::ui::StartupWizard::PracticeChoice choice)
+{
+    if (choice == jamstudio::ui::StartupWizard::PracticeChoice::openProject)
+    {
+        fileChooser = std::make_unique<juce::FileChooser> (
+            "Open practice project",
+            getProjectsDirectory(),
+            "*.jamstudio");
+
+        const auto chooserFlags = juce::FileBrowserComponent::openMode
+                                  | juce::FileBrowserComponent::canSelectFiles;
+
+        fileChooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& chooser)
+        {
+            const auto file = chooser.getResult();
+
+            if (! file.existsAsFile())
+                return;
+
+            hideStartupWizard();
+            loadProjectFile (file);
+            currentMode = jamstudio::ui::StartupWizard::Mode::practice;
+        });
+        return;
+    }
+
+    // New practice from song file
+    fileChooser = std::make_unique<juce::FileChooser> (
+        "Choose a song to practice",
+        juce::File {},
+        "*.wav;*.mp3;*.flac;*.ogg;*.aiff");
+
+    const auto chooserFlags = juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& chooser)
+    {
+        const auto file = chooser.getResult();
+
+        if (! file.existsAsFile())
+            return;
+
+        startPracticeFromSongFile (file);
+    });
+}
+
+void MainComponent::startPracticeFromSongFile (const juce::File& songFile)
+{
+    if (practiceSetupPipeline == nullptr)
+        return;
+
+    if (practiceSetupPipeline->isRunning() || backgroundTaskActive)
+    {
+        setStatus ("A background job is already running.");
+        return;
+    }
+
+    hideStartupWizard();
+    currentMode = jamstudio::ui::StartupWizard::Mode::practice;
+    currentSongFile = songFile;
+    currentScoreFile = juce::File();
+    currentLyricsFile = juce::File();
+    currentProjectFile = juce::File();
+    currentScore.clear();
+    currentLyrics.clear();
+    lyricsView.clear();
+    notationView.clear();
+    notationHeaderBar.setHasScore (false);
+    recordingTakeManager.clear();
+
+    transportController.stop();
+    transportController.getStemMixer().clear();
+    waveformDisplay.setSourceFile (songFile);
+    rebuildStemLanes();
+    rebuildMixerWindow();
+
+    beginBackgroundTask ("Setting up practice project...",
+                         [this]
+                         {
+                             if (practiceSetupPipeline != nullptr)
+                                 practiceSetupPipeline->cancel();
+                         });
+
+    const auto jobGeneration = backgroundTaskGeneration.load();
+
+    practiceSetupPipeline->start (songFile,
+        [this, jobGeneration] (const float progress, const juce::String& message)
+        {
+            if (jobGeneration != backgroundTaskGeneration.load() || ! backgroundTaskActive)
+                return;
+
+            separationProgress.setProgress (progress, message);
+            setStatus (message);
+        },
+        [this, jobGeneration] (PracticeSetupResult result)
+        {
+            if (jobGeneration != backgroundTaskGeneration.load())
+                return;
+
+            endBackgroundTask();
+            applyPracticeSetupResult (std::move (result));
+        });
+}
+
+void MainComponent::applyPracticeSetupResult (PracticeSetupResult result)
+{
+    if (result.cancelled)
+    {
+        setStatus ("Practice setup cancelled.");
+        return;
+    }
+
+    if (! result.success)
+    {
+        setStatus (result.errorMessage.isNotEmpty() ? result.errorMessage
+                                                    : "Practice setup failed.");
+        return;
+    }
+
+    currentSongFile = result.songFile;
+
+    if (! result.stemFiles.isEmpty())
+        loadStemsIntoMixer (result.stemFiles);
+    else if (result.songFile.existsAsFile())
+        loadStemsIntoMixer ({ result.songFile });
+
+    if (! result.score.isEmpty())
+    {
+        currentScoreFile = juce::File();
+        applyScore (result.score, false);
+    }
+
+    if (! result.lyrics.isEmpty())
+    {
+        currentLyricsFile = juce::File();
+        currentLyrics = std::move (result.lyrics);
+        lyricsView.setLyrics (currentLyrics);
+    }
+
+    revealWorkspacePanels();
+    autoSavePracticeProject (result.projectTitle);
+
+    juce::StringArray summary;
+    summary.add ("Project: " + result.projectTitle);
+    summary.add (juce::String (result.stemFiles.size()) + " stems");
+
+    if (result.scoreSource == "web")
+        summary.add ("tabs (web)");
+    else if (result.scoreSource == "ai")
+        summary.add ("tabs (AI)");
+    else
+        summary.add ("no tabs");
+
+    if (result.lyricsSource == "web")
+        summary.add ("lyrics (web)");
+    else if (result.lyricsSource == "ai")
+        summary.add ("lyrics (AI)");
+    else
+        summary.add ("no lyrics");
+
+    setStatus ("Practice ready — " + summary.joinIntoString (" · "));
+}
+
+void MainComponent::autoSavePracticeProject (const juce::String& projectTitle)
+{
+    auto title = projectTitle.trim();
+
+    if (title.isEmpty())
+        title = currentSongFile.existsAsFile() ? currentSongFile.getFileNameWithoutExtension()
+                                               : "Untitled";
+
+    const auto projectFile = getProjectsDirectory().getChildFile (title + ".jamstudio");
+
+    auto data = jamstudio::project::ProjectManager::captureState (
+        currentSongFile, currentScoreFile, currentLyricsFile,
+        currentScore, currentLyrics, transportController, transportBar);
+
+    if (jamstudio::project::ProjectManager::saveProject (projectFile, data))
+    {
+        currentProjectFile = projectFile;
+        recentProjects.add (projectFile);
+
+        // Point the mixer at permanent copies so playback survives /tmp cleanup.
+        juce::Array<juce::File> permanentStems;
+
+        for (const auto& stem : data.stems)
+        {
+            const juce::File f (stem.filePath);
+
+            if (f.existsAsFile())
+                permanentStems.add (f);
+        }
+
+        if (! permanentStems.isEmpty())
+        {
+            loadStemsIntoMixer (permanentStems);
+
+            auto& mixer = transportController.getStemMixer();
+
+            for (int i = 0; i < mixer.getNumStems() && i < data.stems.size(); ++i)
+            {
+                const auto& s = data.stems.getReference (i);
+                mixer.setStemMuted (i, s.muted);
+                mixer.setStemSolo (i, s.solo);
+                mixer.setStemVolume (i, s.volume);
+
+                if (s.name.isNotEmpty())
+                    mixer.setStemName (i, s.name);
+            }
+        }
+    }
+    else
+    {
+        setStatus ("Practice ready, but failed to save project (stem files may still be under a temp path).");
+    }
 }
 
 } // namespace jamstudio::app

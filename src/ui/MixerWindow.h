@@ -18,17 +18,28 @@ public:
     ~MixerWindow() override;
 
     void rebuild (jamstudio::audio::StemMixer& mixer, StemChangedCallback onChanged);
+    /** Lightweight UI update after MIDI/fader changes (no strip recreate). */
+    void syncFromMixer (const jamstudio::audio::StemMixer& mixer);
+
     void closeButtonPressed() override;
+    void userTriedToCloseWindow() override;
+    void minimiseButtonPressed() override;
+    void maximiseButtonPressed() override;
+
     void showMixer (bool shouldShow);
     void setVisibilityChangedCallback (std::function<void (bool visible)> callback);
-    [[nodiscard]] bool isMixerVisible() const noexcept { return isVisible(); }
+    [[nodiscard]] bool isMixerVisible() const noexcept { return windowOpen; }
 
 private:
     class Content;
 
+    void hideMixer();
+
     jamstudio::audio::TransportController& transportController;
     std::unique_ptr<Content> content;
     std::function<void (bool)> visibilityChanged;
+    bool windowOpen = false;
+    juce::Rectangle<int> restoredBounds { 100, 100, 680, 460 };
 };
 
 } // namespace jamstudio::ui

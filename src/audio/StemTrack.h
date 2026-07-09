@@ -40,10 +40,14 @@ public:
     /** Call on the message thread (~30 Hz) to decay the sticky peak hold. */
     void tickMeterPeakHold (float deltaSeconds) noexcept;
 
+    /** Reads audio starting at absolute song time, resampling file rate → device rate. */
     void readIntoBuffer (juce::AudioBuffer<float>& output,
-                         int64 startSample,
-                         int numSamples,
+                         double startSeconds,
+                         int numOutputSamples,
+                         double deviceSampleRate,
                          bool anySoloActive) const;
+
+    [[nodiscard]] double getFileSampleRate() const noexcept;
 
 private:
     void updateMeterFromBuffer (const juce::AudioBuffer<float>& buffer, float gain) const noexcept;
