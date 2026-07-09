@@ -64,6 +64,8 @@ target_sources(JamStudio PRIVATE
     src/notation/OnlineLyricsClient.cpp
     src/project/ProjectManager.cpp
     src/project/RecentProjects.cpp
+    src/performance/SetListData.cpp
+    src/performance/SetListManager.cpp
     src/ui/JamStudioTheme.cpp
     src/ui/JamStudioLookAndFeel.cpp
     src/ui/BrandAssets.cpp
@@ -86,7 +88,9 @@ target_sources(JamStudio PRIVATE
     src/ui/TransportBar.cpp
     src/ui/WaveformDisplay.cpp
     src/ui/SeparationProgressBar.cpp
-    src/ui/StartupWizard.cpp)
+    src/ui/StartupWizard.cpp
+    src/ui/PerformanceBar.cpp
+    src/ui/SetListEditorDialog.cpp)
 
 target_include_directories(JamStudio PRIVATE
     src

@@ -138,7 +138,12 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     midiControlSurface.setStatusCallback ([this] (const juce::String& msg) { setStatus (msg); });
     midiControlSurface.setUiRefreshCallback ([this] { refreshMixerUiFromMidi(); });
     midiControlSurface.setRecordToggleCallback ([this] { toggleRecording(); });
+    midiControlSurface.setNextSongCallback ([this] { performanceTriggerNext(); });
     midiControlSurface.setEnabled (midiControlSurface.getSettings().enabled);
+
+    performanceBar.setVisible (false);
+    performanceBar.setTriggerCallback ([this] { performanceTriggerNext(); });
+    addChildComponent (performanceBar);
 
     practiceSetupPipeline = std::make_unique<PracticeSetupPipeline> (
         demucsSeparator, whisperTranscriber, basicPitchTranscriber,
@@ -263,6 +268,13 @@ void MainComponent::resized()
 
     bounds = bounds.reduced (8);
 
+    // Performance stage bar (next-song / foot pedal) above the transport stack.
+    if (performanceBar.isVisible())
+    {
+        performanceBar.setBounds (bounds.removeFromBottom (64));
+        bounds.removeFromBottom (6);
+    }
+
     // Bottom dock: overview waveform → transport → stem lanes with mini-waves
     const int stemLaneCount = stemContainer.getNumChildComponents();
     const int stemLaneHeight = 52;
@@ -362,7 +374,7 @@ void MainComponent::layoutStemLanes()
 
 juce::StringArray MainComponent::buildMenuBarNames()
 {
-    return { "File", "Project", "View", "Stems", "Notation", "Lyrics", "Transport", "Help" };
+    return { "File", "Project", "View", "Stems", "Notation", "Lyrics", "Transport", "Performance", "Help" };
 }
 
 juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, const juce::String& menuName)
@@ -422,6 +434,12 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
         menu.addItem (detectTempoCmd, "Detect Tempo", true, false);
         menu.addItem (recordCmd, "Record / Stop", true, false);
     }
+    else if (menuName == "Performance")
+    {
+        menu.addItem (editSetListCmd, "Edit / Start Set List…", true, false);
+        menu.addItem (performanceNextSongCmd, "Next Song / Start (Foot Pedal)", performanceActive, false);
+        menu.addItem (stopPerformanceCmd, "Stop Performance Mode", performanceActive, false);
+    }
     else if (menuName == "Help")
     {
         menu.addItem (aiToolsCmd, "AI Tools Setup...", true, false);
@@ -467,6 +485,9 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case toggleNotationPanelCmd: toggleNotationPanel(); break;
         case toggleStemsPanelCmd: toggleStemsPanel(); break;
         case toggleMixerWindowCmd: toggleMixerWindow(); break;
+        case editSetListCmd: openSetListEditor(); break;
+        case performanceNextSongCmd: performanceTriggerNext(); break;
+        case stopPerformanceCmd: stopPerformanceMode(); break;
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
@@ -502,6 +523,23 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
     {
         rebuildStemLanes();
         rebuildMixerWindow();
+    }
+
+    if (source == &transportController && performanceActive)
+    {
+        const auto playing = transportController.isPlaying();
+
+        // Song finished naturally → pause between songs and wait for foot pedal.
+        if (performanceWasPlaying && ! playing)
+        {
+            const auto length = transportController.getLengthInSeconds();
+            const auto pos = transportController.getPosition();
+
+            if (length > 0.5 && pos >= length - 0.15)
+                onPerformanceSongEnded();
+        }
+
+        performanceWasPlaying = playing;
     }
 
     transportBar.updatePositionSlider();
@@ -1654,6 +1692,13 @@ void MainComponent::setupStartupWizard()
             return;
         }
 
+        if (mode == jamstudio::ui::StartupWizard::Mode::performance)
+        {
+            currentMode = mode;
+            openSetListEditor();
+            return;
+        }
+
         enterWorkspaceMode (mode);
     });
 
@@ -1686,7 +1731,7 @@ void MainComponent::enterWorkspaceMode (const jamstudio::ui::StartupWizard::Mode
             setStatus ("Practice workspace ready. Open a song or project from the File/Project menus.");
             break;
         case jamstudio::ui::StartupWizard::Mode::performance:
-            setStatus ("Performance mode — open a project or song, use the mixer and transport to play along.");
+            setStatus ("Performance mode — build a set list under Performance menu.");
             break;
         case jamstudio::ui::StartupWizard::Mode::recording:
             setStatus ("Recording mode — open a backing track, then Record from Transport menu.");
@@ -1855,6 +1900,214 @@ void MainComponent::applyPracticeSetupResult (PracticeSetupResult result)
         summary.add ("no lyrics");
 
     setStatus ("Practice ready — " + summary.joinIntoString (" · "));
+}
+
+void MainComponent::openSetListEditor()
+{
+    jamstudio::ui::SetListEditorDialog::show (this, [this] (jamstudio::performance::SetList list)
+    {
+        startPerformanceMode (std::move (list));
+    });
+}
+
+void MainComponent::startPerformanceMode (jamstudio::performance::SetList list)
+{
+    if (list.songs.isEmpty())
+    {
+        setStatus ("Set list is empty.");
+        return;
+    }
+
+    performanceSetList = std::move (list);
+    performanceActive = true;
+    performanceSongIndex = -1;
+    performanceWaitingForTrigger = true;
+    performanceWasPlaying = false;
+    currentMode = jamstudio::ui::StartupWizard::Mode::performance;
+
+    hideStartupWizard();
+    revealWorkspacePanels();
+    performanceBar.setVisible (true);
+    updatePerformanceBar();
+    performanceBar.setWaitingForTrigger (true);
+    performanceBar.setPhaseMessage ("Press NEXT / START or foot pedal (MIDI: Next Song) for song 1");
+    setStatus ("Performance ready — " + performanceSetList.name + " ("
+               + juce::String (performanceSetList.songs.size()) + " songs). Pedal = next.");
+    resized();
+}
+
+void MainComponent::stopPerformanceMode()
+{
+    performanceActive = false;
+    performanceWaitingForTrigger = false;
+    performanceSongIndex = -1;
+    performanceWasPlaying = false;
+    performanceBar.setVisible (false);
+    transportController.stop();
+    setStatus ("Performance mode stopped.");
+    resized();
+}
+
+void MainComponent::updatePerformanceBar()
+{
+    juce::String title;
+
+    if (juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
+        title = performanceSetList.songs.getReference (performanceSongIndex).displayName;
+
+    performanceBar.setSetListInfo (performanceSetList.name,
+                                   performanceSongIndex,
+                                   performanceSetList.songs.size(),
+                                   title);
+}
+
+void MainComponent::performanceTriggerNext()
+{
+    if (! performanceActive)
+    {
+        openSetListEditor();
+        return;
+    }
+
+    // Between songs or before first: advance and play.
+    if (performanceWaitingForTrigger || performanceSongIndex < 0)
+    {
+        const auto next = performanceSongIndex + 1;
+
+        if (next >= performanceSetList.songs.size())
+        {
+            performanceBar.setPhaseMessage ("Set complete — nice show!");
+            performanceBar.setWaitingForTrigger (false);
+            setStatus ("Set list finished.");
+            transportController.stop();
+            return;
+        }
+
+        loadPerformanceSong (next, true);
+        return;
+    }
+
+    // During a song: skip to end / prepare next (manual advance)
+    transportController.pause();
+    onPerformanceSongEnded();
+}
+
+void MainComponent::onPerformanceSongEnded()
+{
+    if (! performanceActive)
+        return;
+
+    transportController.pause();
+    performanceWasPlaying = false;
+    performanceWaitingForTrigger = true;
+    updatePerformanceBar();
+
+    const auto next = performanceSongIndex + 1;
+
+    if (next >= performanceSetList.songs.size())
+    {
+        performanceBar.setWaitingForTrigger (false);
+        performanceBar.setPhaseMessage ("Set complete!");
+        setStatus ("Last song finished.");
+        return;
+    }
+
+    const auto& nextSong = performanceSetList.songs.getReference (next);
+    performanceBar.setWaitingForTrigger (true);
+    performanceBar.setPhaseMessage ("Song ended — press foot pedal / NEXT for: " + nextSong.displayName);
+    setStatus ("Paused between songs. Pedal to start: " + nextSong.displayName);
+}
+
+void MainComponent::loadPerformanceSong (const int index, const bool autoPlay)
+{
+    if (! juce::isPositiveAndBelow (index, performanceSetList.songs.size()))
+        return;
+
+    const auto song = performanceSetList.songs.getReference (index);
+    const auto projectFile = song.projectFile();
+
+    if (! projectFile.existsAsFile())
+    {
+        setStatus ("Missing project: " + song.projectPath);
+        performanceBar.setPhaseMessage ("Missing file — skip with NEXT");
+        performanceWaitingForTrigger = true;
+        performanceSongIndex = index; // stay on broken slot so next advances
+        updatePerformanceBar();
+        return;
+    }
+
+    loadProjectFile (projectFile);
+    performanceSongIndex = index;
+    performanceWaitingForTrigger = false;
+    applyPerformanceStemPrefsForCurrentSong();
+
+    if (song.showTabs)
+    {
+        notationPanelVisible = true;
+        preferLeadTabPart (song.preferredPartHint);
+        setNotationDisplayMode (jamstudio::notation::NotationMode::tab);
+    }
+
+    if (song.showLyrics)
+        lyricsPanelVisible = true;
+
+    applyPanelVisibility();
+    updatePerformanceBar();
+    performanceBar.setWaitingForTrigger (false);
+    performanceBar.setPhaseMessage (autoPlay ? "Playing…" : "Loaded — press play or pedal");
+
+    if (autoPlay)
+    {
+        transportController.setPosition (0.0);
+        transportController.play();
+        performanceWasPlaying = true;
+    }
+
+    setStatus ("Now: " + song.displayName
+               + "  (" + juce::String (index + 1) + "/"
+               + juce::String (performanceSetList.songs.size()) + ")");
+}
+
+void MainComponent::applyPerformanceStemPrefsForCurrentSong()
+{
+    if (! juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
+        return;
+
+    const auto& song = performanceSetList.songs.getReference (performanceSongIndex);
+    const auto& prefs = song.stemPrefs.isEmpty() ? performanceSetList.defaultStemPrefs
+                                                 : song.stemPrefs;
+
+    jamstudio::performance::applyStemPrefs (transportController.getStemMixer(), prefs);
+    rebuildMixerWindow();
+    rebuildStemLanes();
+    refreshMixerUiFromMidi();
+}
+
+void MainComponent::preferLeadTabPart (const juce::String& partHint)
+{
+    if (currentScore.isEmpty() || partHint.isEmpty())
+        return;
+
+    const auto names = currentScore.getPartNames();
+
+    for (int i = 0; i < names.size(); ++i)
+    {
+        if (names[i].containsIgnoreCase (partHint))
+        {
+            setActiveScorePart (i);
+            return;
+        }
+    }
+
+    // Prefer any guitar-ish part if exact hint missing
+    for (int i = 0; i < names.size(); ++i)
+    {
+        if (names[i].containsIgnoreCase ("guitar") || names[i].containsIgnoreCase ("lead"))
+        {
+            setActiveScorePart (i);
+            return;
+        }
+    }
 }
 
 void MainComponent::autoSavePracticeProject (const juce::String& projectTitle)

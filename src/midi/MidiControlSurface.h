@@ -17,6 +17,7 @@ public:
     using StatusCallback = std::function<void (const juce::String& message)>;
     using UiRefreshCallback = std::function<void()>;
     using RecordToggleCallback = std::function<void()>;
+    using NextSongCallback = std::function<void()>;
 
     MidiControlSurface (juce::AudioDeviceManager& deviceManager,
                         jamstudio::audio::TransportController& transport);
@@ -53,6 +54,7 @@ public:
     void setStatusCallback (StatusCallback cb) { statusCallback = std::move (cb); }
     void setUiRefreshCallback (UiRefreshCallback cb) { uiRefreshCallback = std::move (cb); }
     void setRecordToggleCallback (RecordToggleCallback cb) { recordToggleCallback = std::move (cb); }
+    void setNextSongCallback (NextSongCallback cb) { nextSongCallback = std::move (cb); }
 
     [[nodiscard]] juce::String getLastMessageDescription() const;
 
@@ -77,6 +79,7 @@ private:
     StatusCallback statusCallback;
     UiRefreshCallback uiRefreshCallback;
     RecordToggleCallback recordToggleCallback;
+    NextSongCallback nextSongCallback;
 };
 
 } // namespace jamstudio::midi

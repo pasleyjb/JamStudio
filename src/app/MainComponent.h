@@ -24,7 +24,11 @@
 #include "../ui/ToolbarTabs.h"
 #include "../ui/TranscriptionCorrectionDialog.h"
 #include "../ui/TransportBar.h"
+#include "../ui/PerformanceBar.h"
+#include "../ui/SetListEditorDialog.h"
 #include "../project/RecentProjects.h"
+#include "../performance/SetListData.h"
+#include "../performance/SetListManager.h"
 #include "../ui/WaveformDisplay.h"
 #include "PracticeSetupPipeline.h"
 
@@ -75,7 +79,10 @@ private:
         toggleLyricsPanelCmd,
         toggleNotationPanelCmd,
         toggleStemsPanelCmd,
-        toggleMixerWindowCmd
+        toggleMixerWindowCmd,
+        editSetListCmd,
+        performanceNextSongCmd,
+        stopPerformanceCmd
     };
 
     void openSong();
@@ -139,6 +146,17 @@ private:
     void autoSavePracticeProject (const juce::String& projectTitle);
     [[nodiscard]] static juce::File getProjectsDirectory();
 
+    // Performance mode
+    void openSetListEditor();
+    void startPerformanceMode (jamstudio::performance::SetList list);
+    void stopPerformanceMode();
+    void performanceTriggerNext();
+    void loadPerformanceSong (int index, bool autoPlay);
+    void onPerformanceSongEnded();
+    void applyPerformanceStemPrefsForCurrentSong();
+    void updatePerformanceBar();
+    void preferLeadTabPart (const juce::String& partHint);
+
     juce::AudioDeviceManager& audioDeviceManager;
     jamstudio::audio::TransportController transportController;
     jamstudio::midi::MidiControlSurface midiControlSurface;
@@ -176,6 +194,13 @@ private:
     jamstudio::ui::MixerWindow mixerWindow;
     jamstudio::ui::FullPageTabsWindow fullPageTabsWindow;
     jamstudio::ui::FullPageLyricsWindow fullPageLyricsWindow;
+    jamstudio::ui::PerformanceBar performanceBar;
+
+    jamstudio::performance::SetList performanceSetList;
+    int performanceSongIndex = -1;
+    bool performanceActive = false;
+    bool performanceWaitingForTrigger = false;
+    bool performanceWasPlaying = false;
 
     juce::File currentSongFile;
     juce::File currentScoreFile;

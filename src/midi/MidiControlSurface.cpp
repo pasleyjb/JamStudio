@@ -403,6 +403,15 @@ void MidiControlSurface::applyBinding (const MidiBinding& binding,
                 }
                 break;
 
+            case MidiTarget::nextSong:
+                if (isPress || (binding.type == MidiBinding::Type::cc && value >= 0.5f))
+                {
+                    if (nextSongCallback != nullptr)
+                        nextSongCallback();
+                    needsUi = true;
+                }
+                break;
+
             default:
                 break;
         }

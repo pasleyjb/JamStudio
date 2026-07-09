@@ -16,6 +16,8 @@ enum class MidiTarget
     togglePlayPause,
     recordToggle,
     metronomeToggle,
+    /** Performance mode: start next set-list song (foot pedal). */
+    nextSong,
     // Stem volumes (faders / knobs)
     stemVolume0,
     stemVolume1,

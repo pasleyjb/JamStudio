@@ -58,6 +58,7 @@ juce::String midiTargetToString (const MidiTarget target)
         case MidiTarget::togglePlayPause: return "Play/Pause Toggle";
         case MidiTarget::recordToggle: return "Record Toggle";
         case MidiTarget::metronomeToggle: return "Metronome Toggle";
+        case MidiTarget::nextSong: return "Next Song / Foot Pedal";
         case MidiTarget::stemVolume0: return "Stem 1 Volume";
         case MidiTarget::stemVolume1: return "Stem 2 Volume";
         case MidiTarget::stemVolume2: return "Stem 3 Volume";
@@ -270,6 +271,8 @@ MidiMappingProfile MidiMappingProfile::genericDaw()
     p.bindings.add (makeCc (44, MidiTarget::togglePlayPause, 0, false));
     p.bindings.add (makeCc (45, MidiTarget::recordToggle, 0, true));
     p.bindings.add (makeCc (46, MidiTarget::metronomeToggle, 0, true));
+    // Sustain pedal / stage footswitch (CC 64) → next set-list song
+    p.bindings.add (makeCc (64, MidiTarget::nextSong, 0, false));
     return p;
 }
 
