@@ -145,10 +145,17 @@ public:
 
         g.setColour (JamStudioTheme::getColours().textSecondary);
         g.setFont (juce::FontOptions (11.0f));
-        const auto mixNote = song.stemPrefs.isEmpty()
-                                 ? "uses default stage mix"
-                                 : (juce::String (song.stemPrefs.size()) + " stem prefs");
-        g.drawText (mixNote, 24, height / 2 - 2, width - 28, height / 2, juce::Justification::centredLeft);
+
+        juce::String note;
+        if (song.stageMediaKind == jamstudio::performance::StageMediaKind::video)
+            note = "video: " + juce::File (song.stageMediaPath).getFileName();
+        else if (song.stageMediaKind == jamstudio::performance::StageMediaKind::slideshow)
+            note = "slideshow: " + juce::String (juce::jmax (song.stageSlidePaths.size(), 1)) + " slides";
+        else
+            note = song.stemPrefs.isEmpty() ? "default mix, no stage media"
+                                            : (juce::String (song.stemPrefs.size()) + " stem prefs, no stage media");
+
+        g.drawText (note, 24, height / 2 - 2, width - 28, height / 2, juce::Justification::centredLeft);
     }
 
     SetListEditorDialog& owner;
@@ -159,7 +166,6 @@ SetListEditorDialog::SetListEditorDialog()
 {
     setList.defaultStemPrefs = jamstudio::performance::SetList::leadGuitarSingerDefaults();
 
-    titleLabel.setText ("Performance — build your set list", juce::dontSendNotification);
     titleLabel.setFont (juce::FontOptions (20.0f, juce::Font::bold));
     addAndMakeVisible (titleLabel);
 
@@ -167,9 +173,6 @@ SetListEditorDialog::SetListEditorDialog()
     setNameEditor.setText (setList.name);
     addAndMakeVisible (setNameEditor);
 
-    mixHint.setText ("Default stage mix (lead guitar + singer): Guitar down, Vocals mute, Drums/Bass full. "
-                     "Edit per song after adding projects.",
-                     juce::dontSendNotification);
     mixHint.setColour (juce::Label::textColourId, JamStudioTheme::getColours().textSecondary);
     addAndMakeVisible (mixHint);
 
@@ -183,7 +186,7 @@ SetListEditorDialog::SetListEditorDialog()
     availableList.setModel (availableModel.get());
     setListBox.setModel (setModel.get());
     availableList.setRowHeight (26);
-    setListBox.setRowHeight (40);
+    setListBox.setRowHeight (44);
     addAndMakeVisible (availableList);
     addAndMakeVisible (setListBox);
 
@@ -193,6 +196,9 @@ SetListEditorDialog::SetListEditorDialog()
     downButton.onClick = [this] { moveSong (1); };
     applyDefaultMixButton.onClick = [this] { applyDefaultMixToSelected(); };
     editMixButton.onClick = [this] { editSelectedStemPrefs(); };
+    assignVideoButton.onClick = [this] { assignVideoToSelected(); };
+    assignSlideshowButton.onClick = [this] { assignSlideshowToSelected(); };
+    clearMediaButton.onClick = [this] { clearStageMediaOnSelected(); };
     saveButton.onClick = [this] { saveSetList(); };
     startButton.onClick = [this] { startPerformance(); };
     cancelButton.onClick = [this]
@@ -202,7 +208,9 @@ SetListEditorDialog::SetListEditorDialog()
     };
 
     for (auto* b : { &addButton, &removeButton, &upButton, &downButton,
-                     &applyDefaultMixButton, &editMixButton, &saveButton, &startButton, &cancelButton })
+                     &applyDefaultMixButton, &editMixButton,
+                     &assignVideoButton, &assignSlideshowButton, &clearMediaButton,
+                     &saveButton, &startButton, &cancelButton })
         addAndMakeVisible (*b);
 
     startButton.setColour (juce::TextButton::buttonColourId,
@@ -217,12 +225,51 @@ SetListEditorDialog::SetListEditorDialog()
             jamstudio::performance::SetListManager::defaultSetListFile(), loaded, err))
         loadInitialSetList (loaded);
 
-    setSize (780, 560);
+    applyEditorModeChrome();
+    setSize (860, 620);
 }
 
 void SetListEditorDialog::setStartCallback (StartCallback cb)
 {
     onStart = std::move (cb);
+}
+
+void SetListEditorDialog::setEditorMode (const EditorMode mode)
+{
+    editorMode = mode;
+    applyEditorModeChrome();
+}
+
+void SetListEditorDialog::applyEditorModeChrome()
+{
+    const bool showBuilder = editorMode == EditorMode::stageShowBuilder;
+
+    if (showBuilder)
+    {
+        titleLabel.setText ("Stage Show Builder", juce::dontSendNotification);
+        mixHint.setText ("Pin a video or image slideshow to each song. Media is saved into the setlist "
+                         "folder and loads automatically when that song plays. Use mixer VIDEO transport "
+                         "to control playback.",
+                         juce::dontSendNotification);
+        startButton.setButtonText ("Start Stage Show");
+        assignVideoButton.setVisible (true);
+        assignSlideshowButton.setVisible (true);
+        clearMediaButton.setVisible (true);
+    }
+    else
+    {
+        titleLabel.setText ("Performance - build your set list", juce::dontSendNotification);
+        mixHint.setText ("Default stage mix (lead guitar + singer): Guitar down, Vocals mute, Drums/Bass full. "
+                         "Edit per song after adding projects. Optional stage media via Stage Show Builder.",
+                         juce::dontSendNotification);
+        startButton.setButtonText ("Start Performance");
+        // Still allow media pinning in performance editor for convenience
+        assignVideoButton.setVisible (true);
+        assignSlideshowButton.setVisible (true);
+        clearMediaButton.setVisible (true);
+    }
+
+    resized();
 }
 
 void SetListEditorDialog::loadInitialSetList (const jamstudio::performance::SetList& list)
@@ -255,7 +302,7 @@ void SetListEditorDialog::addSelectedProject()
     jamstudio::performance::SetListSong song;
     song.projectPath = file.getFullPathName();
     song.displayName = file.getFileNameWithoutExtension();
-    song.stemPrefs = setList.defaultStemPrefs; // copy stage mix template
+    song.stemPrefs = setList.defaultStemPrefs;
     song.showTabs = true;
     song.showLyrics = true;
     song.preferredPartHint = "Guitar";
@@ -313,7 +360,7 @@ void SetListEditorDialog::editSelectedStemPrefs()
 
     juce::DialogWindow::LaunchOptions opts;
     opts.content.setOwned (editor);
-    opts.dialogTitle = "Stem mix — " + song.displayName;
+    opts.dialogTitle = "Stem mix - " + song.displayName;
     opts.dialogBackgroundColour = JamStudioTheme::getColours().panelBackground;
     opts.escapeKeyTriggersCloseButton = true;
     opts.useNativeTitleBar = true;
@@ -340,6 +387,136 @@ void SetListEditorDialog::editSelectedStemPrefs()
     opts.launchAsync();
 }
 
+void SetListEditorDialog::assignVideoToSelected()
+{
+    const auto row = setListBox.getSelectedRow();
+
+    if (! juce::isPositiveAndBelow (row, setList.songs.size()))
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                                "Stage media",
+                                                "Select a song in the set list first.");
+        return;
+    }
+
+    fileChooser = std::make_unique<juce::FileChooser> (
+        "Pin stage video to song",
+        juce::File {},
+        "*.mp4;*.mov;*.mkv;*.webm;*.mpeg;*.mpg;*.avi;*.m4v;*.mp3;*.m4a;*.wav");
+
+    constexpr auto flags = juce::FileBrowserComponent::openMode
+                           | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync (flags, [this, row] (const juce::FileChooser& chooser)
+    {
+        const auto file = chooser.getResult();
+        if (! file.existsAsFile() || ! juce::isPositiveAndBelow (row, setList.songs.size()))
+            return;
+
+        auto& song = setList.songs.getReference (row);
+        song.stageMediaKind = jamstudio::performance::StageMediaKind::video;
+        song.stageMediaPath = file.getFullPathName();
+        song.stageSlidePaths.clear();
+        song.stageMediaAutoPlay = true;
+        refreshSetList();
+    });
+}
+
+void SetListEditorDialog::assignSlideshowToSelected()
+{
+    const auto row = setListBox.getSelectedRow();
+
+    if (! juce::isPositiveAndBelow (row, setList.songs.size()))
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                                "Stage media",
+                                                "Select a song in the set list first.");
+        return;
+    }
+
+    fileChooser = std::make_unique<juce::FileChooser> (
+        "Pin slideshow images (multi-select) or a folder",
+        juce::File {},
+        "*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.webp");
+
+    constexpr auto flags = juce::FileBrowserComponent::openMode
+                           | juce::FileBrowserComponent::canSelectFiles
+                           | juce::FileBrowserComponent::canSelectMultipleItems
+                           | juce::FileBrowserComponent::canSelectDirectories;
+
+    fileChooser->launchAsync (flags, [this, row] (const juce::FileChooser& chooser)
+    {
+        if (! juce::isPositiveAndBelow (row, setList.songs.size()))
+            return;
+
+        auto results = chooser.getResults();
+        if (results.isEmpty())
+        {
+            const auto single = chooser.getResult();
+            if (single.exists())
+                results.add (single);
+        }
+
+        if (results.isEmpty())
+            return;
+
+        auto& song = setList.songs.getReference (row);
+        song.stageMediaKind = jamstudio::performance::StageMediaKind::slideshow;
+        song.stageSlidePaths.clear();
+        song.stageSlideSeconds = 5.0f;
+        song.stageMediaAutoPlay = true;
+
+        juce::Array<juce::File> images;
+
+        for (const auto& f : results)
+        {
+            if (f.isDirectory())
+            {
+                for (const auto& entry : juce::RangedDirectoryIterator (
+                         f, false, "*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.webp", juce::File::findFiles))
+                    images.add (entry.getFile());
+            }
+            else if (f.existsAsFile())
+            {
+                images.add (f);
+            }
+        }
+
+        images.sort();
+
+        for (const auto& img : images)
+            song.stageSlidePaths.add (img.getFullPathName());
+
+        if (! song.stageSlidePaths.isEmpty())
+            song.stageMediaPath = song.stageSlidePaths.getFirst();
+
+        refreshSetList();
+    });
+}
+
+void SetListEditorDialog::clearStageMediaOnSelected()
+{
+    const auto row = setListBox.getSelectedRow();
+
+    if (! juce::isPositiveAndBelow (row, setList.songs.size()))
+        return;
+
+    auto& song = setList.songs.getReference (row);
+    song.stageMediaKind = jamstudio::performance::StageMediaKind::none;
+    song.stageMediaPath.clear();
+    song.stageSlidePaths.clear();
+    refreshSetList();
+}
+
+juce::File SetListEditorDialog::currentSetListFile() const
+{
+    const auto name = setNameEditor.getText().trim().isNotEmpty()
+                          ? setNameEditor.getText().trim()
+                          : setList.name;
+    return jamstudio::performance::SetListManager::getSetListsDirectory()
+        .getChildFile (juce::File::createLegalFileName (name.isNotEmpty() ? name : "My Set") + ".setlist");
+}
+
 void SetListEditorDialog::saveSetList()
 {
     setList.name = setNameEditor.getText().trim();
@@ -347,12 +524,20 @@ void SetListEditorDialog::saveSetList()
     if (setList.name.isEmpty())
         setList.name = "My Set";
 
-    const auto file = jamstudio::performance::SetListManager::getSetListsDirectory()
-                          .getChildFile (juce::File::createLegalFileName (setList.name) + ".setlist");
+    const auto file = currentSetListFile();
 
     if (jamstudio::performance::SetListManager::saveSetList (file, setList))
+    {
         jamstudio::performance::SetListManager::saveSetList (
             jamstudio::performance::SetListManager::defaultSetListFile(), setList);
+
+        juce::AlertWindow::showMessageBoxAsync (
+            juce::MessageBoxIconType::InfoIcon,
+            "Set list saved",
+            "Saved to:\n" + file.getFullPathName()
+                + "\nStage media packaged in:\n"
+                + jamstudio::performance::SetListManager::mediaFolderForSetList (file).getFullPathName());
+    }
 }
 
 void SetListEditorDialog::startPerformance()
@@ -370,7 +555,11 @@ void SetListEditorDialog::startPerformance()
         return;
     }
 
-    saveSetList();
+    // Package media + write setlist before starting so paths resolve.
+    const auto file = currentSetListFile();
+    jamstudio::performance::SetListManager::saveSetList (file, setList);
+    jamstudio::performance::SetListManager::saveSetList (
+        jamstudio::performance::SetListManager::defaultSetListFile(), setList);
 
     if (onStart)
         onStart (setList);
@@ -394,13 +583,19 @@ void SetListEditorDialog::resized()
     setNameLabel.setBounds (nameRow.removeFromLeft (70));
     setNameEditor.setBounds (nameRow);
     area.removeFromTop (8);
-    mixHint.setBounds (area.removeFromTop (40));
+    mixHint.setBounds (area.removeFromTop (48));
     area.removeFromTop (8);
 
     auto bottom = area.removeFromBottom (44);
     cancelButton.setBounds (bottom.removeFromLeft (100).reduced (2));
     saveButton.setBounds (bottom.removeFromLeft (120).reduced (2));
     startButton.setBounds (bottom.removeFromRight (160).reduced (2));
+
+    auto mediaRow = area.removeFromBottom (36);
+    assignVideoButton.setBounds (mediaRow.removeFromLeft (120).reduced (2));
+    assignSlideshowButton.setBounds (mediaRow.removeFromLeft (140).reduced (2));
+    clearMediaButton.setBounds (mediaRow.removeFromLeft (140).reduced (2));
+    area.removeFromBottom (4);
 
     auto midButtons = area.removeFromBottom (36);
     applyDefaultMixButton.setBounds (midButtons.removeFromLeft (280).reduced (2));
@@ -428,14 +623,18 @@ void SetListEditorDialog::resized()
     downButton.setBounds (mid.removeFromTop (36).reduced (2));
 }
 
-void SetListEditorDialog::show (juce::Component* centreAround, StartCallback onStart)
+void SetListEditorDialog::show (juce::Component* centreAround,
+                                StartCallback onStart,
+                                const EditorMode mode)
 {
     auto* editor = new SetListEditorDialog();
+    editor->setEditorMode (mode);
     editor->setStartCallback (std::move (onStart));
 
     juce::DialogWindow::LaunchOptions opts;
     opts.content.setOwned (editor);
-    opts.dialogTitle = "Performance set list";
+    opts.dialogTitle = mode == EditorMode::stageShowBuilder ? "Stage Show Builder"
+                                                            : "Performance set list";
     opts.dialogBackgroundColour = JamStudioTheme::getColours().windowBackground;
     opts.escapeKeyTriggersCloseButton = true;
     opts.useNativeTitleBar = true;

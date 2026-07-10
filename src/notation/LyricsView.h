@@ -41,7 +41,7 @@ private:
     LyricsTrack lyrics;
     double syncOffsetSeconds = 0.0;
 
-    juce::TextButton earlierButton { "−0.5s" };
+    juce::TextButton earlierButton { "-0.5s" };
     juce::TextButton laterButton { "+0.5s" };
     juce::Label offsetLabel;
     juce::Label hintLabel;

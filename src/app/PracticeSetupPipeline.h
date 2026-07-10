@@ -38,7 +38,7 @@ struct PracticeSetupResult
  *  2) Download tabs + lyrics from the web when possible
  *  3) Fall back to AI (basic-pitch per instrument, Whisper for lyrics)
  *
- * Does not touch the UI mixer — caller applies the result and saves the project.
+ * Does not touch the UI mixer - caller applies the result and saves the project.
  */
 class PracticeSetupPipeline
 {

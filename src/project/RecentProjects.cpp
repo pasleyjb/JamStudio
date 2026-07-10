@@ -36,7 +36,7 @@ void RecentProjects::buildMenu (juce::PopupMenu& menu) const
     for (int i = 0; i < entries.size(); ++i)
     {
         const juce::File file (entries[i]);
-        menu.addItem (i + 1, file.getFileName() + "  —  " + file.getParentDirectory().getFileName());
+        menu.addItem (i + 1, file.getFileName() + " - " + file.getParentDirectory().getFileName());
     }
 
     if (entries.isEmpty())

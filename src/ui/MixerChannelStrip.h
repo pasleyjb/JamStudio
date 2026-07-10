@@ -6,12 +6,15 @@
 namespace jamstudio::ui
 {
 
-/** Vertical DAW channel: colour bar, M/S, fader, old-school peak meter. */
+/**
+ * Vertical DAW channel: M/S, FOH fader, Mon A / Mon B sends, peak meter.
+ * FOH = house PA; monitors = band / IEM mixes (independent levels).
+ */
 class MixerChannelStrip : public juce::Component,
                           private juce::Timer
 {
 public:
-    using StemChangedCallback = std::function<void (int index, bool muted, bool solo, float volume)>;
+    using StemChangedCallback = std::function<void (int index)>;
 
     MixerChannelStrip (int stemIndex,
                        jamstudio::audio::StemMixer& mixer,
@@ -23,6 +26,7 @@ public:
 
 private:
     void notifyChanged();
+    void applyControlsToMixer();
     void updateIndicators();
     void timerCallback() override;
     void paintLevelMeter (juce::Graphics& g, juce::Rectangle<float> area,
@@ -34,7 +38,12 @@ private:
     juce::Label nameLabel;
     IndicatorButton muteButton { "mute", "M" };
     IndicatorButton soloButton { "solo", "S" };
-    juce::Slider volumeSlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
+    juce::Label fohLabel { {}, "FOH" };
+    juce::Slider fohSlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
+    juce::Label monALabel { {}, "A" };
+    juce::Slider monASlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
+    juce::Label monBLabel { {}, "B" };
+    juce::Slider monBSlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
     juce::Label levelLabel { {}, "0" };
     juce::Rectangle<int> meterBounds;
     float displayLevel = 0.0f;

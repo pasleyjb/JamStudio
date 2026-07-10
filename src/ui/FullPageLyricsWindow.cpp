@@ -40,7 +40,7 @@ public:
         titleLabel.setText ("Full Page Lyrics", juce::dontSendNotification);
         addAndMakeVisible (titleLabel);
 
-        hintLabel.setText ("Printable lyric sheet — use Print or Export PNG",
+        hintLabel.setText ("Printable lyric sheet - use Print or Export PNG",
                            juce::dontSendNotification);
         hintLabel.setColour (juce::Label::textColourId, JamStudioTheme::getColours().textSecondary);
         addAndMakeVisible (hintLabel);
@@ -212,7 +212,7 @@ private:
                 g.setColour (forPrint ? juce::Colours::black
                                       : JamStudioTheme::getColours().textSecondary);
                 g.setFont (juce::FontOptions (16.0f));
-                g.drawText ("No lyrics loaded — import LRC, find online lyrics, or run AI Lyrics.",
+                g.drawText ("No lyrics loaded - import LRC, find online lyrics, or run AI Lyrics.",
                             area, juce::Justification::centred);
                 return;
             }
@@ -340,7 +340,7 @@ private:
             juce::MessageBoxIconType::InfoIcon,
             "Print Lyrics",
             "Opened printable image:\n" + file.getFullPathName()
-                + "\n\nUse your image viewer’s Print command (Ctrl+P).");
+                + "\n\nUse your image viewer's Print command (Ctrl+P).");
     }
 
     void exportPng()
@@ -420,7 +420,7 @@ private:
 
 //==============================================================================
 FullPageLyricsWindow::FullPageLyricsWindow (jamstudio::audio::TransportController& transport)
-    : DocumentWindow ("JamStudio — Full Page Lyrics",
+    : DocumentWindow ("JamStudio - Full Page Lyrics",
                       JamStudioTheme::getColours().windowBackground,
                       DocumentWindow::closeButton),
       transportController (transport)

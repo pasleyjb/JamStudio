@@ -153,7 +153,7 @@ void OnlineLyricsClient::searchAsync (const SongMetadata& metadata, SearchCallba
                        + "&album_name=" + urlEncode (metadata.album));
         }
 
-        // 3) Free-text: always "Artist Title" when possible — never title alone if artist exists
+        // 3) Free-text: always "Artist Title" when possible - never title alone if artist exists
         if (results.isEmpty())
         {
             const auto q = metadata.searchQuery();
@@ -269,7 +269,7 @@ bool OnlineLyricsClient::candidateToLyrics (const OnlineLyricsCandidate& candida
     }
     else if (candidate.plainLyrics.trim().isNotEmpty())
     {
-        // Untimed plain lyrics — still useful; put as sequential lines without timestamps.
+        // Untimed plain lyrics - still useful; put as sequential lines without timestamps.
         out.setTitle (candidate.trackName);
         const auto lines = juce::StringArray::fromLines (candidate.plainLyrics);
         double t = 0.0;
@@ -311,7 +311,7 @@ bool OnlineLyricsClient::candidateToLyrics (const OnlineLyricsCandidate& candida
 
     if (out.getTitle().isEmpty())
         out.setTitle (candidate.artistName.isNotEmpty()
-                          ? candidate.artistName + " — " + candidate.trackName
+                          ? candidate.artistName + " - " + candidate.trackName
                           : candidate.trackName);
 
     out.finalizeTiming();

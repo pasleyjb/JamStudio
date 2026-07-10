@@ -48,7 +48,7 @@ juce::String AiToolsCatalog::buildSetupMessage (const juce::Array<AiToolInfo>& t
 
     for (const auto& tool : tools)
     {
-        lines.add (tool.name + " — " + (tool.available ? "Ready" : "Not installed"));
+        lines.add (tool.name + " - " + (tool.available ? "Ready" : "Not installed"));
         lines.add ("  " + tool.purpose);
 
         if (! tool.available)

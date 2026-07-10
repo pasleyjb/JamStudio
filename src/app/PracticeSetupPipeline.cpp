@@ -78,7 +78,7 @@ void PracticeSetupPipeline::start (const juce::File& songFile,
             if (! isStillActive (job))
                 return;
 
-            // Stem separation is ~0–40% of the overall pipeline.
+            // Stem separation is ~0-40% of the overall pipeline.
             reportProgress (0.02f + progress * 0.38f, message);
         });
 }
@@ -181,7 +181,7 @@ void PracticeSetupPipeline::fetchWebTabs()
 
             if (! catalogResult.success || catalogResult.catalog.entries.isEmpty())
             {
-                result.notes.add ("Tab library unavailable — will try AI tabs.");
+                result.notes.add ("Tab library unavailable - will try AI tabs.");
                 webTabsDone = true;
                 afterWebAssets();
                 return;
@@ -206,13 +206,13 @@ void PracticeSetupPipeline::fetchWebTabs()
             if (artist.isNotEmpty() && matchScore < 40.0)
             {
                 result.notes.add ("Online tabs for \"" + entry.title + "\" did not match artist \""
-                                  + artist + "\" — using AI tabs instead.");
+                                  + artist + "\" - using AI tabs instead.");
                 webTabsDone = true;
                 afterWebAssets();
                 return;
             }
 
-            reportProgress (0.48f, "Downloading tabs: " + entry.artist + " — " + entry.title + "...");
+            reportProgress (0.48f, "Downloading tabs: " + entry.artist + " - " + entry.title + "...");
 
             tabLibraryClient.downloadScoreAsync (entry, catalogResult.catalog,
                 [this, job, entry] (jamstudio::notation::TabLibraryDownloadResult download)
@@ -232,12 +232,12 @@ void PracticeSetupPipeline::fetchWebTabs()
                         {
                             result.score = std::move (parsed);
                             result.score.setTitle (entry.artist.isNotEmpty()
-                                                       ? entry.artist + " — " + entry.title
+                                                       ? entry.artist + " - " + entry.title
                                                        : entry.title);
                             result.scoreSource = "web";
                             result.notes.add ("Tabs from online library: "
                                               + (entry.artist.isNotEmpty()
-                                                     ? entry.artist + " — " + entry.title
+                                                     ? entry.artist + " - " + entry.title
                                                      : entry.title));
                         }
                         else
@@ -321,7 +321,7 @@ void PracticeSetupPipeline::fetchWebLyrics()
                                   + metadata.displayLabel()
                                   + " closely enough (best score "
                                   + juce::String (bestScore, 1)
-                                  + ") — will try AI lyrics.");
+                                  + ") - will try AI lyrics.");
                 webLyricsDone = true;
                 afterWebAssets();
                 return;
@@ -403,7 +403,7 @@ void PracticeSetupPipeline::runAiLyricsIfNeeded()
 
     if (! whisperTranscriber.isAvailable())
     {
-        result.notes.add ("Whisper unavailable — lyrics left empty.");
+        result.notes.add ("Whisper unavailable - lyrics left empty.");
         result.lyricsSource = "none";
         runAiTabsIfNeeded();
         return;
@@ -422,7 +422,7 @@ void PracticeSetupPipeline::runAiLyricsIfNeeded()
         return;
     }
 
-    reportProgress (0.55f, "AI lyrics (Whisper) — web lookup failed...");
+    reportProgress (0.55f, "AI lyrics (Whisper) - web lookup failed...");
 
     whisperTranscriber.transcribeAsync (vocals,
         [this, job] (const jamstudio::ai::TranscriptionResult& transcription)
@@ -472,7 +472,7 @@ void PracticeSetupPipeline::runAiTabsIfNeeded()
 
     if (! basicPitchTranscriber.isAvailable())
     {
-        result.notes.add ("basic-pitch unavailable — tabs left empty.");
+        result.notes.add ("basic-pitch unavailable - tabs left empty.");
         result.scoreSource = "none";
         reportProgress (0.98f, "Finishing practice project...");
         finishSuccess();
@@ -589,7 +589,7 @@ void PracticeSetupPipeline::mergeScorePart (const jamstudio::notation::Score& pa
             if (partScore.getNumParts() == 1)
                 copy.name = partName;
             else
-                copy.name = partName + " — "
+                copy.name = partName + " - "
                             + (src->name.isNotEmpty() ? src->name : ("Part " + juce::String (i + 1)));
 
             if (copy.notationMode == jamstudio::notation::NotationMode::hidden

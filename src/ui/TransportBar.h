@@ -32,18 +32,22 @@ public:
 
 private:
     void updateMetronomeIndicator();
+    void updateCountInIndicator();
     void updateTransportIndicators();
 
     jamstudio::audio::TransportController& transportController;
     DetectTempoCallback detectTempoCallback;
 
+    TapeDeckButton skipBackButton { "skipBack", TapeDeckButton::Icon::skipBack };
     TapeDeckButton playButton { "play", TapeDeckButton::Icon::play };
     TapeDeckButton pauseButton { "pause", TapeDeckButton::Icon::pause };
     TapeDeckButton stopButton { "stop", TapeDeckButton::Icon::stop };
+    TapeDeckButton skipForwardButton { "skipForward", TapeDeckButton::Icon::skipForward };
     juce::Slider positionSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxLeft };
     juce::Label positionLabel;
     juce::Label masterLabel { {}, "Master" };
     juce::Slider masterVolumeSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+    IndicatorButton countInButton { "countIn", "4-IN" };
     IndicatorButton metronomeButton { "metronome", "Metro" };
     juce::TextButton detectTempoButton { "Detect" };
     juce::Slider bpmSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxLeft };

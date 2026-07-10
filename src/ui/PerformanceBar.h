@@ -5,7 +5,7 @@
 namespace jamstudio::ui
 {
 
-/** Stage control strip for Performance mode — next-song foot-pedal target. */
+/** Stage control strip for Performance mode - next-song foot-pedal target. */
 class PerformanceBar : public juce::Component
 {
 public:
@@ -24,7 +24,7 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
 
-    /** Large stage button — also wired as MIDI "Next Song / Foot Pedal". */
+    /** Large stage button - also wired as MIDI "Next Song / Foot Pedal". */
     juce::TextButton& getTriggerButton() noexcept { return triggerButton; }
 
 private:

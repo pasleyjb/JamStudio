@@ -57,18 +57,18 @@ enum class MidiTarget
 [[nodiscard]] MidiTarget stemMuteTarget (int index) noexcept;
 [[nodiscard]] MidiTarget stemSoloTarget (int index) noexcept;
 
-/** One MIDI source → JamStudio action binding. */
+/** One MIDI source -> JamStudio action binding. */
 struct MidiBinding
 {
     enum class Type
     {
-        cc,        // absolute continuous controller 0–127
+        cc,        // absolute continuous controller 0-127
         note,      // note on/off (buttons)
         pitchBend  // 14-bit fader (Mackie-style when channel encodes track)
     };
 
     Type type = Type::cc;
-    int channel = -1;   // 0–15, or -1 = any channel
+    int channel = -1;   // 0-15, or -1 = any channel
     int number = 0;     // CC number, note number, or 0 for pitch bend
     MidiTarget target = MidiTarget::none;
     bool toggle = true; // buttons: toggle state on press (mute/solo/transport)
@@ -79,7 +79,7 @@ struct MidiBinding
     [[nodiscard]] juce::String describe() const;
 };
 
-/** Named mapping profile (Generic, nanoKONTROL2, …). */
+/** Named mapping profile (Generic, nanoKONTROL2, ...). */
 class MidiMappingProfile
 {
 public:
@@ -98,7 +98,7 @@ public:
     [[nodiscard]] juce::var toVar() const;
     [[nodiscard]] static MidiMappingProfile fromVar (const juce::var& data);
 
-    // Built-in profiles covering most USB “mixer” / DAW controllers in CC mode.
+    // Built-in profiles covering most USB "mixer" / DAW controllers in CC mode.
     [[nodiscard]] static juce::Array<MidiMappingProfile> builtInProfiles();
     [[nodiscard]] static MidiMappingProfile genericDaw();
     [[nodiscard]] static MidiMappingProfile korgNanoKontrol2();

@@ -37,7 +37,10 @@ target_sources(JamStudio PRIVATE
     src/audio/StemTrack.cpp
     src/audio/StemMixer.cpp
     src/audio/Metronome.cpp
+    src/audio/MultiBusMaster.cpp
     src/audio/TransportController.cpp
+    src/audio/StageMediaPlayer.cpp
+    src/audio/FFmpegAudioFormat.cpp
     src/audio/TempoDetector.cpp
     src/audio/AudioRecorder.cpp
     src/audio/RecordingExporter.cpp
@@ -78,6 +81,9 @@ target_sources(JamStudio PRIVATE
     src/ui/StemLane.cpp
     src/ui/MixerChannelStrip.cpp
     src/ui/MixerWindow.cpp
+    src/ui/FloatingWindowDock.cpp
+    src/ui/HelpCatalog.cpp
+    src/ui/HelpBrowserDialog.cpp
     src/ui/NotationHeaderBar.cpp
     src/ui/FullPageTabsWindow.cpp
     src/ui/FullPageLyricsWindow.cpp
@@ -90,11 +96,18 @@ target_sources(JamStudio PRIVATE
     src/ui/SeparationProgressBar.cpp
     src/ui/StartupWizard.cpp
     src/ui/PerformanceBar.cpp
-    src/ui/SetListEditorDialog.cpp)
+    src/ui/SetListEditorDialog.cpp
+    src/ui/VideoOutputWindow.cpp
+    src/ui/StageFxControllerWindow.cpp)
+
+# FFmpeg / libav for MPEG codecs (stage FX video + compressed audio)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libavutil libswresample)
 
 target_include_directories(JamStudio PRIVATE
     src
-    ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_JamStudioAssets/JuceLibraryCode)
+    ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_JamStudioAssets/JuceLibraryCode
+    ${FFMPEG_INCLUDE_DIRS})
 
 target_compile_definitions(JamStudio PRIVATE
     JUCE_USE_FLAC=1
@@ -106,12 +119,17 @@ target_compile_definitions(JamStudio PRIVATE
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_REPORT_APP_USAGE=0
     JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=1)
+    JUCE_USE_CURL=1
+    JAMSTUDIO_USE_FFMPEG=1)
 
 target_link_libraries(JamStudio PRIVATE
     JamStudioAssets
     juce::juce_audio_utils
     juce::juce_recommended_config_flags
-    juce::juce_recommended_warning_flags)
+    juce::juce_recommended_warning_flags
+    ${FFMPEG_LIBRARIES})
+
+target_link_directories(JamStudio PRIVATE ${FFMPEG_LIBRARY_DIRS})
+target_compile_options(JamStudio PRIVATE ${FFMPEG_CFLAGS_OTHER})
 
 # Qt shell prototype (future): apps/JamStudio/

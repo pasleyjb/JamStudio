@@ -126,7 +126,7 @@ void StartupWizard::IconCardButton::drawIcon (juce::Graphics& g,
     {
         case CardIcon::practice:
         {
-            // Fallback only when Practice.jpg is missing — simple open-book headstock outline.
+            // Fallback only when Practice.jpg is missing - simple open-book headstock outline.
             juce::Path head;
             const auto tipY = area.getY() + h * 0.06f;
             const auto peakY = area.getY() + h * 0.20f;
@@ -143,6 +143,24 @@ void StartupWizard::IconCardButton::drawIcon (juce::Graphics& g,
             head.closeSubPath();
             g.fillPath (head);
             g.fillRect (cx - neckW * 0.5f, nutY, neckW, area.getBottom() - nutY - h * 0.06f);
+            break;
+        }
+
+        case CardIcon::stageShowBuilder:
+        {
+            // Film frame + play triangle
+            g.drawRoundedRectangle (area.reduced (w * 0.12f, h * 0.18f), 4.0f, juce::jmax (2.0f, w * 0.06f));
+            for (int i = 0; i < 4; ++i)
+            {
+                const float y = area.getY() + h * (0.22f + i * 0.16f);
+                g.fillRect (area.getX() + w * 0.16f, y, w * 0.10f, h * 0.08f);
+                g.fillRect (area.getRight() - w * 0.26f, y, w * 0.10f, h * 0.08f);
+            }
+            juce::Path tri;
+            tri.addTriangle (cx - w * 0.06f, cy - h * 0.14f,
+                             cx - w * 0.06f, cy + h * 0.14f,
+                             cx + w * 0.16f, cy);
+            g.fillPath (tri);
             break;
         }
 
@@ -215,8 +233,9 @@ void StartupWizard::IconCardButton::drawIcon (juce::Graphics& g,
 
 //==============================================================================
 StartupWizard::StartupWizard()
-    : practiceButton ("practice", CardIcon::practice, "Practice", "Stems · tabs · lyrics"),
+    : practiceButton ("practice", CardIcon::practice, "Practice", "Stems - tabs - lyrics"),
       performanceButton ("performance", CardIcon::performance, "Performance", "Play along"),
+      stageShowButton ("stageShow", CardIcon::stageShowBuilder, "Stage Show", "Videos & slides"),
       recordingButton ("recording", CardIcon::recording, "Recording", "Track yourself"),
       openProjectButton ("openProject", CardIcon::openProject, "Open Project", "Saved .jamstudio"),
       newSongButton ("newSong", CardIcon::newSong, "New from Song", "Auto setup"),
@@ -225,11 +244,11 @@ StartupWizard::StartupWizard()
     wizardBackground = BrandAssets::loadWizardBackground();
     practiceButton.setCustomIcon (BrandAssets::loadPracticeIcon());
 
-    // Mode title/subtitle removed — free-floating tiles only.
+    // Mode title/subtitle removed - free-floating tiles only.
     titleLabel.setVisible (false);
     subtitleLabel.setVisible (false);
 
-    // Mode page — horizontal icon cards
+    // Mode page - horizontal icon cards
     addAndMakeVisible (modePage);
 
     practiceButton.onClick = [this]
@@ -243,6 +262,11 @@ StartupWizard::StartupWizard()
         if (onModeChosen)
             onModeChosen (Mode::performance);
     };
+    stageShowButton.onClick = [this]
+    {
+        if (onModeChosen)
+            onModeChosen (Mode::stageShowBuilder);
+    };
     recordingButton.onClick = [this]
     {
         if (onModeChosen)
@@ -251,6 +275,7 @@ StartupWizard::StartupWizard()
 
     modePage.addAndMakeVisible (practiceButton);
     modePage.addAndMakeVisible (performanceButton);
+    modePage.addAndMakeVisible (stageShowButton);
     modePage.addAndMakeVisible (recordingButton);
 
     // Practice page
@@ -311,7 +336,7 @@ void StartupWizard::showPage (const int pageIndex)
     currentPage = pageIndex;
     modePage.setVisible (pageIndex == 0);
     practicePage.setVisible (pageIndex == 1);
-    // Keep welcome/subtitle labels hidden — tiles speak for themselves.
+    // Keep welcome/subtitle labels hidden - tiles speak for themselves.
     titleLabel.setVisible (false);
     subtitleLabel.setVisible (false);
     resized();
@@ -363,8 +388,8 @@ void StartupWizard::layoutHorizontalCards (juce::Rectangle<int> area,
     const int n = static_cast<int> (cards.size());
     const int maxSide = juce::jmin (area.getHeight(),
                                     (area.getWidth() - gap * (n - 1)) / n);
-    // Large free-floating tiles (was capped ~180).
-    const int side = juce::jlimit (140, 260, maxSide);
+    // Large free-floating tiles (slightly smaller when 4 modes).
+    const int side = juce::jlimit (110, 220, maxSide);
     const int totalW = n * side + (n - 1) * gap;
     auto row = juce::Rectangle<int> (totalW, side).withCentre (area.getCentre());
 
@@ -378,7 +403,7 @@ void StartupWizard::layoutHorizontalCards (juce::Rectangle<int> area,
 
 void StartupWizard::resized()
 {
-    // Free-floating tiles centered — no welcome text taking vertical space.
+    // Free-floating tiles centered - no welcome text taking vertical space.
     auto outer = getLocalBounds().reduced (juce::jmax (20, getWidth() / 16),
                                            juce::jmax (20, getHeight() / 14));
 
@@ -388,12 +413,12 @@ void StartupWizard::resized()
     modePage.setBounds (outer);
     practicePage.setBounds (outer);
 
-    // Mode: three large equal squares floating horizontally
+    // Mode: large equal squares floating horizontally
     {
         auto area = modePage.getLocalBounds().reduced (8, 8);
         layoutHorizontalCards (area,
-                               { &practiceButton, &performanceButton, &recordingButton },
-                               28);
+                               { &practiceButton, &performanceButton, &stageShowButton, &recordingButton },
+                               20);
     }
 
     // Practice page: optional short labels + large tiles

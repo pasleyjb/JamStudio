@@ -1,11 +1,19 @@
 #pragma once
 
+#include "MixBus.h"
 #include "StemTrack.h"
+
+#include <array>
 
 namespace jamstudio::audio
 {
 
-/** Mixes multiple stem tracks from a shared playback position. */
+/**
+ * Mixes stems to multiple stereo buses (FOH + monitors).
+ * Output layout when device has enough channels:
+ *   0-1 FOH L/R, 2-3 Mon A L/R, 4-5 Mon B L/R
+ * If fewer channels, active buses fold into available pairs (FOH first).
+ */
 class StemMixer : public juce::AudioSource,
                   public juce::ChangeBroadcaster
 {
@@ -22,12 +30,16 @@ public:
 
     void setStemMuted (int index, bool muted);
     void setStemSolo (int index, bool solo);
-    void setStemVolume (int index, float volume);
+    void setStemVolume (int index, float volume); // FOH
+    void setStemBusSend (int index, MixBus bus, float gain);
     void setStemName (int index, const juce::String& name);
     bool removeStemByFile (const juce::File& file);
 
-    void setMasterVolume (float volume) noexcept;
-    [[nodiscard]] float getMasterVolume() const noexcept { return masterVolume; }
+    void setMasterVolume (float volume) noexcept; // FOH master alias
+    [[nodiscard]] float getMasterVolume() const noexcept { return getBusMaster (MixBus::foh); }
+
+    void setBusMaster (MixBus bus, float volume) noexcept;
+    [[nodiscard]] float getBusMaster (MixBus bus) const noexcept;
 
     void play();
     void pause();
@@ -49,12 +61,12 @@ private:
 
     juce::AudioFormatManager& formatManager;
     std::vector<std::unique_ptr<StemTrack>> stems;
+    std::array<float, kNumMixBuses> busMaster { 1.0f, 1.0f, 1.0f };
     double deviceSampleRate = 44100.0;
-    /** Playback cursor in real song seconds (independent of device sample rate). */
     double positionSeconds = 0.0;
     double lengthSeconds = 0.0;
     bool playing = false;
-    float masterVolume = 1.0f;
+    juce::AudioBuffer<float> dryScratch;
 };
 
 } // namespace jamstudio::audio

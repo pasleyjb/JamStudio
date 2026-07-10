@@ -13,7 +13,9 @@ public:
     {
         play,
         pause,
-        stop
+        stop,
+        skipBack,
+        skipForward
     };
 
     TapeDeckButton (const juce::String& name, Icon icon);

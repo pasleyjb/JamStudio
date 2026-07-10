@@ -282,7 +282,7 @@ bool ProjectManager::saveProject (const juce::File& projectFile, ProjectData& da
     // Always pack stems next to the project so reopening never depends on /tmp.
     if (! relocateStemMedia (projectFile, data, mediaError))
     {
-        // Still try to write JSON with original paths if copy failed mid-session —
+        // Still try to write JSON with original paths if copy failed mid-session - 
         // but surface the error by failing save so the user knows.
         juce::ignoreUnused (mediaError);
         // Prefer failing when we have stems that should be permanent.
@@ -394,7 +394,7 @@ bool ProjectManager::applyState (const ProjectData& data,
 
         if (! file.existsAsFile())
         {
-            missing.add (stem.name.isNotEmpty() ? stem.name + " → " + stem.filePath
+            missing.add (stem.name.isNotEmpty() ? stem.name + " -> " + stem.filePath
                                                 : stem.filePath);
             continue;
         }
@@ -419,7 +419,7 @@ bool ProjectManager::applyState (const ProjectData& data,
     if (stemFiles.isEmpty())
     {
         errorMessage = "Missing stem file(s). Stems were likely saved under /tmp and cleaned up.\n"
-                       "Re-run Practice → New from Song (or Separate Stems), then Save Project.\n\n"
+                       "Re-run Practice -> New from Song (or Separate Stems), then Save Project.\n\n"
                        + missing.joinIntoString ("\n");
         return false;
     }
@@ -435,7 +435,7 @@ bool ProjectManager::applyState (const ProjectData& data,
 
     for (int i = 0; i < mixer.getNumStems() && i < data.stems.size(); ++i)
     {
-        // Match by order of successfully resolved stems — rebuild stem state carefully.
+        // Match by order of successfully resolved stems - rebuild stem state carefully.
         const auto& stemState = data.stems.getReference (i);
         const auto resolved = resolveStemFile (stemState.filePath, projectFile);
 

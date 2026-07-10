@@ -57,7 +57,7 @@ MidiControlDialog::MidiControlDialog (jamstudio::midi::MidiControlSurface& midiS
         surface.setUseCustomProfile (false);
         refreshProfileList();
         refreshBindingsList();
-        activityLabel.setText ("Custom map cleared — using built-in profile.", juce::dontSendNotification);
+        activityLabel.setText ("Custom map cleared - using built-in profile.", juce::dontSendNotification);
     };
     addAndMakeVisible (clearLearnButton);
 
@@ -167,7 +167,7 @@ void MidiControlDialog::timerCallback()
 {
     const auto msg = surface.getLastMessageDescription();
     if (msg.isNotEmpty())
-        activityLabel.setText ((surface.isLearning() ? "LEARNING — " : "Last MIDI: ") + msg,
+        activityLabel.setText ((surface.isLearning() ? "LEARNING - " : "Last MIDI: ") + msg,
                                juce::dontSendNotification);
 }
 
@@ -267,7 +267,7 @@ void MidiControlDialog::startLearnForSelectedTarget()
 
 void MidiControlDialog::sendTestCc()
 {
-    // Simulates a USB fader without hardware — maps to Stem 1 Volume on Generic profile.
+    // Simulates a USB fader without hardware - maps to Stem 1 Volume on Generic profile.
     surface.handleIncomingMessageForTest (juce::MidiMessage::controllerEvent (1, 0, 100));
     refreshBindingsList();
     activityLabel.setText ("Injected test CC0=100 (Stem 1 volume on Generic / nanoKONTROL profiles).",

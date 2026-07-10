@@ -95,7 +95,7 @@ void MidiControlSurface::beginLearn (const MidiTarget target)
 {
     learnTarget = target;
     postStatus ("MIDI Learn: move a fader or press a button for \""
-                + midiTargetToString (target) + "\"…");
+                + midiTargetToString (target) + "\"...");
 }
 
 void MidiControlSurface::cancelLearn()
@@ -230,7 +230,7 @@ void MidiControlSurface::processMessage (const juce::MidiMessage& message)
     {
         type = MidiBinding::Type::pitchBend;
         number = 0;
-        // 0..16383 → 0..1 (centre 8192)
+        // 0..16383 -> 0..1 (centre 8192)
         norm = static_cast<float> (message.getPitchWheelValue()) / 16383.0f;
         isPress = false;
         usable = true;
@@ -265,7 +265,7 @@ void MidiControlSurface::processMessage (const juce::MidiMessage& message)
         const auto targetName = midiTargetToString (learnTarget);
         learnTarget = MidiTarget::none;
         postStatus ("Learned: " + learned.describe());
-        lastMessageDescription = "LEARNED " + targetName + " ← " + desc;
+        lastMessageDescription = "LEARNED " + targetName + " <- " + desc;
         return;
     }
 

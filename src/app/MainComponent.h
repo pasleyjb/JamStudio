@@ -17,7 +17,10 @@
 #include "../ui/FullPageTabsWindow.h"
 #include "../ui/FullPageLyricsWindow.h"
 #include "../ui/JamStudioTheme.h"
+#include "../ui/FloatingWindowDock.h"
+#include "../ui/HelpBrowserDialog.h"
 #include "../ui/MixerWindow.h"
+#include "../ui/StageFxControllerWindow.h"
 #include "../ui/SeparationProgressBar.h"
 #include "../ui/StemLane.h"
 #include "../ui/StartupWizard.h"
@@ -26,6 +29,7 @@
 #include "../ui/TransportBar.h"
 #include "../ui/PerformanceBar.h"
 #include "../ui/SetListEditorDialog.h"
+#include "../ui/VideoOutputWindow.h"
 #include "../project/RecentProjects.h"
 #include "../performance/SetListData.h"
 #include "../performance/SetListManager.h"
@@ -73,16 +77,35 @@ private:
         aiLyricsCmd,
         recordCmd,
         detectTempoCmd,
+        toggleCountInCmd,
         aboutCmd,
+        helpInstructionsCmd,
         aiToolsCmd,
         midiControlCmd,
         toggleLyricsPanelCmd,
         toggleNotationPanelCmd,
         toggleStemsPanelCmd,
         toggleMixerWindowCmd,
+        toggleStageFxControllerCmd,
+        dockAttachCmd,
+        dockDetachCmd,
+        dockSideRightCmd,
+        dockSideLeftCmd,
+        dockSideTopCmd,
+        dockSideBottomCmd,
+        dockAutoStickCmd,
+        dockDetachOnMaxCmd,
+        dockGapTightCmd,
+        dockGapNormalCmd,
+        dockGapWideCmd,
         editSetListCmd,
+        openStageShowBuilderCmd,
         performanceNextSongCmd,
-        stopPerformanceCmd
+        stopPerformanceCmd,
+        openKaraokeOutputCmd,
+        openStageFxOutputCmd,
+        cycleKaraokeDisplayCmd,
+        cycleStageFxDisplayCmd
     };
 
     void openSong();
@@ -134,6 +157,7 @@ private:
     void toggleNotationPanel();
     void toggleStemsPanel();
     void toggleMixerWindow();
+    void toggleStageFxController();
     void layoutStemLanes();
     void layoutStatusBar (juce::Rectangle<int> statusBar);
 
@@ -147,15 +171,23 @@ private:
     [[nodiscard]] static juce::File getProjectsDirectory();
 
     // Performance mode
-    void openSetListEditor();
+    void openSetListEditor (bool stageShowBuilder = false);
     void startPerformanceMode (jamstudio::performance::SetList list);
     void stopPerformanceMode();
     void performanceTriggerNext();
     void loadPerformanceSong (int index, bool autoPlay);
     void onPerformanceSongEnded();
     void applyPerformanceStemPrefsForCurrentSong();
+    void saveCurrentMixerToSetlistTrack();
+    void updateMixerPerformanceContext();
+    void loadSongStageMedia (const jamstudio::performance::SetListSong& song);
     void updatePerformanceBar();
     void preferLeadTabPart (const juce::String& partHint);
+    void openKaraokeOutput();
+    void openStageFxOutput();
+    void cycleKaraokeDisplay();
+    void cycleStageFxDisplay();
+    void syncVideoOutputs();
 
     juce::AudioDeviceManager& audioDeviceManager;
     jamstudio::audio::TransportController transportController;
@@ -172,13 +204,13 @@ private:
 
     juce::AudioThumbnailCache thumbnailCache { 16 };
 
-    /** Kept for internal callbacks only — never shown (workspace chrome is menus + View). */
+    /** Kept for internal callbacks only - never shown (workspace chrome is menus + View). */
     jamstudio::ui::ToolbarTabs toolbarTabs;
     jamstudio::ui::StartupWizard startupWizard;
     std::unique_ptr<PracticeSetupPipeline> practiceSetupPipeline;
     juce::Label statusLabel;
     juce::TextButton statusCancelButton { "Cancel" };
-    /** Kept for code compatibility — never shown (status bar carries messages). */
+    /** Kept for code compatibility - never shown (status bar carries messages). */
     jamstudio::ui::SeparationProgressBar separationProgress;
     juce::Label lyricsSectionLabel { {}, "LYRICS" };
     juce::Label notationSectionLabel { {}, "TABS / NOTATION" };
@@ -192,15 +224,21 @@ private:
     juce::Viewport stemViewport;
     juce::Component stemContainer;
     jamstudio::ui::MixerWindow mixerWindow;
+    jamstudio::ui::StageFxControllerWindow stageFxController;
+    jamstudio::ui::FloatingWindowDock floatingDock;
     jamstudio::ui::FullPageTabsWindow fullPageTabsWindow;
     jamstudio::ui::FullPageLyricsWindow fullPageLyricsWindow;
     jamstudio::ui::PerformanceBar performanceBar;
+    jamstudio::ui::KaraokeOutputWindow karaokeOutput;
+    jamstudio::ui::StageFxOutputWindow stageFxOutput;
 
     jamstudio::performance::SetList performanceSetList;
     int performanceSongIndex = -1;
     bool performanceActive = false;
     bool performanceWaitingForTrigger = false;
     bool performanceWasPlaying = false;
+    int karaokeDisplayIndex = 0;
+    int stageFxDisplayIndex = 1;
 
     juce::File currentSongFile;
     juce::File currentScoreFile;

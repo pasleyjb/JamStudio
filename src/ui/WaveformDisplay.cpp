@@ -74,7 +74,7 @@ void WaveformDisplay::paint (juce::Graphics& g)
     {
         g.setColour (colours.textSecondary);
         g.setFont (juce::FontOptions (13.0f));
-        g.drawText ("Main waveform — open a song to begin",
+        g.drawText ("Main waveform - open a song to begin",
                     waveBounds, juce::Justification::centred);
     }
 }

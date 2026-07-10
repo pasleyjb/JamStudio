@@ -187,7 +187,7 @@ juce::String MidiBinding::describe() const
     if (channel >= 0)
         src += " ch" + juce::String (channel + 1);
 
-    return src + " → " + midiTargetToString (target);
+    return src + " -> " + midiTargetToString (target);
 }
 
 void MidiMappingProfile::addBinding (MidiBinding binding)
@@ -253,8 +253,8 @@ MidiMappingProfile MidiMappingProfile::genericDaw()
     MidiMappingProfile p;
     p.id = "generic-daw";
     p.name = "Generic DAW (CC faders)";
-    p.notes = "Works with most USB controllers in CC mode: faders CC0–7, mute CC16–23, "
-              "solo CC24–31, master CC7, transport CC41–43.";
+    p.notes = "Works with most USB controllers in CC mode: faders CC0-7, mute CC16-23, "
+              "solo CC24-31, master CC7, transport CC41-43.";
 
     for (int i = 0; i < maxStems; ++i)
     {
@@ -271,7 +271,7 @@ MidiMappingProfile MidiMappingProfile::genericDaw()
     p.bindings.add (makeCc (44, MidiTarget::togglePlayPause, 0, false));
     p.bindings.add (makeCc (45, MidiTarget::recordToggle, 0, true));
     p.bindings.add (makeCc (46, MidiTarget::metronomeToggle, 0, true));
-    // Sustain pedal / stage footswitch (CC 64) → next set-list song
+    // Sustain pedal / stage footswitch (CC 64) -> next set-list song
     p.bindings.add (makeCc (64, MidiTarget::nextSong, 0, false));
     return p;
 }
@@ -282,7 +282,7 @@ MidiMappingProfile MidiMappingProfile::korgNanoKontrol2()
     MidiMappingProfile p;
     p.id = "korg-nanokontrol2";
     p.name = "Korg nanoKONTROL2";
-    p.notes = "CC mode: faders 0–7, knobs 16–23 (unused), S 32–39 solo, M 48–55 mute, "
+    p.notes = "CC mode: faders 0-7, knobs 16-23 (unused), S 32-39 solo, M 48-55 mute, "
               "Play 41, Stop 42, Rec 45, Cycle 46.";
 
     for (int i = 0; i < maxStems; ++i)
@@ -306,7 +306,7 @@ MidiMappingProfile MidiMappingProfile::akaiApcMini()
     MidiMappingProfile p;
     p.id = "akai-apc-mini";
     p.name = "Akai APC Mini / generic pads";
-    p.notes = "Faders CC 48–56 (track 1–8 + master), mute notes 64–71, solo notes 82–89, "
+    p.notes = "Faders CC 48-56 (track 1-8 + master), mute notes 64-71, solo notes 82-89, "
               "Play note 91, Stop note 92.";
 
     for (int i = 0; i < maxStems; ++i)
@@ -329,8 +329,8 @@ MidiMappingProfile MidiMappingProfile::novationLaunchControl()
     MidiMappingProfile p;
     p.id = "novation-launchcontrol";
     p.name = "Novation Launch Control / XL";
-    p.notes = "Template-style: faders CC 77–84, mute CC 73–80 (momentary→toggle), "
-              "solo CC 41–48, transport often notes.";
+    p.notes = "Template-style: faders CC 77-84, mute CC 73-80 (momentary->toggle), "
+              "solo CC 41-48, transport often notes.";
 
     for (int i = 0; i < maxStems; ++i)
     {
@@ -348,12 +348,12 @@ MidiMappingProfile MidiMappingProfile::novationLaunchControl()
 
 MidiMappingProfile MidiMappingProfile::behringerXTouchMini()
 {
-    // Standard (not MC) mode — encoders as CC, layered buttons
+    // Standard (not MC) mode - encoders as CC, layered buttons
     MidiMappingProfile p;
     p.id = "behringer-xtouch-mini";
     p.name = "Behringer X-Touch Mini";
-    p.notes = "Standard mode: encoders CC 1–8 as volumes, layer A buttons notes 89–96 mute, "
-              "layer B 0–7 solo, transport buttons notes.";
+    p.notes = "Standard mode: encoders CC 1-8 as volumes, layer A buttons notes 89-96 mute, "
+              "layer B 0-7 solo, transport buttons notes.";
 
     for (int i = 0; i < maxStems; ++i)
     {
@@ -371,12 +371,12 @@ MidiMappingProfile MidiMappingProfile::behringerXTouchMini()
 
 MidiMappingProfile MidiMappingProfile::mackieControlLite()
 {
-    // Simplified MCU: pitch bend on ch 1–8 = faders, notes for mute/solo/transport
+    // Simplified MCU: pitch bend on ch 1-8 = faders, notes for mute/solo/transport
     MidiMappingProfile p;
     p.id = "mackie-control-lite";
     p.name = "Mackie Control / MCU (lite)";
-    p.notes = "Pitch bend ch1–8 → stem volumes (common MCU fader). Mute notes 16–23, "
-              "solo 8–15, Play 94, Stop 93, Rec 95. Use with controllers in MC/MCU mode.";
+    p.notes = "Pitch bend ch1-8 -> stem volumes (common MCU fader). Mute notes 16-23, "
+              "solo 8-15, Play 94, Stop 93, Rec 95. Use with controllers in MC/MCU mode.";
 
     for (int i = 0; i < maxStems; ++i)
     {

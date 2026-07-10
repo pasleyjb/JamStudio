@@ -26,7 +26,7 @@ class LyricsTrack
 public:
     void clear();
 
-    void setTitle (const juce::String& newTitle) { title = newTitle; }
+    void setTitle (const juce::String& newTitle);
     void addLine (double startSeconds, const juce::String& text);
     void addLine (LyricLine line);
 
@@ -35,6 +35,15 @@ public:
 
     /** Shift all timestamps (positive = later). Useful when web LRC is slightly off. */
     void applyTimeOffset (double offsetSeconds);
+
+    /**
+     * Strip fancy punctuation / mojibake so JUCE fonts don't show odd glyphs
+     * (e.g. em-dash as "a with a bar"). Safe for online LRC, Whisper, and project load.
+     */
+    [[nodiscard]] static juce::String sanitizeDisplayText (const juce::String& input);
+
+    /** Re-sanitize title + all lines/words (e.g. after loading old projects). */
+    void sanitizeAll();
 
     [[nodiscard]] bool isEmpty() const noexcept { return lines.empty(); }
     [[nodiscard]] bool hasWordTimings() const noexcept { return wordTimingsAvailable; }

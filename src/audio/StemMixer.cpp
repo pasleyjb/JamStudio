@@ -64,7 +64,6 @@ bool StemMixer::loadStems (const juce::Array<juce::File>& files)
 
 void StemMixer::sortStemsForPractice()
 {
-    // Guitar-first order so learners see their instrument at the top of the mixer.
     std::stable_sort (stems.begin(), stems.end(),
                       [] (const std::unique_ptr<StemTrack>& a, const std::unique_ptr<StemTrack>& b)
                       {
@@ -110,9 +109,14 @@ void StemMixer::setStemSolo (const int index, const bool solo)
 
 void StemMixer::setStemVolume (const int index, const float volume)
 {
+    setStemBusSend (index, MixBus::foh, volume);
+}
+
+void StemMixer::setStemBusSend (const int index, const MixBus bus, const float gain)
+{
     if (auto* stem = getStem (index))
     {
-        stem->setVolume (volume);
+        stem->setBusSend (bus, gain);
         sendChangeMessage();
     }
 }
@@ -147,8 +151,25 @@ bool StemMixer::removeStemByFile (const juce::File& file)
 
 void StemMixer::setMasterVolume (const float volume) noexcept
 {
-    masterVolume = juce::jlimit (0.0f, 1.0f, volume);
-    sendChangeMessage();
+    setBusMaster (MixBus::foh, volume);
+}
+
+void StemMixer::setBusMaster (const MixBus bus, const float volume) noexcept
+{
+    const auto i = static_cast<int> (bus);
+    if (juce::isPositiveAndBelow (i, kNumMixBuses))
+    {
+        busMaster[static_cast<size_t> (i)] = juce::jlimit (0.0f, 1.5f, volume);
+        sendChangeMessage();
+    }
+}
+
+float StemMixer::getBusMaster (const MixBus bus) const noexcept
+{
+    const auto i = static_cast<int> (bus);
+    if (juce::isPositiveAndBelow (i, kNumMixBuses))
+        return busMaster[static_cast<size_t> (i)];
+    return 1.0f;
 }
 
 void StemMixer::play()
@@ -189,14 +210,16 @@ double StemMixer::getLengthInSeconds() const noexcept
     return lengthSeconds;
 }
 
-void StemMixer::prepareToPlay (const int /*samplesPerBlockExpected*/, const double newSampleRate)
+void StemMixer::prepareToPlay (const int samplesPerBlockExpected, const double newSampleRate)
 {
     deviceSampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
+    dryScratch.setSize (2, juce::jmax (samplesPerBlockExpected, 512), false, true, true);
 }
 
 void StemMixer::releaseResources()
 {
     pause();
+    dryScratch.setSize (0, 0);
 }
 
 void StemMixer::getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToFill)
@@ -209,16 +232,47 @@ void StemMixer::getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToF
     const auto numSamples = bufferToFill.numSamples;
     const auto anySolo = anyStemSoloed();
     const auto startSeconds = positionSeconds;
+    auto* out = bufferToFill.buffer;
+    const auto outCh = out->getNumChannels();
+    const auto start = bufferToFill.startSample;
+
+    if (dryScratch.getNumSamples() < numSamples)
+        dryScratch.setSize (2, numSamples, false, false, true);
+
+    // How many stereo buses fit on the device?
+    const int availableBuses = juce::jlimit (1, kNumMixBuses, outCh / kChannelsPerBus);
 
     for (const auto& stem : stems)
-        stem->readIntoBuffer (*bufferToFill.buffer,
-                              startSeconds,
-                              numSamples,
-                              deviceSampleRate,
-                              anySolo);
+    {
+        if (! stem->readDryResampled (dryScratch, startSeconds, numSamples, deviceSampleRate, anySolo))
+        {
+            const auto prev = stem->getMeterLevel();
+            juce::ignoreUnused (prev);
+            continue;
+        }
 
-    if (masterVolume < 0.999f)
-        bufferToFill.buffer->applyGain (bufferToFill.startSample, numSamples, masterVolume);
+        stem->updateMeterFromDry (dryScratch, stem->getBusSend (MixBus::foh) * getBusMaster (MixBus::foh));
+
+        for (int b = 0; b < availableBuses; ++b)
+        {
+            const auto bus = static_cast<MixBus> (b);
+            const auto send = stem->getBusSend (bus) * busMaster[static_cast<size_t> (b)];
+            if (send <= 0.0001f)
+                continue;
+
+            const int base = mixBusOutputOffset (bus);
+            const int l = base;
+            const int r = base + 1;
+
+            if (l < outCh)
+                out->addFrom (l, start, dryScratch, 0, 0, numSamples, send);
+            if (r < outCh)
+                out->addFrom (r, start, dryScratch, juce::jmin (1, dryScratch.getNumChannels() - 1), 0, numSamples, send);
+        }
+
+        // Fold extra bus energy into FOH if only stereo device (already rendered FOH).
+        // If mon buses requested but device is stereo-only, optionally blend mon into FOH? Skip — user needs multi-out.
+    }
 
     positionSeconds += static_cast<double> (numSamples) / deviceSampleRate;
 

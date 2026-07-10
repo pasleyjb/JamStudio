@@ -14,7 +14,7 @@ struct BrandAssets
     /** Square brand mark for window / taskbar icons. */
     [[nodiscard]] static juce::Image loadWindowIcon (int preferredSize = 256);
 
-    /** Practice wizard tile — Gibson open-book headstock art. */
+    /** Practice wizard tile - Gibson open-book headstock art. */
     [[nodiscard]] static juce::Image loadPracticeIcon();
 
     /** Full-bleed art for startup splash + wizard background. */

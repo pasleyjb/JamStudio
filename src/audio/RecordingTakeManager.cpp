@@ -17,7 +17,7 @@ RecordingTakeManager::AddResult RecordingTakeManager::addTake (const juce::File&
     result.take.file = file;
     result.take.recordedAt = juce::Time::getCurrentTime();
     result.take.displayName = "Take " + juce::String (takes.size() + 1)
-                            + " — " + result.take.recordedAt.formatted ("%H:%M:%S");
+                            + " - " + result.take.recordedAt.formatted ("%H:%M:%S");
 
     takes.add (result.take);
 
@@ -31,7 +31,7 @@ RecordingTakeManager::AddResult RecordingTakeManager::addTake (const juce::File&
     {
         auto& take = takes.getReference (i);
         take.displayName = "Take " + juce::String (i + 1)
-                         + " — " + take.recordedAt.formatted ("%H:%M:%S");
+                         + " - " + take.recordedAt.formatted ("%H:%M:%S");
     }
 
     result.take = takes.getLast();

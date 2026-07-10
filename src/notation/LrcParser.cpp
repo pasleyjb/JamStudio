@@ -62,7 +62,7 @@ bool LrcParser::parseTimestamp (const juce::String& timestamp, double& seconds)
     }
     else if (parts.size() >= 3 && parts[2].containsOnly ("0123456789"))
     {
-        // mm:ss:xx (centiseconds with colon separator — common in some LRC variants)
+        // mm:ss:xx (centiseconds with colon separator - common in some LRC variants)
         minutes = parts[0].getDoubleValue();
         const auto secs = parts[1].getDoubleValue();
         const auto frac = parts[2].getDoubleValue()

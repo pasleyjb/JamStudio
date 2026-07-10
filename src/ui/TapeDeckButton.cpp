@@ -26,7 +26,6 @@ void TapeDeckButton::paintButton (juce::Graphics& g,
     const auto colours = JamStudioTheme::getColours();
     auto bounds = getLocalBounds().toFloat().reduced (1.5f);
 
-    // Outer chassis
     const auto face = shouldDrawButtonAsDown ? colours.buttonFace.darker (0.18f)
                                              : colours.buttonFace.brighter (0.04f);
 
@@ -37,7 +36,6 @@ void TapeDeckButton::paintButton (juce::Graphics& g,
     g.setColour (colours.border.darker (0.2f));
     g.drawRoundedRectangle (bounds, 7.0f, 1.2f);
 
-    // Inner well (recessed deck button look)
     auto well = bounds.reduced (3.5f);
     g.setColour (colours.windowBackground.darker (0.15f).withAlpha (0.9f));
     g.fillRoundedRectangle (well, 5.0f);
@@ -48,7 +46,6 @@ void TapeDeckButton::paintButton (juce::Graphics& g,
         g.fillRoundedRectangle (well, 5.0f);
     }
 
-    // Active play glow ring
     if (active)
     {
         g.setColour (colours.indicatorOn.withAlpha (0.55f));
@@ -95,6 +92,44 @@ void TapeDeckButton::drawIcon (juce::Graphics& g, juce::Rectangle<float> area, c
             const auto size = juce::jmin (area.getWidth(), area.getHeight()) * 0.86f;
             auto square = juce::Rectangle<float> (size, size).withCentre (area.getCentre());
             g.fillRoundedRectangle (square, 2.0f);
+            break;
+        }
+
+        case Icon::skipBack:
+        {
+            // |<<  bar + double triangle left
+            const auto barW = area.getWidth() * 0.16f;
+            g.fillRoundedRectangle (area.getX(), area.getY() + area.getHeight() * 0.08f,
+                                    barW, area.getHeight() * 0.84f, 1.5f);
+            juce::Path t1, t2;
+            const auto midY = area.getCentreY();
+            const auto tip1 = area.getX() + barW + area.getWidth() * 0.02f;
+            const auto base1 = tip1 + area.getWidth() * 0.36f;
+            t1.addTriangle (base1, area.getY(), base1, area.getBottom(), tip1, midY);
+            const auto tip2 = base1 - area.getWidth() * 0.04f;
+            const auto base2 = area.getRight();
+            t2.addTriangle (base2, area.getY(), base2, area.getBottom(), tip2, midY);
+            g.fillPath (t1);
+            g.fillPath (t2);
+            break;
+        }
+
+        case Icon::skipForward:
+        {
+            // >>| double triangle right + bar
+            const auto barW = area.getWidth() * 0.16f;
+            g.fillRoundedRectangle (area.getRight() - barW, area.getY() + area.getHeight() * 0.08f,
+                                    barW, area.getHeight() * 0.84f, 1.5f);
+            juce::Path t1, t2;
+            const auto midY = area.getCentreY();
+            const auto tip2 = area.getRight() - barW - area.getWidth() * 0.02f;
+            const auto base2 = tip2 - area.getWidth() * 0.36f;
+            t2.addTriangle (base2, area.getY(), base2, area.getBottom(), tip2, midY);
+            const auto tip1 = base2 + area.getWidth() * 0.04f;
+            const auto base1 = area.getX();
+            t1.addTriangle (base1, area.getY(), base1, area.getBottom(), tip1, midY);
+            g.fillPath (t1);
+            g.fillPath (t2);
             break;
         }
     }

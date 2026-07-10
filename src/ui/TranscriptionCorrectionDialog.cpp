@@ -226,7 +226,7 @@ void TranscriptionCorrectionDialog::applyEdits()
 
 void TranscriptionCorrectionDialog::dismiss()
 {
-    // Only close this dialog — never request application quit.
+    // Only close this dialog - never request application quit.
     if (auto* dw = findParentComponentOfClass<juce::DialogWindow>())
     {
         dw->exitModalState (0);

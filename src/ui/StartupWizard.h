@@ -13,6 +13,7 @@ public:
     {
         practice,
         performance,
+        stageShowBuilder,
         recording
     };
 
@@ -38,12 +39,13 @@ public:
 private:
     enum class CardIcon
     {
-        practice,      // guitar / learning
-        performance,   // play / stage
-        recording,     // record disc
-        openProject,   // folder
-        newSong,       // disc / audio file
-        back           // chevron
+        practice,         // guitar / learning
+        performance,      // play / stage
+        stageShowBuilder, // video / slideshow set
+        recording,        // record disc
+        openProject,      // folder
+        newSong,          // disc / audio file
+        back              // chevron
     };
 
     /** Square icon tile with caption under the glyph. */
@@ -85,6 +87,7 @@ private:
     juce::Component modePage;
     IconCardButton practiceButton;
     IconCardButton performanceButton;
+    IconCardButton stageShowButton;
     IconCardButton recordingButton;
 
     juce::Component practicePage;

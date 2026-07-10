@@ -99,7 +99,7 @@ float parsePercentProgress (const juce::String& output)
     auto lines = juce::StringArray::fromLines (output);
     float best = -1.0f;
 
-    // tqdm rewrites the same line with \r — split those too.
+    // tqdm rewrites the same line with \r - split those too.
     juce::StringArray tokens;
 
     for (const auto& line : lines)

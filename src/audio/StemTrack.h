@@ -1,13 +1,15 @@
 #pragma once
 
+#include "MixBus.h"
 #include "StemType.h"
 
 #include <atomic>
+#include <array>
 
 namespace jamstudio::audio
 {
 
-/** A single separated or imported audio stem with mixer controls. */
+/** A single separated or imported audio stem with multi-bus mixer controls. */
 class StemTrack
 {
 public:
@@ -25,38 +27,41 @@ public:
     void setType (StemType newType) noexcept { type = newType; }
     void setMuted (bool shouldMute) noexcept { muted = shouldMute; }
     void setSolo (bool shouldSolo) noexcept { solo = shouldSolo; }
-    void setVolume (float newVolume) noexcept { volume = juce::jlimit (0.0f, 1.0f, newVolume); }
+
+    /** FOH / channel fader (legacy name). Same as bus send for FOH. */
+    void setVolume (float newVolume) noexcept { setBusSend (MixBus::foh, newVolume); }
+    [[nodiscard]] float getVolume() const noexcept { return getBusSend (MixBus::foh); }
+
+    void setBusSend (MixBus bus, float gain) noexcept;
+    [[nodiscard]] float getBusSend (MixBus bus) const noexcept;
 
     [[nodiscard]] bool isMuted() const noexcept { return muted; }
     [[nodiscard]] bool isSolo() const noexcept { return solo; }
-    [[nodiscard]] float getVolume() const noexcept { return volume; }
 
-    /** Instantaneous envelope level 0..1 for meter drawing (thread-safe). */
     [[nodiscard]] float getMeterLevel() const noexcept { return meterLevel.load (std::memory_order_relaxed); }
-
-    /** Peak-hold level 0..1 — sticks at highest peak like old stereo meters. */
     [[nodiscard]] float getMeterPeakHold() const noexcept { return meterPeakHold.load (std::memory_order_relaxed); }
-
-    /** Call on the message thread (~30 Hz) to decay the sticky peak hold. */
     void tickMeterPeakHold (float deltaSeconds) noexcept;
 
-    /** Reads audio starting at absolute song time, resampling file rate → device rate. */
-    void readIntoBuffer (juce::AudioBuffer<float>& output,
-                         double startSeconds,
-                         int numOutputSamples,
-                         double deviceSampleRate,
-                         bool anySoloActive) const;
+    /**
+     * Resample dry stem into `temp` (stereo-ish), applying mute/solo only.
+     * Returns false if silent / not loaded. Caller applies bus gains.
+     */
+    bool readDryResampled (juce::AudioBuffer<float>& temp,
+                           double startSeconds,
+                           int numOutputSamples,
+                           double deviceSampleRate,
+                           bool anySoloActive) const;
+
+    void updateMeterFromDry (const juce::AudioBuffer<float>& dry, float displayGain) const noexcept;
 
     [[nodiscard]] double getFileSampleRate() const noexcept;
 
 private:
-    void updateMeterFromBuffer (const juce::AudioBuffer<float>& buffer, float gain) const noexcept;
-
     std::unique_ptr<juce::AudioFormatReader> reader;
     juce::File sourceFile;
     juce::String name;
     StemType type = StemType::unknown;
-    float volume = 0.8f;
+    std::array<float, kNumMixBuses> busSends { 0.8f, 0.7f, 0.0f }; // FOH, MonA, MonB
     bool muted = false;
     bool solo = false;
 

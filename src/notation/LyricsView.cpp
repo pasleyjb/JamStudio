@@ -8,8 +8,8 @@ namespace jamstudio::notation
 LyricsView::LyricsView (jamstudio::audio::TransportController& transport)
     : transportController (transport)
 {
-    earlierButton.setTooltip ("Lyrics are late — shift timing earlier");
-    laterButton.setTooltip ("Lyrics are early — shift timing later");
+    earlierButton.setTooltip ("Lyrics are late - shift timing earlier");
+    laterButton.setTooltip ("Lyrics are early - shift timing later");
     earlierButton.onClick = [this] { nudgeSyncOffset (-0.5); };
     laterButton.onClick = [this] { nudgeSyncOffset (0.5); };
 
@@ -22,7 +22,7 @@ LyricsView::LyricsView (jamstudio::audio::TransportController& transport)
     hintLabel.setColour (juce::Label::textColourId,
                          jamstudio::ui::JamStudioTheme::getColours().textSecondary);
     hintLabel.setFont (juce::FontOptions (11.0f));
-    hintLabel.setText ("Sync: use − / + if lyrics lead or lag the song",
+    hintLabel.setText ("Sync: use - / + if lyrics lead or lag the song",
                        juce::dontSendNotification);
 
     addAndMakeVisible (earlierButton);
@@ -39,6 +39,7 @@ LyricsView::~LyricsView() = default;
 void LyricsView::setLyrics (const LyricsTrack& newLyrics)
 {
     baseLyrics = newLyrics;
+    baseLyrics.sanitizeAll();
     baseLyrics.finalizeTiming();
     syncOffsetSeconds = 0.0;
     rebuildFromBase();
@@ -108,12 +109,12 @@ void LyricsView::paint (juce::Graphics& g)
     {
         g.setColour (colours.textSecondary);
         g.setFont (juce::FontOptions (14.0f));
-        g.drawText ("Lyrics ready — import LRC, online lyrics, or AI Lyrics",
+        g.drawText ("Lyrics ready - import LRC, online lyrics, or AI Lyrics",
                     getLocalBounds().reduced (16), juce::Justification::centred);
         return;
     }
 
-    // Compact karaoke: previous / current / next (2–3 lines only).
+    // Compact karaoke: previous / current / next (2-3 lines only).
     auto area = getLocalBounds().reduced (12, 8);
     area.removeFromBottom (28); // room for sync controls
 
@@ -141,7 +142,7 @@ void LyricsView::paint (juce::Graphics& g)
     {
         g.setColour (colours.textSecondary.withAlpha (0.7f));
         g.setFont (juce::FontOptions (15.0f));
-        g.drawText ("… waiting for vocals …", mid, juce::Justification::centred);
+        g.drawText ("... waiting for vocals ...", mid, juce::Justification::centred);
     }
 
     if (const auto* line = lyrics.getLine (next >= 0 ? next : (active < 0 ? 0 : -1)))

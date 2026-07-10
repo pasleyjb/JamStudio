@@ -15,7 +15,7 @@ public:
         titleLabel.setText ("Full Page Tabs", juce::dontSendNotification);
         addAndMakeVisible (titleLabel);
 
-        hintLabel.setText ("Printable layout — use Print or Export PNG", juce::dontSendNotification);
+        hintLabel.setText ("Printable layout - use Print or Export PNG", juce::dontSendNotification);
         hintLabel.setColour (juce::Label::textColourId, JamStudioTheme::getColours().textSecondary);
         addAndMakeVisible (hintLabel);
 
@@ -52,7 +52,7 @@ public:
 
         const auto title = score.getTitle().isNotEmpty() ? score.getTitle() : "Untitled";
         const auto part = score.isEmpty() ? juce::String() : score.getActivePart().name;
-        titleLabel.setText (part.isNotEmpty() ? (title + "  —  " + part) : title,
+        titleLabel.setText (part.isNotEmpty() ? (title + " - " + part) : title,
                             juce::dontSendNotification);
 
         resized();
@@ -145,7 +145,7 @@ private:
             juce::MessageBoxIconType::InfoIcon,
             "Print Tabs",
             "Opened printable image:\n" + file.getFullPathName()
-                + "\n\nUse your image viewer’s Print command (Ctrl+P).");
+                + "\n\nUse your image viewer's Print command (Ctrl+P).");
     }
 
     void exportPng()
@@ -227,7 +227,7 @@ private:
 };
 
 FullPageTabsWindow::FullPageTabsWindow (jamstudio::audio::TransportController& transport)
-    : DocumentWindow ("JamStudio — Full Page Tabs",
+    : DocumentWindow ("JamStudio - Full Page Tabs",
                       JamStudioTheme::getColours().windowBackground,
                       DocumentWindow::closeButton),
       transportController (transport)

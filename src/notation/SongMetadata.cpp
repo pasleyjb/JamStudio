@@ -36,7 +36,7 @@ juce::String cleanToken (juce::String value)
            && (value[0] == '-' || value[0] == '.' || value[0] == '_' || value[0] == ' '))
         value = value.substring (1).trim();
 
-    // Strip trailing " (Live)", " [Remastered]" lightly for search — keep original for display
+    // Strip trailing " (Live)", " [Remastered]" lightly for search - keep original for display
     return value.trim();
 }
 
@@ -59,15 +59,15 @@ void applyFilenameFallback (const juce::File& audioFile, SongMetadata& meta)
 {
     auto base = audioFile.getFileNameWithoutExtension().trim();
 
-    // Patterns: "Artist - Title", "Artist – Title"
-    for (const auto* sep : { " - ", " – ", " — " })
+    // Patterns: "Artist - Title", "Artist - Title"
+    for (const auto* sep : { " - ", " - ", " - " })
     {
         if (base.contains (sep))
         {
             auto left = cleanToken (base.upToFirstOccurrenceOf (sep, false, false));
             auto right = cleanToken (base.fromFirstOccurrenceOf (sep, false, false));
 
-            // "14 - Long Black Veil" → left is empty after digit strip, right is title
+            // "14 - Long Black Veil" -> left is empty after digit strip, right is title
             if (left.isEmpty() && right.isNotEmpty())
             {
                 if (meta.title.isEmpty())
@@ -100,9 +100,9 @@ void applyPathFallback (const juce::File& audioFile, SongMetadata& meta)
     if (parentName.isEmpty() || isGenericFolderName (parentName))
         return;
 
-    // .../Albums/Album Name/track  →  album = parent
-    // .../Artist/Album/track       →  artist = grandparent, album = parent
-    // .../Artist/track             →  artist = parent (if title-only file)
+    // .../Albums/Album Name/track  ->  album = parent
+    // .../Artist/Album/track       ->  artist = grandparent, album = parent
+    // .../Artist/track             ->  artist = parent (if title-only file)
 
     if (grandName.isNotEmpty() && ! isGenericFolderName (grandName)
         && isGenericFolderName (grandparent.getParentDirectory().getFileName()) == false)
@@ -256,7 +256,7 @@ double SongMetadata::scoreCandidate (const juce::String& candidateTitle,
     }
     else
     {
-        // No artist tag — album match becomes more important.
+        // No artist tag - album match becomes more important.
         if (album.isNotEmpty())
             score += albumScore * 55.0;
     }

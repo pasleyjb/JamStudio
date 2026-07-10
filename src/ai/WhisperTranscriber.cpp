@@ -134,7 +134,7 @@ void WhisperTranscriber::transcribeAsync (const juce::File& audioFile,
         const auto logFile = outputDirectory.getChildFile ("whisper-run.log");
 
         // Redirect child output to a log file so the UI thread never blocks on pipe reads.
-        // Default openai-whisper model is "turbo" (~1GB) and is very slow on CPU — use "base"
+        // Default openai-whisper model is "turbo" (~1GB) and is very slow on CPU - use "base"
         // for responsive practice-app lyrics (still good enough for song words).
         juce::String shellCmd;
         shellCmd << "export PYTHONUNBUFFERED=1; "

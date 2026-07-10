@@ -23,7 +23,7 @@ struct OnlineLyricsCandidate
         juce::String line = artistName;
 
         if (line.isNotEmpty() && trackName.isNotEmpty())
-            line += " — ";
+            line += " - ";
 
         line += trackName;
 

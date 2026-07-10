@@ -27,7 +27,7 @@ struct SongMetadata
     [[nodiscard]] juce::String displayLabel() const
     {
         if (artist.isNotEmpty() && title.isNotEmpty())
-            return artist + " — " + title;
+            return artist + " - " + title;
 
         if (title.isNotEmpty())
             return title;

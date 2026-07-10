@@ -18,7 +18,7 @@ public:
         lookAndFeel = std::make_unique<jamstudio::ui::JamStudioLookAndFeel>();
         juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel.get());
 
-        // Startup splash — full-bleed brand/background art, then main window.
+        // Startup splash - full-bleed brand/background art, then main window.
         auto splashImage = jamstudio::ui::BrandAssets::loadWizardBackground();
 
         if (! splashImage.isValid())
@@ -52,7 +52,22 @@ public:
             splash = std::make_unique<juce::SplashScreen> ("JamStudio", displayImg, true);
         }
 
-        audioDeviceManager.initialiseWithDefaultDevices (2, 2);
+        // Prefer multi-channel outputs for FOH + band monitors (falls back if unavailable).
+        audioDeviceManager.initialiseWithDefaultDevices (0, 6);
+
+        {
+            auto setup = audioDeviceManager.getAudioDeviceSetup();
+            // Request first 6 output channels when the interface supports them.
+            setup.useDefaultOutputChannels = false;
+            setup.outputChannels.clear();
+            const int maxOut = setup.outputDeviceName.isNotEmpty() ? 6 : 2;
+            for (int c = 0; c < maxOut; ++c)
+                setup.outputChannels.setBit (c);
+            juce::String err;
+            audioDeviceManager.setAudioDeviceSetup (setup, true);
+            juce::ignoreUnused (err);
+        }
+
         mainWindow = std::make_unique<MainWindow> (audioDeviceManager);
 
         if (splash != nullptr)

@@ -75,10 +75,10 @@ float NotationView::displayScale() const noexcept
         return 1.0f;
 
     const auto lyrics = score.hasLyrics() ? baseLyricRowHeight : 0;
-    // Leave a clear band for "Song — Part" title at the top of the strip.
+    // Leave a clear band for "Song - Part" title at the top of the strip.
     const auto chrome = 40; // title row + padding under it
     const auto idealBody = juce::jmax (baseMeasureHeight, target - chrome - lyrics);
-    // Cap so frets stay large but don't eat the title (was up to 2.4×).
+    // Cap so frets stay large but don't eat the title (was up to 2.4x).
     return juce::jlimit (1.0f, 1.75f, static_cast<float> (idealBody) / static_cast<float> (baseMeasureHeight));
 }
 
@@ -151,7 +151,7 @@ juce::Rectangle<int> NotationView::getMeasureBounds (const int measureIndex) con
 
     if (layoutMode == LayoutMode::horizontalStrip)
     {
-        // Always sit below the title band so frets never cover "Song — Part".
+        // Always sit below the title band so frets never cover "Song - Part".
         constexpr int titleBand = 34;
         const auto contentH = mh + (score.hasLyrics() ? lyricRowHeightPx() : 0);
         const auto availBelow = juce::jmax (0, getHeight() - titleBand);
@@ -193,14 +193,14 @@ void NotationView::paintScore (juce::Graphics& g, const bool forPrint) const
     {
         g.setColour (forPrint ? juce::Colours::black : colours.textSecondary);
         g.setFont (juce::FontOptions (14.0f));
-        g.drawText ("Notation ready — import MusicXML, browse the library, or run AI Tab.\n"
+        g.drawText ("Notation ready - import MusicXML, browse the library, or run AI Tab.\n"
                     "Use the Part menu and Tab/Sheet buttons to choose what to view.",
                     getLocalBounds().reduced (16), juce::Justification::centred);
         return;
     }
 
     g.setColour (forPrint ? juce::Colours::black : colours.text);
-    // Keep the strip title modest — don't scale it with the frets.
+    // Keep the strip title modest - don't scale it with the frets.
     const auto titleScale = layoutMode == LayoutMode::horizontalStrip
                                 ? 1.0f
                                 : juce::jmax (1.0f, scale * 0.9f);
@@ -209,7 +209,7 @@ void NotationView::paintScore (juce::Graphics& g, const bool forPrint) const
     const auto titleH = layoutMode == LayoutMode::horizontalStrip
                             ? 24
                             : juce::roundToInt (22.0f * juce::jmax (1.0f, scale * 0.85f));
-    g.drawText (score.getTitle() + "  —  " + score.getActivePart().name,
+    g.drawText (score.getTitle() + " - " + score.getActivePart().name,
                 pageMargin, titleY, getWidth() - pageMargin * 2, titleH,
                 juce::Justification::centredLeft);
 
@@ -438,7 +438,7 @@ void NotationView::drawTabNote (juce::Graphics& g,
                                 const bool forPrint) const
 {
     const auto scale = forPrint ? 1.0f : displayScale();
-    // Fill the measure body with 6 strings — line spacing grows with the panel.
+    // Fill the measure body with 6 strings - line spacing grows with the panel.
     const auto usable = juce::jmax (48, bounds.getHeight() - juce::roundToInt (8.0f * scale));
     const auto lineSpacing = juce::jmax (10, usable / 6);
     const auto tabTop = bounds.getY() + juce::jmax (4, (bounds.getHeight() - lineSpacing * 5) / 2);

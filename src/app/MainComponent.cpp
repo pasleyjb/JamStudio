@@ -50,8 +50,11 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
       notationView (transportController),
       transportBar (transportController),
       mixerWindow (transportController),
+      stageFxController (transportController),
       fullPageTabsWindow (transportController),
-      fullPageLyricsWindow (transportController)
+      fullPageLyricsWindow (transportController),
+      karaokeOutput (transportController),
+      stageFxOutput (transportController)
 {
     setSize (1280, 900);
     refreshTheme();
@@ -69,10 +72,10 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     statusCancelButton.setColour (juce::TextButton::buttonColourId,
                                   jamstudio::ui::JamStudioTheme::getColours().buttonFace);
 
-    // Top workspace toolbar permanently removed — use menus and View toggles.
+    // Top workspace toolbar permanently removed - use menus and View toggles.
     toolbarTabs.setVisible (false);
 
-    // Progress strip never shown — status lives in the bottom border bar.
+    // Progress strip never shown - status lives in the bottom border bar.
     separationProgress.setVisible (false);
 
     addAndMakeVisible (statusLabel);
@@ -152,19 +155,64 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     // Secondary windows must not appear until the user opens them.
     fullPageTabsWindow.showWindow (false);
     fullPageLyricsWindow.showWindow (false);
+    karaokeOutput.hideOutput();
+    stageFxOutput.hideOutput();
     mixerWindow.showMixer (false);
+    stageFxController.showController (false);
+
+    floatingDock.setWindows (&mixerWindow, &stageFxController);
+    mixerWindow.setDockCallbacks ([this] { floatingDock.attach(); setStatus ("Windows stuck together."); },
+                                  [this] { floatingDock.detach(); setStatus ("Windows unstuck."); },
+                                  [this] { floatingDock.onMixerMaximised(); });
+    stageFxController.setDockCallbacks ([this] { floatingDock.attach(); setStatus ("Windows stuck together."); },
+                                        [this] { floatingDock.detach(); setStatus ("Windows unstuck."); });
+    mixerWindow.setSaveSetlistMixCallback ([this] { saveCurrentMixerToSetlistTrack(); });
+    updateMixerPerformanceContext();
+
+    stageFxController.setVideoRouting ({
+        [this] { return karaokeDisplayIndex; },
+        [this] { return stageFxDisplayIndex; },
+        [this] (const int i)
+        {
+            karaokeDisplayIndex = juce::jmax (0, i);
+        },
+        [this] (const int i)
+        {
+            stageFxDisplayIndex = juce::jmax (0, i);
+        },
+        [this] { return karaokeOutput.isOutputVisible(); },
+        [this] { return stageFxOutput.isOutputVisible(); },
+        [this] { openKaraokeOutput(); },
+        [this]
+        {
+            karaokeOutput.hideOutput();
+            stageFxController.syncVideoRoutingUi();
+            setStatus ("Karaoke output closed.");
+        },
+        [this] { openStageFxOutput(); },
+        [this]
+        {
+            stageFxOutput.hideOutput();
+            stageFxController.syncVideoRoutingUi();
+            setStatus ("Stage FX output closed.");
+        }
+    });
 
     setupStartupWizard();
 }
 
 MainComponent::~MainComponent()
 {
+    floatingDock.shutdown();
     fileChooser.reset();
     if (practiceSetupPipeline != nullptr)
         practiceSetupPipeline->cancel();
     mixerWindow.showMixer (false);
+    stageFxController.showController (false);
     fullPageTabsWindow.showWindow (false);
     fullPageLyricsWindow.showWindow (false);
+    karaokeOutput.hideOutput();
+    stageFxOutput.hideOutput();
     audioRecorder.stopRecording();
     audioDeviceManager.removeAudioCallback (&audioRecorder);
     demucsSeparator.cancel();
@@ -232,6 +280,13 @@ void MainComponent::toggleMixerWindow()
 {
     mixerWindow.showMixer (! mixerWindow.isMixerVisible());
     updatePanelToggleStates();
+    floatingDock.onWindowVisibilityChanged();
+}
+
+void MainComponent::toggleStageFxController()
+{
+    stageFxController.showController (! stageFxController.isControllerVisible());
+    floatingDock.onWindowVisibilityChanged();
 }
 
 void MainComponent::paint (juce::Graphics& g)
@@ -239,7 +294,7 @@ void MainComponent::paint (juce::Graphics& g)
     const auto colours = jamstudio::ui::JamStudioTheme::getColours();
     g.fillAll (colours.windowBackground);
 
-    // Bottom status border bar (messages live here — not a top progress strip).
+    // Bottom status border bar (messages live here - not a top progress strip).
     auto statusArea = getLocalBounds().removeFromBottom (30);
     g.setColour (colours.statusBackground);
     g.fillRect (statusArea);
@@ -275,7 +330,7 @@ void MainComponent::resized()
         bounds.removeFromBottom (6);
     }
 
-    // Bottom dock: overview waveform → transport → stem lanes with mini-waves
+    // Bottom dock: overview waveform -> transport -> stem lanes with mini-waves
     const int stemLaneCount = stemContainer.getNumChildComponents();
     const int stemLaneHeight = 52;
     const int stemsBlockHeight = stemsPanelVisible
@@ -304,7 +359,7 @@ void MainComponent::resized()
     // Count visible upper panels so we can favour tabs when both are open.
     const int upperPanels = (lyricsPanelVisible ? 1 : 0) + (notationPanelVisible ? 1 : 0);
 
-    // Compact karaoke strip (2–3 lines) — not a huge scrolling list.
+    // Compact karaoke strip (2-3 lines) - not a huge scrolling list.
     if (lyricsPanelVisible)
     {
         const int lyricsHeight = upperPanels == 1
@@ -399,6 +454,31 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
         menu.addItem (toggleNotationPanelCmd, "Show Tabs", true, notationPanelVisible);
         menu.addItem (toggleStemsPanelCmd, "Show Stem Lanes", true, stemsPanelVisible);
         menu.addItem (toggleMixerWindowCmd, "Show Mixer", true, mixerWindow.isMixerVisible());
+        menu.addItem (toggleStageFxControllerCmd, "Show Stage FX Controller", true,
+                      stageFxController.isControllerVisible());
+        menu.addSeparator();
+
+        const auto& dock = floatingDock.getSettings();
+        juce::PopupMenu dockMenu;
+        dockMenu.addItem (dockAttachCmd, "Stick Windows Together  <>", true, dock.sticky);
+        dockMenu.addItem (dockDetachCmd, "Unstick Windows  ><", true, ! dock.sticky);
+        dockMenu.addSeparator();
+        dockMenu.addItem (dockSideRightCmd, "Dock Stage FX on Right", true,
+                          dock.dockSide == jamstudio::ui::FloatingDockSettings::Side::right);
+        dockMenu.addItem (dockSideLeftCmd, "Dock Stage FX on Left", true,
+                          dock.dockSide == jamstudio::ui::FloatingDockSettings::Side::left);
+        dockMenu.addItem (dockSideTopCmd, "Dock Stage FX on Top", true,
+                          dock.dockSide == jamstudio::ui::FloatingDockSettings::Side::top);
+        dockMenu.addItem (dockSideBottomCmd, "Dock Stage FX on Bottom", true,
+                          dock.dockSide == jamstudio::ui::FloatingDockSettings::Side::bottom);
+        dockMenu.addSeparator();
+        dockMenu.addItem (dockGapTightCmd, "Gap: Tight (0 px)", true, dock.gapPx == 0);
+        dockMenu.addItem (dockGapNormalCmd, "Gap: Normal (4 px)", true, dock.gapPx == 4);
+        dockMenu.addItem (dockGapWideCmd, "Gap: Wide (12 px)", true, dock.gapPx == 12);
+        dockMenu.addSeparator();
+        dockMenu.addItem (dockAutoStickCmd, "Auto-Stick When Edges Touch", true, dock.autoStickOnTouch);
+        dockMenu.addItem (dockDetachOnMaxCmd, "Unstick When Mixer Maximised", true, dock.detachOnMaximise);
+        menu.addSubMenu ("Floating Window Dock", dockMenu);
     }
     else if (menuName == "Stems")
     {
@@ -433,15 +513,28 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     {
         menu.addItem (detectTempoCmd, "Detect Tempo", true, false);
         menu.addItem (recordCmd, "Record / Stop", true, false);
+        menu.addSeparator();
+        menu.addItem (toggleCountInCmd, "4-Count Intro", true,
+                      transportController.isCountInEnabled());
     }
     else if (menuName == "Performance")
     {
-        menu.addItem (editSetListCmd, "Edit / Start Set List…", true, false);
+        menu.addItem (editSetListCmd, "Edit / Start Set List...", true, false);
+        menu.addItem (openStageShowBuilderCmd, "Stage Show Builder...", true, false);
         menu.addItem (performanceNextSongCmd, "Next Song / Start (Foot Pedal)", performanceActive, false);
         menu.addItem (stopPerformanceCmd, "Stop Performance Mode", performanceActive, false);
+        menu.addSeparator();
+        menu.addItem (toggleStageFxControllerCmd, "Show Stage FX Controller", true,
+                      stageFxController.isControllerVisible());
+        menu.addItem (openKaraokeOutputCmd, "Open Karaoke Video Output", true, karaokeOutput.isOutputVisible());
+        menu.addItem (openStageFxOutputCmd, "Open Stage FX Video Output", true, stageFxOutput.isOutputVisible());
+        menu.addItem (cycleKaraokeDisplayCmd, "Move Karaoke to Next Display", karaokeOutput.isOutputVisible(), false);
+        menu.addItem (cycleStageFxDisplayCmd, "Move Stage FX to Next Display", stageFxOutput.isOutputVisible(), false);
     }
     else if (menuName == "Help")
     {
+        menu.addItem (helpInstructionsCmd, "Instructions…", true, false);
+        menu.addSeparator();
         menu.addItem (aiToolsCmd, "AI Tools Setup...", true, false);
         menu.addItem (midiControlCmd, "MIDI Control Surface...", true, false);
         menu.addSeparator();
@@ -478,6 +571,12 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
             else
                 setStatus ("Open a song before detecting tempo.");
             break;
+        case toggleCountInCmd:
+            transportController.setCountInEnabled (! transportController.isCountInEnabled());
+            setStatus (transportController.isCountInEnabled()
+                           ? "4-count intro ON - play clicks 1-2-3-4 then starts."
+                           : "4-count intro OFF.");
+            break;
         case recordCmd: toggleRecording(); break;
         case aiToolsCmd: showAiToolsSetup(); break;
         case midiControlCmd: showMidiControlSetup(); break;
@@ -485,14 +584,79 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case toggleNotationPanelCmd: toggleNotationPanel(); break;
         case toggleStemsPanelCmd: toggleStemsPanel(); break;
         case toggleMixerWindowCmd: toggleMixerWindow(); break;
-        case editSetListCmd: openSetListEditor(); break;
+        case toggleStageFxControllerCmd: toggleStageFxController(); break;
+        case dockAttachCmd:
+            floatingDock.attach();
+            setStatus ("Mixer + Stage FX stuck together.");
+            break;
+        case dockDetachCmd:
+            floatingDock.detach();
+            setStatus ("Floating windows unstuck.");
+            break;
+        case dockSideRightCmd:
+        case dockSideLeftCmd:
+        case dockSideTopCmd:
+        case dockSideBottomCmd:
+        {
+            auto s = floatingDock.getSettings();
+            if (menuItemID == dockSideRightCmd)
+                s.dockSide = jamstudio::ui::FloatingDockSettings::Side::right;
+            else if (menuItemID == dockSideLeftCmd)
+                s.dockSide = jamstudio::ui::FloatingDockSettings::Side::left;
+            else if (menuItemID == dockSideTopCmd)
+                s.dockSide = jamstudio::ui::FloatingDockSettings::Side::top;
+            else
+                s.dockSide = jamstudio::ui::FloatingDockSettings::Side::bottom;
+            floatingDock.setSettings (s);
+            setStatus ("Dock side: " + jamstudio::ui::FloatingDockSettings::sideToString (s.dockSide));
+            break;
+        }
+        case dockGapTightCmd:
+        case dockGapNormalCmd:
+        case dockGapWideCmd:
+        {
+            auto s = floatingDock.getSettings();
+            s.gapPx = (menuItemID == dockGapTightCmd ? 0 : (menuItemID == dockGapWideCmd ? 12 : 4));
+            floatingDock.setSettings (s);
+            setStatus ("Dock gap: " + juce::String (s.gapPx) + " px");
+            break;
+        }
+        case dockAutoStickCmd:
+        {
+            auto s = floatingDock.getSettings();
+            s.autoStickOnTouch = ! s.autoStickOnTouch;
+            floatingDock.setSettings (s);
+            setStatus (s.autoStickOnTouch ? "Auto-stick ON when edges touch."
+                                          : "Auto-stick OFF (use <> button).");
+            break;
+        }
+        case dockDetachOnMaxCmd:
+        {
+            auto s = floatingDock.getSettings();
+            s.detachOnMaximise = ! s.detachOnMaximise;
+            floatingDock.setSettings (s);
+            setStatus (s.detachOnMaximise ? "Will unstick when mixer maximised."
+                                          : "Stay stuck when mixer maximised.");
+            break;
+        }
+        case editSetListCmd: openSetListEditor (false); break;
+        case openStageShowBuilderCmd: openSetListEditor (true); break;
         case performanceNextSongCmd: performanceTriggerNext(); break;
         case stopPerformanceCmd: stopPerformanceMode(); break;
+        case openKaraokeOutputCmd: openKaraokeOutput(); break;
+        case openStageFxOutputCmd: openStageFxOutput(); break;
+        case cycleKaraokeDisplayCmd: cycleKaraokeDisplay(); break;
+        case cycleStageFxDisplayCmd: cycleStageFxDisplay(); break;
+        case helpInstructionsCmd:
+            jamstudio::ui::HelpBrowserDialog::show (this);
+            break;
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
                                                     "JamStudio v0.9.6\n"
-                                                    "Guitar practice workstation with stems, tabs, and lyrics.\n\n"
+                                                    "Guitar practice workstation with stems, tabs, lyrics,\n"
+                                                    "multi-bus mixer, and stage video.\n\n"
+                                                    "Help → Instructions… for a searchable guide.\n\n"
                                                     "Designed by man, engineered and coded by Grok.");
             break;
         default: break;
@@ -529,7 +693,7 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
     {
         const auto playing = transportController.isPlaying();
 
-        // Song finished naturally → pause between songs and wait for foot pedal.
+        // Song finished naturally -> pause between songs and wait for foot pedal.
         if (performanceWasPlaying && ! playing)
         {
             const auto length = transportController.getLengthInSeconds();
@@ -622,7 +786,7 @@ void MainComponent::saveProject()
         }
         else
         {
-            setStatus ("Failed to save project — stem files missing or could not be copied.");
+            setStatus ("Failed to save project - stem files missing or could not be copied.");
         }
     });
 }
@@ -738,14 +902,14 @@ void MainComponent::loadProjectFile (const juce::File& file)
     setStatus ("Project loaded: " + file.getFileName()
                + (loadedParts.isEmpty() ? "" : " (" + loadedParts.joinIntoString (" + ") + ")"));
 
-    // Old projects pointed at /tmp demucs output — re-separate and pack into .media permanently.
+    // Old projects pointed at /tmp demucs output - re-separate and pack into .media permanently.
     if (needsRecovery && currentSongFile.existsAsFile())
     {
         if (demucsSeparator.isAvailable())
             recoverMissingProjectStems (file);
         else
             setStatus ("Project loaded with lyrics/tabs, but stems are missing (were under /tmp). "
-                       "Install Demucs (Help → AI Tools), then open this project again to recover.");
+                       "Install Demucs (Help -> AI Tools), then open this project again to recover.");
     }
 }
 
@@ -753,13 +917,13 @@ void MainComponent::recoverMissingProjectStems (const juce::File& projectFile)
 {
     if (! currentSongFile.existsAsFile())
     {
-        setStatus ("Cannot recover stems — original song file not found.");
+        setStatus ("Cannot recover stems - original song file not found.");
         return;
     }
 
     if (! demucsSeparator.isAvailable())
     {
-        setStatus ("Cannot recover stems — Demucs is not available.");
+        setStatus ("Cannot recover stems - Demucs is not available.");
         return;
     }
 
@@ -788,7 +952,7 @@ void MainComponent::recoverMissingProjectStems (const juce::File& projectFile)
             {
                 setStatus (result.errorMessage.isNotEmpty()
                                ? result.errorMessage
-                               : "Stem recovery failed. Try Stems → Separate Stems, then Save Project.");
+                               : "Stem recovery failed. Try Stems -> Separate Stems, then Save Project.");
                 return;
             }
 
@@ -840,7 +1004,7 @@ void MainComponent::recoverMissingProjectStems (const juce::File& projectFile)
             else
             {
                 setStatus ("Stems recovered in session, but could not update project file. "
-                           "Use Project → Save Project to keep them.");
+                           "Use Project -> Save Project to keep them.");
             }
         },
         [this, jobGeneration] (const float progress, const juce::String& message)
@@ -849,7 +1013,7 @@ void MainComponent::recoverMissingProjectStems (const juce::File& projectFile)
                 return;
 
             const auto pct = juce::roundToInt (progress * 100.0f);
-            setStatus ("Recovering stems: " + (pct > 0 ? (juce::String (pct) + "% — ") : juce::String()) + message);
+            setStatus ("Recovering stems: " + (pct > 0 ? (juce::String (pct) + "% - ") : juce::String()) + message);
         });
 }
 
@@ -923,7 +1087,7 @@ void MainComponent::findOnlineLyrics()
 
             const auto wordInfo = currentLyrics.hasWordTimings() ? " (word-level if present)" : " (line-synced LRC)";
             setStatus ("Online lyrics applied: " + juce::String (currentLyrics.getNumLines())
-                       + " lines" + wordInfo + " — " + currentLyrics.getTitle());
+                       + " lines" + wordInfo + " - " + currentLyrics.getTitle());
         });
 }
 
@@ -974,7 +1138,7 @@ void MainComponent::openSong()
             revealWorkspacePanels();
             setStatus ("Loaded: " + file.getFileName()
                        + " @ " + juce::String (static_cast<int> (transportBar.getBpm()))
-                       + " BPM — Lyrics / Tabs / Stems / Mixer ready.");
+                       + " BPM - Lyrics / Tabs / Stems / Mixer ready.");
         }
         else
         {
@@ -1083,7 +1247,7 @@ void MainComponent::setNotationDisplayMode (const jamstudio::notation::NotationM
     {
         notationPanelVisible = true;
         applyPanelVisibility();
-        setStatus ("Tabs panel open — import MusicXML or run AI Tab.");
+        setStatus ("Tabs panel open - import MusicXML or run AI Tab.");
         return;
     }
 
@@ -1111,7 +1275,7 @@ void MainComponent::toggleTabView()
     {
         notationPanelVisible = true;
         applyPanelVisibility();
-        setStatus ("Tabs panel open — import MusicXML or run AI Tab.");
+        setStatus ("Tabs panel open - import MusicXML or run AI Tab.");
         return;
     }
 
@@ -1128,7 +1292,7 @@ void MainComponent::toggleSheetView()
     {
         notationPanelVisible = true;
         applyPanelVisibility();
-        setStatus ("Tabs panel open — import MusicXML or run AI Tab.");
+        setStatus ("Tabs panel open - import MusicXML or run AI Tab.");
         return;
     }
 
@@ -1153,7 +1317,7 @@ void MainComponent::openFullPageTabs()
 
     fullPageTabsWindow.setScore (currentScore);
     fullPageTabsWindow.showWindow (true);
-    setStatus ("Full page tabs open — use Print or Export PNG for a printable copy.");
+    setStatus ("Full page tabs open - use Print or Export PNG for a printable copy.");
 }
 
 void MainComponent::openFullPageLyrics()
@@ -1166,7 +1330,7 @@ void MainComponent::openFullPageLyrics()
 
     fullPageLyricsWindow.setLyrics (currentLyrics);
     fullPageLyricsWindow.showWindow (true);
-    setStatus ("Full page lyrics open — use Print or Export PNG for a printable sheet.");
+    setStatus ("Full page lyrics open - use Print or Export PNG for a printable sheet.");
 }
 
 void MainComponent::setActiveScorePart (const int partIndex)
@@ -1174,7 +1338,7 @@ void MainComponent::setActiveScorePart (const int partIndex)
     if (currentScore.isEmpty())
         return;
 
-    // Keep the user's Tab/Sheet choice — don't force guitar-only tab mode per part.
+    // Keep the user's Tab/Sheet choice - don't force guitar-only tab mode per part.
     const auto modeBefore = currentScore.getNotationMode();
     currentScore.setActivePartIndex (partIndex);
 
@@ -1234,7 +1398,7 @@ juce::File MainComponent::findStemFileForType (const jamstudio::audio::StemType 
 
 juce::File MainComponent::findMelodicStemFile()
 {
-    // Prefer guitar for AI tab generation — this app is for guitar practice.
+    // Prefer guitar for AI tab generation - this app is for guitar practice.
     for (const auto stemType : { jamstudio::audio::StemType::guitar,
                                  jamstudio::audio::StemType::other,
                                  jamstudio::audio::StemType::bass,
@@ -1316,7 +1480,7 @@ void MainComponent::beginBackgroundTask (const juce::String& message, std::funct
     const auto generation = backgroundTaskGeneration.load();
     backgroundTaskActive = true;
 
-    // No top progress strip — message + Cancel live in the bottom status bar.
+    // No top progress strip - message + Cancel live in the bottom status bar.
     separationProgress.setVisible (false);
     statusCancelButton.setVisible (true);
     statusCancelButton.onClick = [this, generation, onCancel = std::move (onCancel)]
@@ -1385,7 +1549,7 @@ void MainComponent::transcribeLyrics()
 
             if (! result.success)
             {
-                // Cancel is a normal outcome — keep the app open and show status only.
+                // Cancel is a normal outcome - keep the app open and show status only.
                 setStatus (result.errorMessage.isNotEmpty() ? result.errorMessage : "Transcription cancelled.");
                 return;
             }
@@ -1408,7 +1572,7 @@ void MainComponent::transcribeLyrics()
                 return;
 
             const auto pct = juce::roundToInt (progress * 100.0f);
-            setStatus ((pct > 0 ? (juce::String (pct) + "% — ") : juce::String()) + message);
+            setStatus ((pct > 0 ? (juce::String (pct) + "% - ") : juce::String()) + message);
         });
 }
 
@@ -1465,7 +1629,7 @@ void MainComponent::transcribeTab()
                 return;
 
             const auto pct = juce::roundToInt (progress * 100.0f);
-            setStatus ((pct > 0 ? (juce::String (pct) + "% — ") : juce::String()) + message);
+            setStatus ((pct > 0 ? (juce::String (pct) + "% - ") : juce::String()) + message);
         });
 }
 
@@ -1508,7 +1672,7 @@ void MainComponent::separateStems()
 
             const auto hasGuitar = findStemFileForType (jamstudio::audio::StemType::guitar).existsAsFile();
             setStatus (hasGuitar
-                           ? "Separation complete — Guitar stem ready. Solo Guitar to learn the part, "
+                           ? "Separation complete - Guitar stem ready. Solo Guitar to learn the part, "
                              "or mute Guitar to play along with the band."
                            : "Separation complete. " + juce::String (result.stemFiles.size())
                                  + " stems loaded.");
@@ -1519,7 +1683,7 @@ void MainComponent::separateStems()
                 return;
 
             const auto pct = juce::roundToInt (progress * 100.0f);
-            setStatus ((pct > 0 ? (juce::String (pct) + "% — ") : juce::String()) + message);
+            setStatus ((pct > 0 ? (juce::String (pct) + "% - ") : juce::String()) + message);
         });
 }
 
@@ -1646,12 +1810,10 @@ void MainComponent::rebuildStemLanes()
 void MainComponent::rebuildMixerWindow()
 {
     mixerWindow.rebuild (transportController.getStemMixer(),
-                         [this] (const int index, const bool muted, const bool solo, const float volume)
+                         [this] (const int /*index*/)
                          {
-                             auto& stemMixer = transportController.getStemMixer();
-                             stemMixer.setStemMuted (index, muted);
-                             stemMixer.setStemSolo (index, solo);
-                             stemMixer.setStemVolume (index, volume);
+                             // Strip applies mute/solo/sends directly; refresh lanes if needed.
+                             juce::ignoreUnused (this);
                          });
 }
 
@@ -1695,7 +1857,14 @@ void MainComponent::setupStartupWizard()
         if (mode == jamstudio::ui::StartupWizard::Mode::performance)
         {
             currentMode = mode;
-            openSetListEditor();
+            openSetListEditor (false);
+            return;
+        }
+
+        if (mode == jamstudio::ui::StartupWizard::Mode::stageShowBuilder)
+        {
+            currentMode = mode;
+            openSetListEditor (true);
             return;
         }
 
@@ -1708,7 +1877,7 @@ void MainComponent::setupStartupWizard()
     });
 
     workspaceReady = false;
-    setStatus ("Welcome — choose Practice, Performance, or Recording.");
+    setStatus ("Welcome - choose Practice, Performance, or Recording.");
     resized();
 }
 
@@ -1731,10 +1900,13 @@ void MainComponent::enterWorkspaceMode (const jamstudio::ui::StartupWizard::Mode
             setStatus ("Practice workspace ready. Open a song or project from the File/Project menus.");
             break;
         case jamstudio::ui::StartupWizard::Mode::performance:
-            setStatus ("Performance mode — build a set list under Performance menu.");
+            setStatus ("Performance mode - build a set list under Performance menu.");
+            break;
+        case jamstudio::ui::StartupWizard::Mode::stageShowBuilder:
+            setStatus ("Stage Show Builder - pin videos/slideshows to songs in your set list.");
             break;
         case jamstudio::ui::StartupWizard::Mode::recording:
-            setStatus ("Recording mode — open a backing track, then Record from Transport menu.");
+            setStatus ("Recording mode - open a backing track, then Record from Transport menu.");
             break;
     }
 }
@@ -1831,7 +2003,7 @@ void MainComponent::startPracticeFromSongFile (const juce::File& songFile)
                 return;
 
             const auto pct = juce::roundToInt (progress * 100.0f);
-            setStatus ((pct > 0 ? (juce::String (pct) + "% — ") : juce::String()) + message);
+            setStatus ((pct > 0 ? (juce::String (pct) + "% - ") : juce::String()) + message);
         },
         [this, jobGeneration] (PracticeSetupResult result)
         {
@@ -1899,15 +2071,22 @@ void MainComponent::applyPracticeSetupResult (PracticeSetupResult result)
     else
         summary.add ("no lyrics");
 
-    setStatus ("Practice ready — " + summary.joinIntoString (" · "));
+    setStatus ("Practice ready - " + summary.joinIntoString (" - "));
 }
 
-void MainComponent::openSetListEditor()
+void MainComponent::openSetListEditor (const bool stageShowBuilder)
 {
-    jamstudio::ui::SetListEditorDialog::show (this, [this] (jamstudio::performance::SetList list)
-    {
-        startPerformanceMode (std::move (list));
-    });
+    const auto mode = stageShowBuilder
+                          ? jamstudio::ui::SetListEditorDialog::EditorMode::stageShowBuilder
+                          : jamstudio::ui::SetListEditorDialog::EditorMode::performance;
+
+    jamstudio::ui::SetListEditorDialog::show (
+        this,
+        [this] (jamstudio::performance::SetList list)
+        {
+            startPerformanceMode (std::move (list));
+        },
+        mode);
 }
 
 void MainComponent::startPerformanceMode (jamstudio::performance::SetList list)
@@ -1931,8 +2110,15 @@ void MainComponent::startPerformanceMode (jamstudio::performance::SetList list)
     updatePerformanceBar();
     performanceBar.setWaitingForTrigger (true);
     performanceBar.setPhaseMessage ("Press NEXT / START or foot pedal (MIDI: Next Song) for song 1");
-    setStatus ("Performance ready — " + performanceSetList.name + " ("
-               + juce::String (performanceSetList.songs.size()) + " songs). Pedal = next.");
+
+    // Do not auto-open video screens — user assigns displays from Stage FX Controller.
+    syncVideoOutputs();
+    stageFxController.syncVideoRoutingUi();
+
+    setStatus ("Performance ready - " + performanceSetList.name + " ("
+               + juce::String (performanceSetList.songs.size()) + " songs). "
+               + "Open Karaoke / Stage FX from Stage FX Controller or Performance menu.");
+    updateMixerPerformanceContext();
     resized();
 }
 
@@ -1943,9 +2129,74 @@ void MainComponent::stopPerformanceMode()
     performanceSongIndex = -1;
     performanceWasPlaying = false;
     performanceBar.setVisible (false);
+    // Leave video outputs as the user left them (do not force-close on stop).
     transportController.stop();
+    stageFxController.syncVideoRoutingUi();
+    updateMixerPerformanceContext();
     setStatus ("Performance mode stopped.");
     resized();
+}
+
+void MainComponent::openKaraokeOutput()
+{
+    karaokeOutput.showOnDisplay (karaokeDisplayIndex);
+    syncVideoOutputs();
+    stageFxController.syncVideoRoutingUi();
+    setStatus ("Karaoke output on " + jamstudio::ui::VideoOutputHelpers::getDisplayLabel (karaokeDisplayIndex));
+}
+
+void MainComponent::openStageFxOutput()
+{
+    stageFxOutput.showOnDisplay (stageFxDisplayIndex);
+    syncVideoOutputs();
+    stageFxController.syncVideoRoutingUi();
+    setStatus ("Stage FX output on " + jamstudio::ui::VideoOutputHelpers::getDisplayLabel (stageFxDisplayIndex));
+}
+
+void MainComponent::cycleKaraokeDisplay()
+{
+    const auto n = jamstudio::ui::VideoOutputHelpers::getNumDisplays();
+    karaokeDisplayIndex = (karaokeDisplayIndex + 1) % n;
+    if (karaokeOutput.isOutputVisible())
+        openKaraokeOutput();
+    else
+        stageFxController.syncVideoRoutingUi();
+}
+
+void MainComponent::cycleStageFxDisplay()
+{
+    const auto n = jamstudio::ui::VideoOutputHelpers::getNumDisplays();
+    stageFxDisplayIndex = (stageFxDisplayIndex + 1) % n;
+    if (stageFxOutput.isOutputVisible())
+        openStageFxOutput();
+    else
+        stageFxController.syncVideoRoutingUi();
+}
+
+void MainComponent::syncVideoOutputs()
+{
+    juce::String title = currentSongFile.existsAsFile()
+                             ? currentSongFile.getFileNameWithoutExtension()
+                             : currentLyrics.getTitle();
+
+    if (juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
+        title = performanceSetList.songs.getReference (performanceSongIndex).displayName;
+
+    if (karaokeOutput.isOutputVisible())
+    {
+        karaokeOutput.setSongTitle (title);
+        karaokeOutput.setLyrics (currentLyrics);
+    }
+
+    if (stageFxOutput.isOutputVisible())
+    {
+        stageFxOutput.setSongTitle (title);
+        stageFxOutput.setSetInfo (performanceSetList.name,
+                                  performanceSongIndex,
+                                  performanceSetList.songs.size());
+        stageFxOutput.setWaitingBetweenSongs (performanceWaitingForTrigger);
+        stageFxOutput.setExternalEnergy (transportController.getStageMedia().getMeterLevel());
+    }
 }
 
 void MainComponent::updatePerformanceBar()
@@ -1959,6 +2210,7 @@ void MainComponent::updatePerformanceBar()
                                    performanceSongIndex,
                                    performanceSetList.songs.size(),
                                    title);
+    syncVideoOutputs();
 }
 
 void MainComponent::performanceTriggerNext()
@@ -1976,7 +2228,7 @@ void MainComponent::performanceTriggerNext()
 
         if (next >= performanceSetList.songs.size())
         {
-            performanceBar.setPhaseMessage ("Set complete — nice show!");
+            performanceBar.setPhaseMessage ("Set complete - nice show!");
             performanceBar.setWaitingForTrigger (false);
             setStatus ("Set list finished.");
             transportController.stop();
@@ -2014,7 +2266,8 @@ void MainComponent::onPerformanceSongEnded()
 
     const auto& nextSong = performanceSetList.songs.getReference (next);
     performanceBar.setWaitingForTrigger (true);
-    performanceBar.setPhaseMessage ("Song ended — press foot pedal / NEXT for: " + nextSong.displayName);
+    performanceBar.setPhaseMessage ("Song ended - press foot pedal / NEXT for: " + nextSong.displayName);
+    syncVideoOutputs();
     setStatus ("Paused between songs. Pedal to start: " + nextSong.displayName);
 }
 
@@ -2029,7 +2282,7 @@ void MainComponent::loadPerformanceSong (const int index, const bool autoPlay)
     if (! projectFile.existsAsFile())
     {
         setStatus ("Missing project: " + song.projectPath);
-        performanceBar.setPhaseMessage ("Missing file — skip with NEXT");
+        performanceBar.setPhaseMessage ("Missing file - skip with NEXT");
         performanceWaitingForTrigger = true;
         performanceSongIndex = index; // stay on broken slot so next advances
         updatePerformanceBar();
@@ -2039,7 +2292,9 @@ void MainComponent::loadPerformanceSong (const int index, const bool autoPlay)
     loadProjectFile (projectFile);
     performanceSongIndex = index;
     performanceWaitingForTrigger = false;
+    updateMixerPerformanceContext();
     applyPerformanceStemPrefsForCurrentSong();
+    loadSongStageMedia (song);
 
     if (song.showTabs)
     {
@@ -2054,7 +2309,7 @@ void MainComponent::loadPerformanceSong (const int index, const bool autoPlay)
     applyPanelVisibility();
     updatePerformanceBar();
     performanceBar.setWaitingForTrigger (false);
-    performanceBar.setPhaseMessage (autoPlay ? "Playing…" : "Loaded — press play or pedal");
+    performanceBar.setPhaseMessage (autoPlay ? "Playing..." : "Loaded - press play or pedal");
 
     if (autoPlay)
     {
@@ -2063,9 +2318,62 @@ void MainComponent::loadPerformanceSong (const int index, const bool autoPlay)
         performanceWasPlaying = true;
     }
 
+    syncVideoOutputs();
     setStatus ("Now: " + song.displayName
                + "  (" + juce::String (index + 1) + "/"
-               + juce::String (performanceSetList.songs.size()) + ")");
+               + juce::String (performanceSetList.songs.size()) + ")"
+               + (song.hasStageMedia() ? "  [stage media]" : juce::String()));
+}
+
+void MainComponent::loadSongStageMedia (const jamstudio::performance::SetListSong& song)
+{
+    auto& stage = transportController.getStageMedia();
+    stage.stop();
+    stage.clear();
+
+    if (! song.hasStageMedia())
+        return;
+
+    const auto setFile = performanceSetList.sourceFile();
+    juce::String error;
+
+    if (song.stageMediaKind == jamstudio::performance::StageMediaKind::video)
+    {
+        const auto mediaFile = song.resolveStageMediaFile (setFile);
+
+        if (! mediaFile.existsAsFile())
+        {
+            setStatus ("Stage video missing: " + song.stageMediaPath);
+            return;
+        }
+
+        if (! stage.loadFile (mediaFile, error))
+        {
+            setStatus ("Stage video: " + error);
+            return;
+        }
+    }
+    else if (song.stageMediaKind == jamstudio::performance::StageMediaKind::slideshow)
+    {
+        const auto slides = song.resolveSlideFiles (setFile);
+
+        if (slides.isEmpty())
+        {
+            setStatus ("Stage slideshow has no images.");
+            return;
+        }
+
+        if (! stage.loadSlideshow (slides, song.stageSlideSeconds, error))
+        {
+            setStatus ("Stage slideshow: " + error);
+            return;
+        }
+    }
+
+    if (song.stageMediaAutoPlay)
+        stage.play();
+
+    mixerWindow.syncVideoSoundSlider();
 }
 
 void MainComponent::applyPerformanceStemPrefsForCurrentSong()
@@ -2081,6 +2389,61 @@ void MainComponent::applyPerformanceStemPrefsForCurrentSong()
     rebuildMixerWindow();
     rebuildStemLanes();
     refreshMixerUiFromMidi();
+    updateMixerPerformanceContext();
+}
+
+void MainComponent::updateMixerPerformanceContext()
+{
+    juce::String name;
+    if (juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
+        name = performanceSetList.songs.getReference (performanceSongIndex).displayName;
+
+    mixerWindow.setPerformanceMixContext (performanceActive,
+                                          performanceSongIndex,
+                                          performanceSetList.songs.size(),
+                                          name);
+}
+
+void MainComponent::saveCurrentMixerToSetlistTrack()
+{
+    if (! performanceActive)
+    {
+        setStatus ("Load a Performance set list first, then start a song.");
+        return;
+    }
+
+    if (! juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
+    {
+        setStatus ("No current set track — press Next/Start to load a song, then save mix.");
+        return;
+    }
+
+    auto& song = performanceSetList.songs.getReference (performanceSongIndex);
+    song.stemPrefs = jamstudio::performance::captureStemPrefs (transportController.getStemMixer());
+
+    auto file = performanceSetList.sourceFile();
+    if (! file.existsAsFile())
+    {
+        const auto safeName = juce::File::createLegalFileName (
+            performanceSetList.name.isNotEmpty() ? performanceSetList.name : "My Set");
+        file = jamstudio::performance::SetListManager::getSetListsDirectory()
+                   .getChildFile (safeName + ".setlist");
+    }
+
+    if (! jamstudio::performance::SetListManager::saveSetList (file, performanceSetList))
+    {
+        setStatus ("Could not write set list file.");
+        return;
+    }
+
+    auto defaultCopy = performanceSetList;
+    juce::ignoreUnused (jamstudio::performance::SetListManager::saveSetList (
+        jamstudio::performance::SetListManager::defaultSetListFile(), defaultCopy));
+
+    setStatus ("Saved mix for set track " + juce::String (performanceSongIndex + 1) + ": "
+               + song.displayName + " (" + juce::String (song.stemPrefs.size())
+               + " stems) → " + file.getFileName());
+    updateMixerPerformanceContext();
 }
 
 void MainComponent::preferLeadTabPart (const juce::String& partHint)

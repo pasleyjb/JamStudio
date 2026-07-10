@@ -60,7 +60,7 @@ public:
                                                  const juce::File& projectFile);
 
     /**
-     * True when the project expected separated stems (2+) but none/few remain —
+     * True when the project expected separated stems (2+) but none/few remain - 
      * typical after /tmp cleanup of demucs output.
      */
     [[nodiscard]] static bool needsStemRecovery (const ProjectData& data,

@@ -43,10 +43,10 @@ void PerformanceBar::setSetListInfo (const juce::String& setName,
     if (songCount <= 0)
         songLabel.setText ("No songs in set list", juce::dontSendNotification);
     else if (songIndex < 0)
-        songLabel.setText ("Ready — press NEXT / START (or foot pedal)", juce::dontSendNotification);
+        songLabel.setText ("Ready - press NEXT / START (or foot pedal)", juce::dontSendNotification);
     else
         songLabel.setText (juce::String (songIndex + 1) + " / " + juce::String (songCount)
-                           + "  —  " + songTitle,
+                           + " - " + songTitle,
                            juce::dontSendNotification);
 }
 

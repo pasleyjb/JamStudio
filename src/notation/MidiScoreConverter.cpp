@@ -10,8 +10,8 @@ namespace jamstudio::notation
 
 namespace
 {
-constexpr std::array<int, 6> openStringMidi { 40, 45, 50, 55, 59, 64 }; // E2–E4 guitar
-constexpr std::array<int, 4> bassOpenStringMidi { 28, 33, 38, 43 };     // E1–G2 bass
+constexpr std::array<int, 6> openStringMidi { 40, 45, 50, 55, 59, 64 }; // E2-E4 guitar
+constexpr std::array<int, 4> bassOpenStringMidi { 28, 33, 38, 43 };     // E1-G2 bass
 constexpr double defaultMeasureLengthBeats = 4.0;
 
 juce::String defaultPartName (const int trackIndex, const int midiPitchHint)
@@ -93,7 +93,7 @@ void MidiScoreConverter::assignGuitarTab (NoteEvent& note, TabAssignmentContext&
     }
     else
     {
-        // Unfrettable pitch — still show as a pitch label in tab view.
+        // Unfrettable pitch - still show as a pitch label in tab view.
         note.stringNumber = 3;
         note.fret = -1;
         note.label = juce::MidiMessage::getMidiNoteName (note.midiPitch, true, true, 4);

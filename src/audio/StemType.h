@@ -34,7 +34,7 @@ inline juce::String stemTypeToString (StemType type)
     return "Unknown";
 }
 
-/** Mixer / practice UI order — guitar first for learning. */
+/** Mixer / practice UI order - guitar first for learning. */
 inline int stemTypeSortOrder (StemType type)
 {
     switch (type)
