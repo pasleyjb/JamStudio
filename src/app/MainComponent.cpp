@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 
+#include "../audio/ExternalRecorder.h"
 #include "../audio/StemType.h"
 #include "../audio/TempoDetector.h"
 #include "../ui/AiToolsSetupDialog.h"
@@ -128,6 +129,24 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
         else
             setStatus ("Open a song before detecting tempo.");
     });
+    // REC prefers external DAW (Audacity etc.) for plugins / amp sims.
+    transportBar.setRecordCallback ([this] { openExternalRecorder(); });
+    transportBar.setInputLevelProvider ([this] { return audioRecorder.getInputLevel(); });
+
+    recordingTakesPanel.setTakeManager (&recordingTakeManager);
+    recordingTakesPanel.setLoadTakeCallback ([this] (const jamstudio::audio::RecordingTakeManager::Take& take)
+    {
+        loadRecordingAsStem (take.file, take.displayName);
+        setStatus ("Loaded " + take.displayName + " into mixer.");
+    });
+    recordingTakesPanel.setOpenExternalCallback ([this] { openExternalRecorder(); });
+    recordingTakesPanel.setImportTakeCallback ([this] { importTakeFromFile(); });
+    {
+        const auto preferred = jamstudio::audio::ExternalRecorder::getPreferred();
+        recordingTakesPanel.setPreferredRecorderName (preferred.name);
+    }
+    recordingTakesPanel.setVisible (false);
+    addChildComponent (recordingTakesPanel);
 
     // Panels available immediately with empty states.
     rebuildMixerWindow();
@@ -330,6 +349,16 @@ void MainComponent::resized()
         bounds.removeFromBottom (6);
     }
 
+    // Recording takes panel (right column in recording mode).
+    const bool showTakes = recordingTakesPanel.isVisible();
+    juce::Rectangle<int> takesArea;
+    if (showTakes)
+    {
+        takesArea = bounds.removeFromRight (220);
+        bounds.removeFromRight (8);
+        recordingTakesPanel.setBounds (takesArea);
+    }
+
     // Bottom dock: overview waveform -> transport -> stem lanes with mini-waves
     const int stemLaneCount = stemContainer.getNumChildComponents();
     const int stemLaneHeight = 52;
@@ -512,7 +541,10 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     else if (menuName == "Transport")
     {
         menu.addItem (detectTempoCmd, "Detect Tempo", true, false);
-        menu.addItem (recordCmd, "Record / Stop", true, false);
+        menu.addSeparator();
+        menu.addItem (openExternalRecorderCmd, "Open External Recorder (Audacity…)", true, false);
+        menu.addItem (importTakeCmd, "Import Take from File…", true, false);
+        menu.addItem (recordCmd, "Internal Record / Stop", true, false);
         menu.addSeparator();
         menu.addItem (toggleCountInCmd, "4-Count Intro", true,
                       transportController.isCountInEnabled());
@@ -578,6 +610,8 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
                            : "4-count intro OFF.");
             break;
         case recordCmd: toggleRecording(); break;
+        case openExternalRecorderCmd: openExternalRecorder(); break;
+        case importTakeCmd: importTakeFromFile(); break;
         case aiToolsCmd: showAiToolsSetup(); break;
         case midiControlCmd: showMidiControlSetup(); break;
         case toggleLyricsPanelCmd: toggleLyricsPanel(); break;
@@ -1693,10 +1727,12 @@ void MainComponent::toggleRecording()
     {
         const auto savedFile = audioRecorder.stopRecording();
         toolbarTabs.setRecordingActive (false);
+        transportBar.setRecordingActive (false);
 
         if (! savedFile.existsAsFile())
         {
             setStatus ("Recording stopped, but no audio was captured.");
+            refreshRecordingTakesPanel();
             return;
         }
 
@@ -1707,6 +1743,7 @@ void MainComponent::toggleRecording()
             transportController.getStemMixer().removeStemByFile (pruned);
 
         loadRecordingAsStem (savedFile, takeResult.take.displayName);
+        refreshRecordingTakesPanel();
 
         juce::StringArray exportedPaths;
         exportedPaths.add (savedFile.getFullPathName());
@@ -1727,12 +1764,21 @@ void MainComponent::toggleRecording()
     if (audioRecorder.startRecording (destination))
     {
         toolbarTabs.setRecordingActive (true);
-        setStatus ("Recording... play along with the backing and press Stop when finished.");
+        transportBar.setRecordingActive (true);
+        setStatus ("Recording... play along with the backing, then press REC/STOP when finished.");
     }
     else
     {
-        setStatus ("Could not start recording. Check that an audio input device is available.");
+        setStatus ("Could not start recording. Check that an audio input device is available (and sample rate is running).");
     }
+}
+
+void MainComponent::refreshRecordingTakesPanel()
+{
+    recordingTakesPanel.setVisible (currentMode == jamstudio::ui::StartupWizard::Mode::recording
+                                    && workspaceReady);
+    recordingTakesPanel.refresh();
+    resized();
 }
 
 void MainComponent::loadRecordingAsStem (const juce::File& recordingFile,
@@ -1868,12 +1914,24 @@ void MainComponent::setupStartupWizard()
             return;
         }
 
+        if (mode == jamstudio::ui::StartupWizard::Mode::recording)
+        {
+            currentMode = mode;
+            setStatus ("Recording: choose a backing project, song, or empty session.");
+            return;
+        }
+
         enterWorkspaceMode (mode);
     });
 
     startupWizard.setPracticeChoiceCallback ([this] (const jamstudio::ui::StartupWizard::PracticeChoice choice)
     {
         handlePracticeChoice (choice);
+    });
+
+    startupWizard.setRecordingChoiceCallback ([this] (const jamstudio::ui::StartupWizard::RecordingChoice choice)
+    {
+        handleRecordingChoice (choice);
     });
 
     workspaceReady = false;
@@ -1906,9 +1964,179 @@ void MainComponent::enterWorkspaceMode (const jamstudio::ui::StartupWizard::Mode
             setStatus ("Stage Show Builder - pin videos/slideshows to songs in your set list.");
             break;
         case jamstudio::ui::StartupWizard::Mode::recording:
-            setStatus ("Recording mode - open a backing track, then Record from Transport menu.");
+            enterRecordingWorkspace();
             break;
     }
+}
+
+void MainComponent::enterRecordingWorkspace()
+{
+    // Recording: focus stems + mixer; tabs/lyrics optional.
+    lyricsPanelVisible = false;
+    notationPanelVisible = false;
+    stemsPanelVisible = true;
+    applyPanelVisibility();
+    mixerWindow.showMixer (true);
+    updatePanelToggleStates();
+    refreshRecordingTakesPanel();
+
+    const auto preferred = jamstudio::audio::ExternalRecorder::getPreferred();
+    recordingTakesPanel.setPreferredRecorderName (preferred.name);
+
+    if (preferred.name.isNotEmpty())
+        setStatus ("Recording mode — REC / Open " + preferred.name
+                   + " bounces your mix and opens it for plugins & amp sims. Import Take when done.");
+    else
+        setStatus ("Recording mode — install Audacity (or Reaper/Ardour), then Open External Recorder. Import Take when finished.");
+}
+
+void MainComponent::openExternalRecorder()
+{
+    auto app = jamstudio::audio::ExternalRecorder::getPreferred();
+    if (app.name.isEmpty())
+    {
+        setStatus ("No external recorder found. Install Audacity from https://www.audacityteam.org/");
+        juce::AlertWindow::showMessageBoxAsync (
+            juce::MessageBoxIconType::InfoIcon,
+            "External recorder",
+            "JamStudio did not find Audacity, Reaper, Ardour, or similar on this system.\n\n"
+            "Install Audacity (free), then try again.\n"
+            "You can also use Transport → Import Take from File… after recording elsewhere.");
+        return;
+    }
+
+    juce::File bounceFile;
+    juce::String error;
+
+    auto& mixer = transportController.getStemMixer();
+    if (mixer.getNumStems() > 0)
+    {
+        transportController.pause();
+        const auto timestamp = juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+        bounceFile = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                         .getChildFile ("JamStudio")
+                         .getChildFile ("Recordings")
+                         .getChildFile ("backing-bounce-" + timestamp + ".wav");
+
+        setStatus ("Bouncing mix for " + app.name + "…");
+        if (! jamstudio::audio::ExternalRecorder::bounceMixToWav (mixer, bounceFile, error))
+        {
+            setStatus ("Bounce failed: " + error + " — launching " + app.name + " empty.");
+            bounceFile = juce::File();
+        }
+    }
+
+    if (! jamstudio::audio::ExternalRecorder::launch (app, bounceFile, error))
+    {
+        setStatus (error);
+        return;
+    }
+
+    if (bounceFile.existsAsFile())
+        setStatus ("Opened " + app.name + " with bounced mix. Record with plugins, Export Audio as WAV, then Import Take.");
+    else
+        setStatus ("Opened " + app.name + ". Record your take, Export Audio as WAV, then Import Take into JamStudio.");
+}
+
+void MainComponent::importTakeFromFile()
+{
+    fileChooser = std::make_unique<juce::FileChooser> (
+        "Import take from external recorder",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+            .getChildFile ("JamStudio")
+            .getChildFile ("Recordings"),
+        "*.wav;*.aiff;*.flac;*.ogg;*.mp3;*.m4a");
+
+    const auto flags = juce::FileBrowserComponent::openMode
+                       | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync (flags, [this] (const juce::FileChooser& chooser)
+    {
+        const auto file = chooser.getResult();
+        if (! file.existsAsFile())
+            return;
+
+        // Copy into JamStudio Recordings so the take is owned by the project area.
+        const auto timestamp = juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+        auto dest = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                        .getChildFile ("JamStudio")
+                        .getChildFile ("Recordings")
+                        .getChildFile ("imported-" + timestamp + "-" + file.getFileName());
+        dest.getParentDirectory().createDirectory();
+        if (! file.copyFileTo (dest))
+            dest = file;
+
+        const auto takeResult = recordingTakeManager.addTake (dest);
+        for (const auto& pruned : takeResult.prunedFiles)
+            transportController.getStemMixer().removeStemByFile (pruned);
+
+        loadRecordingAsStem (dest, takeResult.take.displayName);
+        refreshRecordingTakesPanel();
+        setStatus ("Imported " + takeResult.take.displayName + " from " + file.getFileName());
+    });
+}
+
+void MainComponent::handleRecordingChoice (const jamstudio::ui::StartupWizard::RecordingChoice choice)
+{
+    using Choice = jamstudio::ui::StartupWizard::RecordingChoice;
+
+    if (choice == Choice::emptySession)
+    {
+        hideStartupWizard();
+        enterRecordingWorkspace();
+        setStatus ("Empty recording session — arm input, press REC. Open a backing track anytime from File.");
+        return;
+    }
+
+    if (choice == Choice::openProject)
+    {
+        fileChooser = std::make_unique<juce::FileChooser> (
+            "Open project as backing track",
+            getProjectsDirectory(),
+            "*.jamstudio");
+
+        const auto chooserFlags = juce::FileBrowserComponent::openMode
+                                  | juce::FileBrowserComponent::canSelectFiles;
+
+        fileChooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& chooser)
+        {
+            const auto file = chooser.getResult();
+            if (! file.existsAsFile())
+                return;
+
+            hideStartupWizard();
+            enterRecordingWorkspace();
+            loadProjectFile (file);
+            setStatus ("Backing project loaded — press Play, then REC to capture your take.");
+        });
+        return;
+    }
+
+    // openBackingTrack
+    fileChooser = std::make_unique<juce::FileChooser> (
+        "Open backing track (audio)",
+        juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+        "*.wav;*.mp3;*.flac;*.ogg;*.aiff;*.m4a");
+
+    const auto chooserFlags = juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& chooser)
+    {
+        const auto file = chooser.getResult();
+        if (! file.existsAsFile())
+            return;
+
+        hideStartupWizard();
+        enterRecordingWorkspace();
+        currentSongFile = file;
+        juce::Array<juce::File> stems;
+        stems.add (file);
+        loadStemsIntoMixer (stems);
+        waveformDisplay.setSourceFile (file);
+        detectTempoFromSong (file, false);
+        setStatus ("Backing loaded: " + file.getFileName() + " — Play + REC to record.");
+    });
 }
 
 void MainComponent::handlePracticeChoice (const jamstudio::ui::StartupWizard::PracticeChoice choice)

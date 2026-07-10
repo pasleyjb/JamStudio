@@ -239,16 +239,18 @@ StartupWizard::StartupWizard()
       recordingButton ("recording", CardIcon::recording, "Recording", "Track yourself"),
       openProjectButton ("openProject", CardIcon::openProject, "Open Project", "Saved .jamstudio"),
       newSongButton ("newSong", CardIcon::newSong, "New from Song", "Auto setup"),
-      practiceBackButton ("practiceBack", CardIcon::back, "Back", {})
+      practiceBackButton ("practiceBack", CardIcon::back, "Back", {}),
+      recOpenProjectButton ("recOpenProject", CardIcon::openProject, "Open Project", "Backing + stems"),
+      recOpenBackingButton ("recOpenBacking", CardIcon::newSong, "Open Backing", "Song file"),
+      recEmptyButton ("recEmpty", CardIcon::recording, "Empty Session", "Record only"),
+      recordingBackButton ("recordingBack", CardIcon::back, "Back", {})
 {
     wizardBackground = BrandAssets::loadWizardBackground();
     practiceButton.setCustomIcon (BrandAssets::loadPracticeIcon());
 
-    // Mode title/subtitle removed - free-floating tiles only.
     titleLabel.setVisible (false);
     subtitleLabel.setVisible (false);
 
-    // Mode page - horizontal icon cards
     addAndMakeVisible (modePage);
 
     practiceButton.onClick = [this]
@@ -271,6 +273,7 @@ StartupWizard::StartupWizard()
     {
         if (onModeChosen)
             onModeChosen (Mode::recording);
+        showRecordingPage();
     };
 
     modePage.addAndMakeVisible (practiceButton);
@@ -308,6 +311,42 @@ StartupWizard::StartupWizard()
     practicePage.addAndMakeVisible (newSongButton);
     practicePage.addAndMakeVisible (practiceBackButton);
 
+    // Recording page
+    addChildComponent (recordingPage);
+    recordingTitle.setText ("Recording setup", juce::dontSendNotification);
+    recordingTitle.setFont (juce::FontOptions (22.0f, juce::Font::bold));
+    recordingTitle.setJustificationType (juce::Justification::centred);
+    recordingTitle.setColour (juce::Label::textColourId, juce::Colours::white);
+    recordingPage.addAndMakeVisible (recordingTitle);
+
+    recordingHint.setText ("Load a backing track, then Open Audacity (or your DAW) to record with plugins/amp sims. Import the take when done.",
+                           juce::dontSendNotification);
+    recordingHint.setJustificationType (juce::Justification::centred);
+    recordingHint.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.88f));
+    recordingPage.addAndMakeVisible (recordingHint);
+
+    recOpenProjectButton.onClick = [this]
+    {
+        if (onRecordingChoice)
+            onRecordingChoice (RecordingChoice::openProject);
+    };
+    recOpenBackingButton.onClick = [this]
+    {
+        if (onRecordingChoice)
+            onRecordingChoice (RecordingChoice::openBackingTrack);
+    };
+    recEmptyButton.onClick = [this]
+    {
+        if (onRecordingChoice)
+            onRecordingChoice (RecordingChoice::emptySession);
+    };
+    recordingBackButton.onClick = [this] { showModePage(); };
+
+    recordingPage.addAndMakeVisible (recOpenProjectButton);
+    recordingPage.addAndMakeVisible (recOpenBackingButton);
+    recordingPage.addAndMakeVisible (recEmptyButton);
+    recordingPage.addAndMakeVisible (recordingBackButton);
+
     showModePage();
 }
 
@@ -321,6 +360,11 @@ void StartupWizard::setPracticeChoiceCallback (PracticeChoiceCallback cb)
     onPracticeChoice = std::move (cb);
 }
 
+void StartupWizard::setRecordingChoiceCallback (RecordingChoiceCallback cb)
+{
+    onRecordingChoice = std::move (cb);
+}
+
 void StartupWizard::showModePage()
 {
     showPage (0);
@@ -331,12 +375,17 @@ void StartupWizard::showPracticePage()
     showPage (1);
 }
 
+void StartupWizard::showRecordingPage()
+{
+    showPage (2);
+}
+
 void StartupWizard::showPage (const int pageIndex)
 {
     currentPage = pageIndex;
     modePage.setVisible (pageIndex == 0);
     practicePage.setVisible (pageIndex == 1);
-    // Keep welcome/subtitle labels hidden - tiles speak for themselves.
+    recordingPage.setVisible (pageIndex == 2);
     titleLabel.setVisible (false);
     subtitleLabel.setVisible (false);
     resized();
@@ -412,6 +461,7 @@ void StartupWizard::resized()
 
     modePage.setBounds (outer);
     practicePage.setBounds (outer);
+    recordingPage.setBounds (outer);
 
     // Mode: large equal squares floating horizontally
     {
@@ -421,7 +471,7 @@ void StartupWizard::resized()
                                20);
     }
 
-    // Practice page: optional short labels + large tiles
+    // Practice page
     {
         auto area = practicePage.getLocalBounds().reduced (8, 8);
         practiceTitle.setBounds (area.removeFromTop (32));
@@ -429,19 +479,23 @@ void StartupWizard::resized()
         practiceHint.setBounds (area.removeFromTop (36));
         area.removeFromTop (10);
 
-        const int gap = 28;
-        const int n = 3;
-        const int maxSide = juce::jmin (area.getHeight(),
-                                        (area.getWidth() - gap * (n - 1)) / n);
-        const int side = juce::jlimit (140, 260, maxSide);
-        const int totalW = n * side + (n - 1) * gap;
-        auto row = juce::Rectangle<int> (totalW, side).withCentre (area.getCentre());
+        layoutHorizontalCards (area,
+                               { &practiceBackButton, &openProjectButton, &newSongButton },
+                               28);
+    }
 
-        practiceBackButton.setBounds (row.removeFromLeft (side));
-        row.removeFromLeft (gap);
-        openProjectButton.setBounds (row.removeFromLeft (side));
-        row.removeFromLeft (gap);
-        newSongButton.setBounds (row.removeFromLeft (side));
+    // Recording page
+    {
+        auto area = recordingPage.getLocalBounds().reduced (8, 8);
+        recordingTitle.setBounds (area.removeFromTop (32));
+        area.removeFromTop (4);
+        recordingHint.setBounds (area.removeFromTop (40));
+        area.removeFromTop (10);
+
+        layoutHorizontalCards (area,
+                               { &recordingBackButton, &recOpenProjectButton,
+                                 &recOpenBackingButton, &recEmptyButton },
+                               18);
     }
 }
 

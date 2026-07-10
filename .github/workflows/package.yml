@@ -1,0 +1,116 @@
+name: Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux-appimage:
+    name: Linux AppImage
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake pkg-config \
+            libasound2-dev libfreetype6-dev libx11-dev libxcomposite-dev \
+            libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+            libcurl4-openssl-dev \
+            libavformat-dev libavcodec-dev libavutil-dev libswresample-dev \
+            libfontconfig1-dev \
+            file desktop-file-utils
+
+      - name: Ensure JUCE present
+        run: |
+          if [ ! -f third_party/JUCE/CMakeLists.txt ]; then
+            git clone --depth 1 https://github.com/juce-framework/JUCE.git third_party/JUCE
+          fi
+
+      - name: Build AppImage
+        run: |
+          chmod +x scripts/package-linux-appimage.sh
+          ./scripts/package-linux-appimage.sh
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: jamstudio-linux-appimage
+          path: |
+            dist/*.AppImage
+            dist/*.sha256
+          if-no-files-found: error
+
+  windows-portable:
+    name: Windows portable zip
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Bootstrap vcpkg
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "${GITHUB_WORKSPACE}/vcpkg"
+          "${GITHUB_WORKSPACE}/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=${GITHUB_WORKSPACE}/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Install FFmpeg via vcpkg
+        shell: bash
+        run: |
+          "${VCPKG_ROOT}/vcpkg" install ffmpeg:x64-windows --clean-after-build
+
+      - name: Ensure JUCE present
+        shell: bash
+        run: |
+          if [ ! -f third_party/JUCE/CMakeLists.txt ]; then
+            git clone --depth 1 https://github.com/juce-framework/JUCE.git third_party/JUCE
+          fi
+
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
+          ./scripts/package-windows.ps1
+
+      - name: Upload Windows zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: jamstudio-windows-portable
+          path: |
+            dist/*-win64.zip
+            dist/*-win64.zip.sha256
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: [linux-appimage, windows-portable]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name '*.AppImage' -o -name '*.zip' -o -name '*.sha256' \) -exec cp -v {} release-assets/ \;
+          ls -lah release-assets
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          fail_on_unmatched_files: false

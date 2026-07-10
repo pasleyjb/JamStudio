@@ -1,5 +1,7 @@
 #include "AudioRecorder.h"
 
+#include <cmath>
+
 namespace jamstudio::audio
 {
 
@@ -72,6 +74,7 @@ void AudioRecorder::audioDeviceAboutToStart (juce::AudioIODevice* device)
 void AudioRecorder::audioDeviceStopped()
 {
     sampleRate = 0.0;
+    inputLevel.store (0.0f, std::memory_order_relaxed);
 }
 
 void AudioRecorder::audioDeviceIOCallbackWithContext (const float* const* inputChannelData,
@@ -82,6 +85,18 @@ void AudioRecorder::audioDeviceIOCallbackWithContext (const float* const* inputC
                                                       const juce::AudioIODeviceCallbackContext& context)
 {
     juce::ignoreUnused (outputChannelData, numOutputChannels, context);
+
+    float peak = 0.0f;
+
+    if (numInputChannels > 0 && inputChannelData != nullptr && inputChannelData[0] != nullptr)
+    {
+        const auto* in = inputChannelData[0];
+        for (int i = 0; i < numSamples; ++i)
+            peak = juce::jmax (peak, std::abs (in[i]));
+    }
+
+    const auto prev = inputLevel.load (std::memory_order_relaxed);
+    inputLevel.store (peak >= prev ? peak : prev * 0.88f, std::memory_order_relaxed);
 
     const juce::ScopedLock lock (writerLock);
 

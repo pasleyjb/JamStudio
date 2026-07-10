@@ -23,15 +23,25 @@ public:
         newFromSong
     };
 
+    enum class RecordingChoice
+    {
+        openProject,
+        openBackingTrack,
+        emptySession
+    };
+
     using ModeChosenCallback = std::function<void (Mode)>;
     using PracticeChoiceCallback = std::function<void (PracticeChoice)>;
+    using RecordingChoiceCallback = std::function<void (RecordingChoice)>;
 
     StartupWizard();
 
     void setModeChosenCallback (ModeChosenCallback cb);
     void setPracticeChoiceCallback (PracticeChoiceCallback cb);
+    void setRecordingChoiceCallback (RecordingChoiceCallback cb);
     void showModePage();
     void showPracticePage();
+    void showRecordingPage();
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -79,6 +89,7 @@ private:
 
     ModeChosenCallback onModeChosen;
     PracticeChoiceCallback onPracticeChoice;
+    RecordingChoiceCallback onRecordingChoice;
 
     juce::Image wizardBackground;
     juce::Label titleLabel;
@@ -96,6 +107,14 @@ private:
     IconCardButton newSongButton;
     IconCardButton practiceBackButton;
     juce::Label practiceHint;
+
+    juce::Component recordingPage;
+    juce::Label recordingTitle;
+    IconCardButton recOpenProjectButton;
+    IconCardButton recOpenBackingButton;
+    IconCardButton recEmptyButton;
+    IconCardButton recordingBackButton;
+    juce::Label recordingHint;
 
     int currentPage = 0;
 };

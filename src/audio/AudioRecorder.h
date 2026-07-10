@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <atomic>
 
 namespace jamstudio::audio
 {
@@ -16,6 +17,9 @@ public:
     juce::File stopRecording();
     [[nodiscard]] bool isRecording() const noexcept;
     [[nodiscard]] juce::File getCurrentRecordingFile() const noexcept { return recordingFile; }
+
+    /** Live input envelope 0..1 (updates whenever the device callback runs). */
+    [[nodiscard]] float getInputLevel() const noexcept { return inputLevel.load (std::memory_order_relaxed); }
 
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
@@ -33,6 +37,7 @@ private:
     std::atomic<juce::AudioFormatWriter::ThreadedWriter*> activeWriter { nullptr };
     juce::File recordingFile;
     double sampleRate = 44100.0;
+    std::atomic<float> inputLevel { 0.0f };
 };
 
 } // namespace jamstudio::audio

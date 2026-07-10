@@ -28,6 +28,7 @@
 #include "../ui/TranscriptionCorrectionDialog.h"
 #include "../ui/TransportBar.h"
 #include "../ui/PerformanceBar.h"
+#include "../ui/RecordingTakesPanel.h"
 #include "../ui/SetListEditorDialog.h"
 #include "../ui/VideoOutputWindow.h"
 #include "../project/RecentProjects.h"
@@ -76,6 +77,8 @@ private:
         onlineLyricsCmd,
         aiLyricsCmd,
         recordCmd,
+        openExternalRecorderCmd,
+        importTakeCmd,
         detectTempoCmd,
         toggleCountInCmd,
         aboutCmd,
@@ -133,6 +136,8 @@ private:
     void transcribeLyrics();
     void transcribeTab();
     void toggleRecording();
+    void openExternalRecorder();
+    void importTakeFromFile();
     [[nodiscard]] juce::File findStemFileForType (jamstudio::audio::StemType preferredType);
     [[nodiscard]] juce::File findMelodicStemFile();
     void loadRecordingAsStem (const juce::File& recordingFile, const juce::String& displayName);
@@ -165,6 +170,9 @@ private:
     void hideStartupWizard();
     void enterWorkspaceMode (jamstudio::ui::StartupWizard::Mode mode);
     void handlePracticeChoice (jamstudio::ui::StartupWizard::PracticeChoice choice);
+    void handleRecordingChoice (jamstudio::ui::StartupWizard::RecordingChoice choice);
+    void enterRecordingWorkspace();
+    void refreshRecordingTakesPanel();
     void startPracticeFromSongFile (const juce::File& songFile);
     void applyPracticeSetupResult (PracticeSetupResult result);
     void autoSavePracticeProject (const juce::String& projectTitle);
@@ -229,6 +237,7 @@ private:
     jamstudio::ui::FullPageTabsWindow fullPageTabsWindow;
     jamstudio::ui::FullPageLyricsWindow fullPageLyricsWindow;
     jamstudio::ui::PerformanceBar performanceBar;
+    jamstudio::ui::RecordingTakesPanel recordingTakesPanel;
     jamstudio::ui::KaraokeOutputWindow karaokeOutput;
     jamstudio::ui::StageFxOutputWindow stageFxOutput;
 

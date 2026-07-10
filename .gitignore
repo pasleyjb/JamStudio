@@ -70,3 +70,8 @@ Testing/
 
 # Build output
 build/
+
+# Packaging / local builds
+dist/
+build/
+build-*/

@@ -7,16 +7,22 @@
 namespace jamstudio::ui
 {
 
-/** Transport row with tape-deck play/pause/stop, scrubber, master, and tempo. */
+/** Transport row with tape-deck play/pause/stop, record, scrubber, master, and tempo. */
 class TransportBar : public juce::Component,
                      public juce::Timer
 {
 public:
     using DetectTempoCallback = std::function<void()>;
+    using RecordCallback = std::function<void()>;
 
     explicit TransportBar (jamstudio::audio::TransportController& transport);
 
     void setDetectTempoCallback (DetectTempoCallback callback);
+    void setRecordCallback (RecordCallback callback);
+    void setInputLevelProvider (std::function<float()> provider);
+    void setRecordingActive (bool recording);
+    void setInputLevel (float level01);
+
     void paint (juce::Graphics& g) override;
     void resized() override;
     void timerCallback() override;
@@ -29,20 +35,25 @@ public:
     void setBpm (double bpm);
     void setMasterVolume (float volume);
     [[nodiscard]] float getMasterVolume() const noexcept;
+    [[nodiscard]] bool isRecordingActive() const noexcept { return recordingActive; }
 
 private:
     void updateMetronomeIndicator();
     void updateCountInIndicator();
     void updateTransportIndicators();
+    void updateRecordIndicator();
 
     jamstudio::audio::TransportController& transportController;
     DetectTempoCallback detectTempoCallback;
+    RecordCallback recordCallback;
+    std::function<float()> inputLevelProvider;
 
     TapeDeckButton skipBackButton { "skipBack", TapeDeckButton::Icon::skipBack };
     TapeDeckButton playButton { "play", TapeDeckButton::Icon::play };
     TapeDeckButton pauseButton { "pause", TapeDeckButton::Icon::pause };
     TapeDeckButton stopButton { "stop", TapeDeckButton::Icon::stop };
     TapeDeckButton skipForwardButton { "skipForward", TapeDeckButton::Icon::skipForward };
+    IndicatorButton recordButton { "record", "REC" };
     juce::Slider positionSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxLeft };
     juce::Label positionLabel;
     juce::Label masterLabel { {}, "Master" };
@@ -52,6 +63,10 @@ private:
     juce::TextButton detectTempoButton { "Detect" };
     juce::Slider bpmSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxLeft };
     juce::Label bpmLabel { {}, "BPM" };
+    juce::Label inputLabel { {}, "IN" };
+    juce::Rectangle<int> inputMeterBounds;
+    float inputLevel = 0.0f;
+    bool recordingActive = false;
 };
 
 } // namespace jamstudio::ui

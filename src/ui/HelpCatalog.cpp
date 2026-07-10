@@ -314,11 +314,21 @@ juce::Array<HelpTopic> buildTopics()
     // ---------- Recording ----------
     t.add (topic (
         "recording-mode",
-        "Recording mode",
+        "Recording mode (external DAW)",
         "Recording",
-        "recording mode track take",
-        "Choose Recording from the wizard to focus on capturing takes.\n"
-        "Use Transport → Record / Stop, then load takes as stems for practice."));
+        "recording mode audacity reaper external plugin amp sim import take",
+        "JamStudio prefers an external recorder for takes so you can use amp sims and plugins.\n\n"
+        "Wizard → Recording:\n"
+        "• Open Project / Open Backing / Empty Session\n\n"
+        "Then:\n"
+        "1. Press REC (or Open Audacity in the Recording panel)\n"
+        "2. JamStudio bounces the current mix to a WAV and launches Audacity/Reaper/Ardour\n"
+        "3. Record with effects/amp sims in that app\n"
+        "4. Export Audio as WAV from the external DAW\n"
+        "5. Import Take… (panel or Transport menu) to bring it back into the mixer\n\n"
+        "Detected apps: Audacity (preferred), Reaper, Ardour, Qtractor, Ocenaudio, etc.\n\n"
+        "Fallback: Transport → Internal Record / Stop still records inside JamStudio.\n"
+        "Takes live under Documents/JamStudio/Recordings/."));
 
     // ---------- MIDI ----------
     t.add (topic (

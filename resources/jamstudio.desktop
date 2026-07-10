@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=JamStudio
+Comment=Guitar practice workstation with stems, mixer, stage video, and recording
+Exec=JamStudio
+Icon=jamstudio
+Categories=AudioVideo;Audio;Music;
+Terminal=false
+StartupNotify=true

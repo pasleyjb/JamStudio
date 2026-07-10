@@ -54,6 +54,16 @@ TransportBar::TransportBar (jamstudio::audio::TransportController& transport)
     };
     addAndMakeVisible (skipForwardButton);
 
+    recordButton.setIndicatorColour (juce::Colour (0xffff3344));
+    recordButton.setTooltip ("Open external recorder (Audacity, etc.) with bounced mix for plugins / amp sims");
+    recordButton.setButtonText ("EXT");
+    recordButton.onClick = [this]
+    {
+        if (recordCallback != nullptr)
+            recordCallback();
+    };
+    addAndMakeVisible (recordButton);
+
     positionSlider.setRange (0.0, 1.0, 0.001);
     positionSlider.onValueChange = [this]
     {
@@ -113,6 +123,11 @@ TransportBar::TransportBar (jamstudio::audio::TransportController& transport)
     addAndMakeVisible (bpmSlider);
     addAndMakeVisible (bpmLabel);
 
+    inputLabel.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    inputLabel.setJustificationType (juce::Justification::centred);
+    inputLabel.setColour (juce::Label::textColourId, juce::Colour (0xffff5566));
+    addAndMakeVisible (inputLabel);
+
     startTimerHz (30);
 }
 
@@ -121,35 +136,73 @@ void TransportBar::setDetectTempoCallback (DetectTempoCallback callback)
     detectTempoCallback = std::move (callback);
 }
 
+void TransportBar::setRecordCallback (RecordCallback callback)
+{
+    recordCallback = std::move (callback);
+}
+
+void TransportBar::setInputLevelProvider (std::function<float()> provider)
+{
+    inputLevelProvider = std::move (provider);
+}
+
+void TransportBar::setRecordingActive (const bool recording)
+{
+    recordingActive = recording;
+    updateRecordIndicator();
+}
+
+void TransportBar::setInputLevel (const float level01)
+{
+    inputLevel = juce::jlimit (0.0f, 1.0f, level01);
+    repaint (inputMeterBounds.expanded (2));
+}
+
 void TransportBar::paint (juce::Graphics& g)
 {
     const auto colours = JamStudioTheme::getColours();
     g.fillAll (colours.panelBackground);
     g.setColour (colours.border.withAlpha (0.55f));
     g.drawHorizontalLine (getHeight() - 1, 0.0f, static_cast<float> (getWidth()));
+
+    // Input level meter
+    auto meter = inputMeterBounds.toFloat();
+    g.setColour (juce::Colours::black.withAlpha (0.55f));
+    g.fillRoundedRectangle (meter, 3.0f);
+    const auto fill = meter.withWidth (meter.getWidth() * inputLevel);
+    g.setColour (inputLevel > 0.9f ? juce::Colours::red
+                                   : (recordingActive ? juce::Colour (0xffff3344)
+                                                      : juce::Colour (0xff66cc88)));
+    g.fillRoundedRectangle (fill, 3.0f);
+    g.setColour (colours.border);
+    g.drawRoundedRectangle (meter, 3.0f, 1.0f);
 }
 
 void TransportBar::resized()
 {
     auto bounds = getLocalBounds().reduced (6, 4);
 
-    // Main transport: setlist audio + linked stage video
     const auto deckSize = juce::jmin (bounds.getHeight(), 40);
     skipBackButton.setBounds (bounds.removeFromLeft (deckSize).reduced (1));
     playButton.setBounds (bounds.removeFromLeft (deckSize).reduced (1));
     pauseButton.setBounds (bounds.removeFromLeft (deckSize).reduced (1));
     stopButton.setBounds (bounds.removeFromLeft (deckSize).reduced (1));
     skipForwardButton.setBounds (bounds.removeFromLeft (deckSize).reduced (1));
+    bounds.removeFromLeft (6);
+    recordButton.setBounds (bounds.removeFromLeft (56).reduced (1));
+    bounds.removeFromLeft (6);
+    inputLabel.setBounds (bounds.removeFromLeft (22));
+    inputMeterBounds = bounds.removeFromLeft (56).reduced (0, 10);
     bounds.removeFromLeft (8);
 
     detectTempoButton.setBounds (bounds.removeFromRight (58).reduced (1));
-    bpmSlider.setBounds (bounds.removeFromRight (120).reduced (1));
-    bpmLabel.setBounds (bounds.removeFromRight (30));
-    metronomeButton.setBounds (bounds.removeFromRight (64).reduced (1));
-    countInButton.setBounds (bounds.removeFromRight (58).reduced (1));
-    masterVolumeSlider.setBounds (bounds.removeFromRight (72).reduced (1));
-    masterLabel.setBounds (bounds.removeFromRight (44));
-    positionLabel.setBounds (bounds.removeFromRight (96));
+    bpmSlider.setBounds (bounds.removeFromRight (100).reduced (1));
+    bpmLabel.setBounds (bounds.removeFromRight (28));
+    metronomeButton.setBounds (bounds.removeFromRight (58).reduced (1));
+    countInButton.setBounds (bounds.removeFromRight (52).reduced (1));
+    masterVolumeSlider.setBounds (bounds.removeFromRight (64).reduced (1));
+    masterLabel.setBounds (bounds.removeFromRight (40));
+    positionLabel.setBounds (bounds.removeFromRight (90));
     positionSlider.setBounds (bounds.reduced (1));
 }
 
@@ -159,6 +212,10 @@ void TransportBar::timerCallback()
     updateMetronomeIndicator();
     updateCountInIndicator();
     updateTransportIndicators();
+    updateRecordIndicator();
+
+    if (inputLevelProvider)
+        setInputLevel (inputLevelProvider());
 
     const auto position = transportController.getPosition();
     const auto length = transportController.getLengthInSeconds();
@@ -173,6 +230,17 @@ void TransportBar::updateTransportIndicators()
     playButton.setActive (playing || counting);
     pauseButton.setActive (! playing && ! counting && transportController.getPosition() > 0.0);
     stopButton.setActive (! playing && ! counting && transportController.getPosition() <= 0.001);
+}
+
+void TransportBar::updateRecordIndicator()
+{
+    // EXT = external DAW path (default). Internal record still available from Transport menu.
+    if (recordingActive)
+        recordButton.setButtonText ("STOP");
+    else
+        recordButton.setButtonText ("EXT");
+
+    recordButton.setIndicatorActive (recordingActive, recordingActive);
 }
 
 void TransportBar::updateMetronomeIndicator()

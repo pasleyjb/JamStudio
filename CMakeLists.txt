@@ -43,6 +43,7 @@ target_sources(JamStudio PRIVATE
     src/audio/FFmpegAudioFormat.cpp
     src/audio/TempoDetector.cpp
     src/audio/AudioRecorder.cpp
+    src/audio/ExternalRecorder.cpp
     src/audio/RecordingExporter.cpp
     src/audio/RecordingTakeManager.cpp
     src/midi/MidiMappingProfile.cpp
@@ -84,6 +85,7 @@ target_sources(JamStudio PRIVATE
     src/ui/FloatingWindowDock.cpp
     src/ui/HelpCatalog.cpp
     src/ui/HelpBrowserDialog.cpp
+    src/ui/RecordingTakesPanel.cpp
     src/ui/NotationHeaderBar.cpp
     src/ui/FullPageTabsWindow.cpp
     src/ui/FullPageLyricsWindow.cpp
@@ -101,13 +103,51 @@ target_sources(JamStudio PRIVATE
     src/ui/StageFxControllerWindow.cpp)
 
 # FFmpeg / libav for MPEG codecs (stage FX video + compressed audio)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libavutil libswresample)
+# Prefer pkg-config (Linux); fall back to find_path/find_library (Windows/vcpkg).
+set(JAMSTUDIO_FFMPEG_LIBS "")
+set(JAMSTUDIO_FFMPEG_INCLUDES "")
+
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(FFMPEG QUIET libavformat libavcodec libavutil libswresample)
+endif()
+
+if(FFMPEG_FOUND)
+    list(APPEND JAMSTUDIO_FFMPEG_INCLUDES ${FFMPEG_INCLUDE_DIRS})
+    list(APPEND JAMSTUDIO_FFMPEG_LIBS ${FFMPEG_LIBRARIES})
+    if(FFMPEG_LIBRARY_DIRS)
+        target_link_directories(JamStudio PRIVATE ${FFMPEG_LIBRARY_DIRS})
+    endif()
+    if(FFMPEG_CFLAGS_OTHER)
+        target_compile_options(JamStudio PRIVATE ${FFMPEG_CFLAGS_OTHER})
+    endif()
+else()
+    find_path(AVFORMAT_INCLUDE_DIR libavformat/avformat.h)
+    find_path(AVCODEC_INCLUDE_DIR libavcodec/avcodec.h)
+    find_path(AVUTIL_INCLUDE_DIR libavutil/avutil.h)
+    find_path(SWRESAMPLE_INCLUDE_DIR libswresample/swresample.h)
+    find_library(AVFORMAT_LIBRARY NAMES avformat avformat-61 avformat-60 avformat-59)
+    find_library(AVCODEC_LIBRARY NAMES avcodec avcodec-61 avcodec-60 avcodec-59)
+    find_library(AVUTIL_LIBRARY NAMES avutil avutil-59 avutil-58 avutil-57)
+    find_library(SWRESAMPLE_LIBRARY NAMES swresample swresample-5 swresample-4)
+    if(NOT AVFORMAT_INCLUDE_DIR OR NOT AVFORMAT_LIBRARY OR NOT AVCODEC_LIBRARY
+       OR NOT AVUTIL_LIBRARY OR NOT SWRESAMPLE_LIBRARY)
+        message(FATAL_ERROR
+            "FFmpeg not found. On Linux: install libavformat-dev libavcodec-dev "
+            "libavutil-dev libswresample-dev. On Windows: vcpkg install ffmpeg:x64-windows")
+    endif()
+    list(APPEND JAMSTUDIO_FFMPEG_INCLUDES
+        ${AVFORMAT_INCLUDE_DIR} ${AVCODEC_INCLUDE_DIR}
+        ${AVUTIL_INCLUDE_DIR} ${SWRESAMPLE_INCLUDE_DIR})
+    list(APPEND JAMSTUDIO_FFMPEG_LIBS
+        ${AVFORMAT_LIBRARY} ${AVCODEC_LIBRARY}
+        ${AVUTIL_LIBRARY} ${SWRESAMPLE_LIBRARY})
+endif()
 
 target_include_directories(JamStudio PRIVATE
     src
     ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_JamStudioAssets/JuceLibraryCode
-    ${FFMPEG_INCLUDE_DIRS})
+    ${JAMSTUDIO_FFMPEG_INCLUDES})
 
 target_compile_definitions(JamStudio PRIVATE
     JUCE_USE_FLAC=1
@@ -127,9 +167,34 @@ target_link_libraries(JamStudio PRIVATE
     juce::juce_audio_utils
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
-    ${FFMPEG_LIBRARIES})
+    ${JAMSTUDIO_FFMPEG_LIBS})
 
-target_link_directories(JamStudio PRIVATE ${FFMPEG_LIBRARY_DIRS})
-target_compile_options(JamStudio PRIVATE ${FFMPEG_CFLAGS_OTHER})
+# JUCE NEEDS_CURL requires libcurl at link time (pkg-config may be missing headers-only)
+if(UNIX AND NOT APPLE)
+    find_package(CURL)
+    if(CURL_FOUND)
+        target_link_libraries(JamStudio PRIVATE CURL::libcurl)
+    else()
+        target_link_libraries(JamStudio PRIVATE curl)
+    endif()
+endif()
+
+# ---- Install / packaging layout ----
+include(GNUInstallDirs)
+
+install(TARGETS JamStudio
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    BUNDLE DESTINATION .)
+
+if(UNIX AND NOT APPLE)
+    install(FILES resources/jamstudio.desktop
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
+    install(FILES resources/JamStudioIcon256.png
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/256x256/apps
+        RENAME jamstudio.png)
+    install(FILES resources/JamStudioIcon48.png
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/48x48/apps
+        RENAME jamstudio.png)
+endif()
 
 # Qt shell prototype (future): apps/JamStudio/
