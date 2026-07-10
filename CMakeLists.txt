@@ -152,8 +152,6 @@ target_include_directories(JamStudio PRIVATE
 target_compile_definitions(JamStudio PRIVATE
     JUCE_USE_FLAC=1
     JUCE_USE_OGGVORBIS=1
-    JUCE_ALSA=1
-    JUCE_JACK=1
     JUCE_WASAPI=1
     JUCE_DIRECTSOUND=1
     JUCE_DISPLAY_SPLASH_SCREEN=0
@@ -162,6 +160,15 @@ target_compile_definitions(JamStudio PRIVATE
     JUCE_USE_CURL=1
     JAMSTUDIO_USE_FFMPEG=1)
 
+if(UNIX AND NOT APPLE)
+    target_compile_definitions(JamStudio PRIVATE
+        JUCE_ALSA=1
+        JUCE_JACK=1)
+elseif(WIN32)
+    target_compile_definitions(JamStudio PRIVATE
+        JUCE_ALSA=0
+        JUCE_JACK=0)
+endif()
 target_link_libraries(JamStudio PRIVATE
     JamStudioAssets
     juce::juce_audio_utils

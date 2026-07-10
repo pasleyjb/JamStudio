@@ -25,11 +25,10 @@ jobs:
             build-essential cmake pkg-config \
             libasound2-dev libfreetype6-dev libx11-dev libxcomposite-dev \
             libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
-            libcurl4-openssl-dev \
+            libcurl4-openssl-dev libjack-jackd2-dev \
             libavformat-dev libavcodec-dev libavutil-dev libswresample-dev \
             libfontconfig1-dev \
             file desktop-file-utils
-
       - name: Ensure JUCE present
         run: |
           if [ ! -f third_party/JUCE/CMakeLists.txt ]; then
