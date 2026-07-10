@@ -33,16 +33,53 @@ if (-not (Test-Path $Toolchain)) {
     Write-Error "vcpkg toolchain not found: $Toolchain"
 }
 
-Write-Host "==> Configure"
-cmake -S $Root -B $BuildDir `
-  -G "Visual Studio 17 2022" -A x64 `
-  -DCMAKE_TOOLCHAIN_FILE="$Toolchain" `
-  -DVCPKG_TARGET_TRIPLET=x64-windows `
-  -DCMAKE_BUILD_TYPE=Release
+# Prefer Ninja+MSVC when available (GitHub windows-latest); fall back to VS generators.
+$Generator = $null
+$IsMultiConfig = $false
+if (Get-Command ninja -ErrorAction SilentlyContinue) {
+    $Generator = "Ninja"
+    $IsMultiConfig = $false
+} else {
+    foreach ($g in @("Visual Studio 18 2026", "Visual Studio 17 2022", "Visual Studio 16 2019")) {
+        $probe = Join-Path $env:TEMP "jamstudio-cmake-probe"
+        Remove-Item -Recurse -Force $probe -ErrorAction SilentlyContinue
+        $null = & cmake -S $Root -B $probe -G $g -A x64 2>&1
+        if ($LASTEXITCODE -eq 0 -or (Test-Path (Join-Path $probe "CMakeCache.txt"))) {
+            $Generator = $g
+            $IsMultiConfig = $true
+            Remove-Item -Recurse -Force $probe -ErrorAction SilentlyContinue
+            break
+        }
+        Remove-Item -Recurse -Force $probe -ErrorAction SilentlyContinue
+    }
+}
+
+if (-not $Generator) {
+    Write-Error "No suitable CMake generator found (need Ninja+MSVC or Visual Studio)."
+}
+
+Write-Host "==> Configure (generator: $Generator)"
+$ConfigArgs = @(
+    "-S", $Root, "-B", $BuildDir,
+    "-G", $Generator,
+    "-DCMAKE_TOOLCHAIN_FILE=$Toolchain",
+    "-DVCPKG_TARGET_TRIPLET=x64-windows"
+)
+if ($IsMultiConfig) {
+    $ConfigArgs += "-A", "x64"
+} else {
+    $ConfigArgs += "-DCMAKE_BUILD_TYPE=Release"
+}
+& cmake @ConfigArgs
+if ($LASTEXITCODE -ne 0) { Write-Error "CMake configure failed" }
 
 Write-Host "==> Build"
-cmake --build $BuildDir --config Release --parallel
-
+if ($IsMultiConfig) {
+    cmake --build $BuildDir --config Release --parallel
+} else {
+    cmake --build $BuildDir --parallel
+}
+if ($LASTEXITCODE -ne 0) { Write-Error "Build failed" }
 $Bin = $null
 $Candidates = @(
     (Join-Path $BuildDir "JamStudio_artefacts\Release\JamStudio.exe"),
