@@ -74,6 +74,8 @@ target_sources(JamStudio PRIVATE
     src/app/PracticeSetupPipeline.cpp
     src/amp/NamEngine.cpp
     src/amp/AmpProcessor.cpp
+    src/amp/AmpModelLibrary.cpp
+    src/ui/ToneSelectionDialog.cpp
     src/audio/StemTrack.cpp
     src/audio/StemMixer.cpp
     src/audio/Metronome.cpp

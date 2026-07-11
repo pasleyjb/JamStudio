@@ -112,7 +112,8 @@ private:
         cycleStageFxDisplayCmd,
         loadAmpModelCmd,
         toggleAmpEnabledCmd,
-        toggleAmpBypassCmd
+        toggleAmpBypassCmd,
+        toneSelectionModeCmd
     };
 
     void openSong();
@@ -146,6 +147,7 @@ private:
     void toggleAmpEnabled();
     void toggleAmpBypass();
     void refreshAmpUiState();
+    void openToneSelectionMode();
     [[nodiscard]] juce::File findStemFileForType (jamstudio::audio::StemType preferredType);
     [[nodiscard]] juce::File findMelodicStemFile();
     void loadRecordingAsStem (const juce::File& recordingFile, const juce::String& displayName);

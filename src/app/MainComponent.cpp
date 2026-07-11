@@ -7,6 +7,7 @@
 #include "../ui/MidiControlDialog.h"
 #include "../ui/OnlineLyricsDialog.h"
 #include "../ui/TabLibraryBrowserDialog.h"
+#include "../ui/ToneSelectionDialog.h"
 #include "../ui/JamStudioLookAndFeel.h"
 #include "../notation/LrcParser.h"
 #include "../notation/MusicXmlParser.h"
@@ -144,7 +145,7 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
                 if (ok)
                 {
                     setStatus ("Amp ready: " + ampProcessor.getEngine().getModelDisplayName()
-                               + " — Transport menu: Load Amp Model / Amp On");
+                               + " - Transport: Tone Selection Mode");
                     refreshAmpUiState();
                 }
                 else
@@ -581,7 +582,8 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     {
         menu.addItem (detectTempoCmd, "Detect Tempo", true, false);
         menu.addSeparator();
-        menu.addItem (loadAmpModelCmd, "Load Amp Model (.nam)…", true, false);
+        menu.addItem (toneSelectionModeCmd, "Tone Selection Mode...", true, false);
+        menu.addItem (loadAmpModelCmd, "Load Amp Model (.nam)...", true, false);
         menu.addItem (toggleAmpEnabledCmd,
                       ampProcessor.isEnabled() ? "Amp Monitoring: On" : "Amp Monitoring: Off",
                       true, ampProcessor.isEnabled());
@@ -657,6 +659,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
                            : "4-count intro OFF.");
             break;
         case recordCmd: toggleRecording(); break;
+        case toneSelectionModeCmd: openToneSelectionMode(); break;
         case loadAmpModelCmd: loadAmpModel(); break;
         case toggleAmpEnabledCmd: toggleAmpEnabled(); break;
         case toggleAmpBypassCmd: toggleAmpBypass(); break;
@@ -1854,7 +1857,7 @@ void MainComponent::loadAmpModel()
         if (! file.existsAsFile())
             return;
 
-        setStatus ("Loading amp model: " + file.getFileName() + "…");
+        setStatus ("Loading amp model: " + file.getFileName() + "...");
         ampProcessor.loadModelAsync (file, [this] (const bool ok, const juce::String& error)
         {
             if (ok)
@@ -1891,6 +1894,18 @@ void MainComponent::refreshAmpUiState()
     toolbarTabs.setAmpState (ampProcessor.isEnabled(),
                              ampProcessor.isBypassed(),
                              ampProcessor.getEngine().getModelDisplayName());
+}
+
+void MainComponent::openToneSelectionMode()
+{
+    jamstudio::ui::ToneSelectionDialog::show (
+        this,
+        ampProcessor,
+        [this] (const jamstudio::amp::AmpToneInfo& tone)
+        {
+            setStatus ("Tone loaded: " + tone.displayName + " - amp monitoring on");
+            refreshAmpUiState();
+        });
 }
 
 void MainComponent::loadRecordingAsStem (const juce::File& recordingFile,
