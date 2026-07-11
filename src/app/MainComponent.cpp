@@ -144,7 +144,7 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
                 if (ok)
                 {
                     setStatus ("Amp ready: " + ampProcessor.getEngine().getModelDisplayName()
-                               + " — use Amp tab to load .nam models");
+                               + " — Transport menu: Load Amp Model / Amp On");
                     refreshAmpUiState();
                 }
                 else
@@ -657,6 +657,9 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
                            : "4-count intro OFF.");
             break;
         case recordCmd: toggleRecording(); break;
+        case loadAmpModelCmd: loadAmpModel(); break;
+        case toggleAmpEnabledCmd: toggleAmpEnabled(); break;
+        case toggleAmpBypassCmd: toggleAmpBypass(); break;
         case openExternalRecorderCmd: openExternalRecorder(); break;
         case importTakeCmd: importTakeFromFile(); break;
         case aiToolsCmd: showAiToolsSetup(); break;
