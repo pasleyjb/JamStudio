@@ -1,0 +1,26 @@
+JamStudio third-party notices
+=============================
+
+Neural Amp Modeler (NeuralAmpModelerCore)
+-----------------------------------------
+Copyright (c) 2023 Steven Atkinson
+
+Used under the MIT License. Source: https://github.com/sdatkinson/NeuralAmpModelerCore
+
+The MIT License text is included in
+third_party/NeuralAmpModelerCore/LICENSE.
+
+Amp models (.nam files) are separate creative works owned by their authors
+(including community models from TONE3000 and others). JamStudio only loads
+and runs models the user provides or downloads.
+
+Eigen
+-----
+Eigen is used by NeuralAmpModelerCore (MPL2 / BSD / other licenses as in
+third_party/NeuralAmpModelerCore/Dependencies/eigen). See that tree for full
+license texts.
+
+nlohmann/json
+-------------
+Copyright (c) 2013-2022 Niels Lohmann
+MIT License — see third_party/NeuralAmpModelerCore/Dependencies/nlohmann/

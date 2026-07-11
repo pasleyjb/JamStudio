@@ -18,7 +18,8 @@ public:
         stems,
         notation,
         lyrics,
-        record
+        record,
+        amp
     };
 
     struct Actions
@@ -42,6 +43,9 @@ public:
         std::function<void()> toggleNotationPanel;
         std::function<void()> toggleStemsPanel;
         std::function<void()> toggleMixerWindow;
+        std::function<void()> loadAmpModel;
+        std::function<void()> toggleAmpEnabled;
+        std::function<void()> toggleAmpBypass;
     };
 
     explicit ToolbarTabs (Actions actions);
@@ -54,6 +58,7 @@ public:
     void setNotationViewState (jamstudio::notation::NotationMode mode);
     void setPanelVisibilityState (bool lyricsVisible, bool notationVisible,
                                   bool stemsVisible, bool mixerVisible);
+    void setAmpState (bool enabled, bool bypassed, const juce::String& modelName);
 
 private:
     void showTab (Tab tab);
@@ -69,6 +74,7 @@ private:
     juce::TextButton notationTab { "Notation" };
     juce::TextButton lyricsTab { "Lyrics" };
     juce::TextButton recordTab { "Record" };
+    juce::TextButton ampTab { "Amp" };
 
     juce::Component projectPanel;
     juce::Component viewPanel;
@@ -76,6 +82,7 @@ private:
     juce::Component notationPanel;
     juce::Component lyricsPanel;
     juce::Component recordPanel;
+    juce::Component ampPanel;
 
     IndicatorButton openSongButton { "open", "Open Song" };
     IndicatorButton saveProjectButton { "save", "Save" };
@@ -92,7 +99,21 @@ private:
     IndicatorButton onlineLyricsButton { "onlineLyrics", "Online Lyrics" };
     IndicatorButton aiLyricsButton { "aiLyrics", "AI Lyrics" };
     IndicatorButton recordButton { "record", "Record" };
+    IndicatorButton loadAmpModelButton { "loadAmp", "Load .nam" };
+    IndicatorButton ampEnabledButton { "ampOn", "Amp On" };
+    IndicatorButton ampBypassButton { "ampBypass", "Bypass" };
 
+    juce::Label ampModelLabel;
+    juce::Slider ampInputGain;
+    juce::Slider ampOutputGain;
+    std::function<void (float)> onAmpInputGainChanged;
+    std::function<void (float)> onAmpOutputGainChanged;
+
+public:
+    void setAmpGainCallbacks (std::function<void (float)> inputDb,
+                              std::function<void (float)> outputDb);
+
+private:
     juce::TextButton showLyricsPanelButton { "Lyrics Panel" };
     juce::TextButton showNotationPanelButton { "Tabs Panel" };
     juce::TextButton showStemsPanelButton { "Stems Panel" };

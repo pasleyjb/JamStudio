@@ -4,6 +4,7 @@
 #include "../ai/BasicPitchTranscriber.h"
 #include "../ai/DemucsSeparator.h"
 #include "../ai/WhisperTranscriber.h"
+#include "../amp/AmpProcessor.h"
 #include "../audio/AudioRecorder.h"
 #include "../audio/RecordingExporter.h"
 #include "../audio/RecordingTakeManager.h"
@@ -108,7 +109,10 @@ private:
         openKaraokeOutputCmd,
         openStageFxOutputCmd,
         cycleKaraokeDisplayCmd,
-        cycleStageFxDisplayCmd
+        cycleStageFxDisplayCmd,
+        loadAmpModelCmd,
+        toggleAmpEnabledCmd,
+        toggleAmpBypassCmd
     };
 
     void openSong();
@@ -138,6 +142,10 @@ private:
     void toggleRecording();
     void openExternalRecorder();
     void importTakeFromFile();
+    void loadAmpModel();
+    void toggleAmpEnabled();
+    void toggleAmpBypass();
+    void refreshAmpUiState();
     [[nodiscard]] juce::File findStemFileForType (jamstudio::audio::StemType preferredType);
     [[nodiscard]] juce::File findMelodicStemFile();
     void loadRecordingAsStem (const juce::File& recordingFile, const juce::String& displayName);
@@ -200,6 +208,7 @@ private:
     juce::AudioDeviceManager& audioDeviceManager;
     jamstudio::audio::TransportController transportController;
     jamstudio::midi::MidiControlSurface midiControlSurface;
+    jamstudio::amp::AmpProcessor ampProcessor;
     jamstudio::audio::AudioRecorder audioRecorder;
     jamstudio::audio::RecordingExporter recordingExporter;
     jamstudio::audio::RecordingTakeManager recordingTakeManager;

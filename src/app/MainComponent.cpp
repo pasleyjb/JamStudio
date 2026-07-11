@@ -44,7 +44,10 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
           [this] { toggleLyricsPanel(); },
           [this] { toggleNotationPanel(); },
           [this] { toggleStemsPanel(); },
-          [this] { toggleMixerWindow(); }
+          [this] { toggleMixerWindow(); },
+          [this] { loadAmpModel(); },
+          [this] { toggleAmpEnabled(); },
+          [this] { toggleAmpBypass(); }
       }),
       waveformDisplay (transportController.getFormatManager(), thumbnailCache, transportController),
       lyricsView (transportController),
@@ -116,6 +119,41 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     addAndMakeVisible (stemViewport);
 
     audioDeviceManager.addAudioCallback (&audioRecorder);
+    audioDeviceManager.addAudioCallback (&ampProcessor);
+
+    toolbarTabs.setAmpGainCallbacks (
+        [this] (const float db) { ampProcessor.setInputGainDb (db); },
+        [this] (const float db) { ampProcessor.setOutputGainDb (db); });
+
+    // Bootstrap amp with a bundled example model so first-run monitoring works.
+    {
+        juce::File modelToLoad;
+       #ifdef JAMSTUDIO_SOURCE_DIR
+        modelToLoad = juce::File (JAMSTUDIO_SOURCE_DIR)
+                          .getChildFile ("third_party/NeuralAmpModelerCore/example_models/wavenet.nam");
+       #endif
+
+        if (! modelToLoad.existsAsFile())
+            modelToLoad = juce::File::getCurrentWorkingDirectory()
+                              .getChildFile ("third_party/NeuralAmpModelerCore/example_models/wavenet.nam");
+
+        if (modelToLoad.existsAsFile())
+        {
+            ampProcessor.loadModelAsync (modelToLoad, [this] (const bool ok, const juce::String& error)
+            {
+                if (ok)
+                {
+                    setStatus ("Amp ready: " + ampProcessor.getEngine().getModelDisplayName()
+                               + " — use Amp tab to load .nam models");
+                    refreshAmpUiState();
+                }
+                else
+                    setStatus ("Amp model load failed: " + error);
+            });
+        }
+
+        refreshAmpUiState();
+    }
 
     transportController.getStemMixer().addChangeListener (this);
     transportController.addChangeListener (this);
@@ -233,6 +271,7 @@ MainComponent::~MainComponent()
     karaokeOutput.hideOutput();
     stageFxOutput.hideOutput();
     audioRecorder.stopRecording();
+    audioDeviceManager.removeAudioCallback (&ampProcessor);
     audioDeviceManager.removeAudioCallback (&audioRecorder);
     demucsSeparator.cancel();
     whisperTranscriber.cancel();
@@ -542,6 +581,14 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     {
         menu.addItem (detectTempoCmd, "Detect Tempo", true, false);
         menu.addSeparator();
+        menu.addItem (loadAmpModelCmd, "Load Amp Model (.nam)…", true, false);
+        menu.addItem (toggleAmpEnabledCmd,
+                      ampProcessor.isEnabled() ? "Amp Monitoring: On" : "Amp Monitoring: Off",
+                      true, ampProcessor.isEnabled());
+        menu.addItem (toggleAmpBypassCmd,
+                      ampProcessor.isBypassed() ? "Amp Bypass: On (dry)" : "Amp Bypass: Off (amped)",
+                      ampProcessor.isEnabled(), ampProcessor.isBypassed());
+        menu.addSeparator();
         menu.addItem (openExternalRecorderCmd, "Open External Recorder (Audacity…)", true, false);
         menu.addItem (importTakeCmd, "Import Take from File…", true, false);
         menu.addItem (recordCmd, "Internal Record / Stop", true, false);
@@ -687,10 +734,14 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
-                                                    "JamStudio v0.9.6\n"
+                                                    "JamStudio v0.9.6.1\n"
                                                     "Guitar practice workstation with stems, tabs, lyrics,\n"
-                                                    "multi-bus mixer, and stage video.\n\n"
-                                                    "Help → Instructions… for a searchable guide.\n\n"
+                                                    "multi-bus mixer, stage video, and amp modeling.\n\n"
+                                                    "Neural amp modeling powered by NeuralAmpModelerCore\n"
+                                                    "(c) Steven Atkinson — MIT License\n"
+                                                    "https://github.com/sdatkinson/NeuralAmpModelerCore\n\n"
+                                                    "Help → Instructions… for a searchable guide.\n"
+                                                    "See NOTICE for third-party licenses.\n\n"
                                                     "Designed by man, engineered and coded by Grok.");
             break;
         default: break;
@@ -1779,6 +1830,64 @@ void MainComponent::refreshRecordingTakesPanel()
                                     && workspaceReady);
     recordingTakesPanel.refresh();
     resized();
+}
+
+void MainComponent::loadAmpModel()
+{
+    constexpr auto flags = juce::FileBrowserComponent::openMode
+                         | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser = std::make_unique<juce::FileChooser> (
+        "Load Neural Amp Model (.nam)",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+            .getChildFile ("JamStudio")
+            .getChildFile ("AmpModels"),
+        "*.nam");
+
+    fileChooser->launchAsync (flags, [this] (const juce::FileChooser& chooser)
+    {
+        const auto file = chooser.getResult();
+
+        if (! file.existsAsFile())
+            return;
+
+        setStatus ("Loading amp model: " + file.getFileName() + "…");
+        ampProcessor.loadModelAsync (file, [this] (const bool ok, const juce::String& error)
+        {
+            if (ok)
+            {
+                setStatus ("Amp loaded: " + ampProcessor.getEngine().getModelDisplayName());
+                refreshAmpUiState();
+            }
+            else
+            {
+                setStatus ("Amp load failed: " + error);
+            }
+        });
+    });
+}
+
+void MainComponent::toggleAmpEnabled()
+{
+    ampProcessor.setEnabled (! ampProcessor.isEnabled());
+    refreshAmpUiState();
+    setStatus (ampProcessor.isEnabled() ? "Amp monitoring on"
+                                        : "Amp monitoring off");
+}
+
+void MainComponent::toggleAmpBypass()
+{
+    ampProcessor.setBypass (! ampProcessor.isBypassed());
+    refreshAmpUiState();
+    setStatus (ampProcessor.isBypassed() ? "Amp bypassed (dry input)"
+                                         : "Amp engaged");
+}
+
+void MainComponent::refreshAmpUiState()
+{
+    toolbarTabs.setAmpState (ampProcessor.isEnabled(),
+                             ampProcessor.isBypassed(),
+                             ampProcessor.getEngine().getModelDisplayName());
 }
 
 void MainComponent::loadRecordingAsStem (const juce::File& recordingFile,

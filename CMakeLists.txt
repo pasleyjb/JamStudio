@@ -7,6 +7,44 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(third_party/JUCE EXCLUDE_FROM_ALL)
 
+# ---------------------------------------------------------------------------
+# NeuralAmpModelerCore (static lib — do not pull in Core tools/tests)
+# ---------------------------------------------------------------------------
+set(NAM_CORE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/NeuralAmpModelerCore")
+file(GLOB NAM_CORE_SOURCES
+    "${NAM_CORE_ROOT}/NAM/*.cpp"
+    "${NAM_CORE_ROOT}/NAM/*/*.cpp")
+
+add_library(nam_core STATIC ${NAM_CORE_SOURCES})
+target_compile_features(nam_core PUBLIC cxx_std_20)
+target_compile_definitions(nam_core PUBLIC
+    NAM_SAMPLE_FLOAT
+    NAM_ENABLE_A2_FAST)
+target_include_directories(nam_core
+    PUBLIC
+        "${NAM_CORE_ROOT}"
+    SYSTEM PUBLIC
+        "${NAM_CORE_ROOT}/Dependencies/eigen"
+        "${NAM_CORE_ROOT}/Dependencies/nlohmann")
+
+# NAM sources include "json.hpp" and "Eigen/Dense"
+if(UNIX AND NOT APPLE)
+    target_link_libraries(nam_core PUBLIC stdc++fs)
+endif()
+
+if(MSVC)
+    target_compile_definitions(nam_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_compile_options(nam_core PRIVATE /W3 /wd4244 /wd4267)
+else()
+    target_compile_options(nam_core PRIVATE
+        -Wno-unused-parameter
+        -Wno-sign-compare
+        -Wno-deprecated-declarations)
+endif()
+
+# ---------------------------------------------------------------------------
+# JamStudio application
+# ---------------------------------------------------------------------------
 juce_add_gui_app(JamStudio
     PRODUCT_NAME "JamStudio"
     COMPANY_NAME "JamStudio"
@@ -34,6 +72,8 @@ target_sources(JamStudio PRIVATE
     src/app/MainWindow.cpp
     src/app/MainComponent.cpp
     src/app/PracticeSetupPipeline.cpp
+    src/amp/NamEngine.cpp
+    src/amp/AmpProcessor.cpp
     src/audio/StemTrack.cpp
     src/audio/StemMixer.cpp
     src/audio/Metronome.cpp
@@ -158,7 +198,8 @@ target_compile_definitions(JamStudio PRIVATE
     JUCE_REPORT_APP_USAGE=0
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=1
-    JAMSTUDIO_USE_FFMPEG=1)
+    JAMSTUDIO_USE_FFMPEG=1
+    JAMSTUDIO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 if(UNIX AND NOT APPLE)
     target_compile_definitions(JamStudio PRIVATE
@@ -169,6 +210,23 @@ elseif(WIN32)
         JUCE_ALSA=0
         JUCE_JACK=0)
 endif()
+
+# whole-archive: NAM registers WaveNet/LSTM/etc. via static constructors in
+# otherwise-unreferenced TUs; without this, get_dsp throws "No config parser".
+if(MSVC)
+    target_link_libraries(JamStudio PRIVATE nam_core)
+    target_link_options(JamStudio PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:nam_core>")
+elseif(APPLE)
+    target_link_libraries(JamStudio PRIVATE
+        "-Wl,-force_load,$<TARGET_FILE:nam_core>"
+        nam_core)
+else()
+    target_link_libraries(JamStudio PRIVATE
+        -Wl,--whole-archive
+        nam_core
+        -Wl,--no-whole-archive)
+endif()
+
 target_link_libraries(JamStudio PRIVATE
     JamStudioAssets
     juce::juce_audio_utils
