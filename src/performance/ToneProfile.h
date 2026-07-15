@@ -22,8 +22,9 @@ inline constexpr int kNumLiveTonePaths = static_cast<int> (LiveInstrumentRole::c
 [[nodiscard]] juce::Colour liveInstrumentRoleColour (LiveInstrumentRole role);
 
 /**
- * NAM-style amp profile (saved in the tone library).
- * Model path is optional until a full NAM engine is wired; params drive the live DSP now.
+ * Amp profile saved in the tone library.
+ * When namModelPath points to a real .nam, LiveToneEngine runs Neural Amp Modeler;
+ * otherwise the built-in amp sim is used with the same knobs.
  */
 struct ToneProfile
 {
@@ -31,9 +32,9 @@ struct ToneProfile
     juce::String name { "New Tone" };
     LiveInstrumentRole role = LiveInstrumentRole::guitar1;
 
-    /** Optional path to a .nam model file (future real NAM). */
+    /** Absolute or user-library path to a .nam model file. */
     juce::String namModelPath;
-    /** Optional cab / IR path. */
+    /** Optional cab / IR path under CabIRs/. */
     juce::String cabIrPath;
 
     float inputGain = 0.55f;   // 0..1
@@ -64,14 +65,39 @@ struct SongToneAssignment
     [[nodiscard]] static SongToneAssignment fromVar (const juce::var& data);
 };
 
-/** Persistent tone library under Documents/JamStudio/Tones/. */
+/**
+ * Performance tone library + model folders:
+ *
+ *   Documents/JamStudio/
+ *     Tones/tone-library.json     profile knobs + model refs
+ *     AmpModels/guitar/           G1/G2 .nam imports
+ *     AmpModels/bass/             Bass .nam imports
+ *     AmpModels/shared/           any-role models
+ *     CabIRs/                     optional cab IRs
+ */
 class ToneLibrary
 {
 public:
     ToneLibrary();
 
+    [[nodiscard]] static juce::File getJamStudioRoot();
     [[nodiscard]] juce::File getLibraryDirectory() const;
     [[nodiscard]] juce::File getLibraryFile() const;
+    [[nodiscard]] juce::File getAmpModelsRoot() const;
+    [[nodiscard]] juce::File getAmpModelsDirectoryForRole (LiveInstrumentRole role) const;
+    [[nodiscard]] juce::File getSharedAmpModelsDirectory() const;
+    [[nodiscard]] juce::File getCabIrsDirectory() const;
+
+    /** Create standard folders; optionally seed example .nam into shared/. */
+    void ensureDirectories (bool seedExampleModels = true) const;
+
+    /** Copy a .nam into AmpModels/{role|shared}; returns destination or invalid. */
+    [[nodiscard]] juce::File importNamModel (const juce::File& sourceNam,
+                                             LiveInstrumentRole role,
+                                             bool useSharedFolder = false) const;
+
+    /** Scan AmpModels for .nam files (role folder + shared). */
+    [[nodiscard]] juce::Array<juce::File> listNamModels (LiveInstrumentRole role) const;
 
     bool load();
     bool save() const;

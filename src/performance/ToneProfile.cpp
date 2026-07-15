@@ -217,14 +217,21 @@ SongToneAssignment SongToneAssignment::fromVar (const juce::var& data)
 
 ToneLibrary::ToneLibrary()
 {
+    ensureDirectories (true);
     ensureDefaults();
+}
+
+juce::File ToneLibrary::getJamStudioRoot()
+{
+    auto dir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                   .getChildFile ("JamStudio");
+    dir.createDirectory();
+    return dir;
 }
 
 juce::File ToneLibrary::getLibraryDirectory() const
 {
-    auto dir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-                   .getChildFile ("JamStudio")
-                   .getChildFile ("Tones");
+    auto dir = getJamStudioRoot().getChildFile ("Tones");
     dir.createDirectory();
     return dir;
 }
@@ -234,8 +241,151 @@ juce::File ToneLibrary::getLibraryFile() const
     return getLibraryDirectory().getChildFile ("tone-library.json");
 }
 
+juce::File ToneLibrary::getAmpModelsRoot() const
+{
+    auto dir = getJamStudioRoot().getChildFile ("AmpModels");
+    dir.createDirectory();
+    return dir;
+}
+
+juce::File ToneLibrary::getAmpModelsDirectoryForRole (const LiveInstrumentRole role) const
+{
+    const char* sub = "guitar";
+    if (role == LiveInstrumentRole::bass)
+        sub = "bass";
+    auto dir = getAmpModelsRoot().getChildFile (sub);
+    dir.createDirectory();
+    return dir;
+}
+
+juce::File ToneLibrary::getSharedAmpModelsDirectory() const
+{
+    auto dir = getAmpModelsRoot().getChildFile ("shared");
+    dir.createDirectory();
+    return dir;
+}
+
+juce::File ToneLibrary::getCabIrsDirectory() const
+{
+    auto dir = getJamStudioRoot().getChildFile ("CabIRs");
+    dir.createDirectory();
+    return dir;
+}
+
+void ToneLibrary::ensureDirectories (const bool seedExampleModels) const
+{
+    getLibraryDirectory();
+    getAmpModelsDirectoryForRole (LiveInstrumentRole::guitar1);
+    getAmpModelsDirectoryForRole (LiveInstrumentRole::bass);
+    getSharedAmpModelsDirectory();
+    getCabIrsDirectory();
+
+    // Drop a short README so the folders make sense in the file manager.
+    const auto readme = getAmpModelsRoot().getChildFile ("README.txt");
+    if (! readme.existsAsFile())
+    {
+        readme.replaceWithText (
+            "JamStudio amp models (.nam)\n"
+            "===========================\n\n"
+            "guitar/   — models for Guitar 1 and Guitar 2 (G1 / G2)\n"
+            "bass/     — models for Bass\n"
+            "shared/   — models usable by any path\n\n"
+            "Import from Performance Setup (Load .nam), or copy .nam files here.\n"
+            "Download free models from https://www.tone3000.com\n\n"
+            "Cab IRs (optional) go in ../CabIRs/\n"
+            "Tone knob profiles are saved in ../Tones/tone-library.json\n");
+    }
+
+    if (! seedExampleModels)
+        return;
+
+    // Seed shared/ from bundled NeuralAmpModelerCore examples when empty.
+    const auto shared = getSharedAmpModelsDirectory();
+    if (! shared.findChildFiles (juce::File::findFiles, false, "*.nam").isEmpty())
+        return;
+
+    juce::Array<juce::File> exampleRoots;
+   #ifdef JAMSTUDIO_SOURCE_DIR
+    exampleRoots.add (juce::File (JAMSTUDIO_SOURCE_DIR)
+                          .getChildFile ("third_party/NeuralAmpModelerCore/example_models"));
+   #endif
+    exampleRoots.add (juce::File::getCurrentWorkingDirectory()
+                          .getChildFile ("third_party/NeuralAmpModelerCore/example_models"));
+    exampleRoots.add (juce::File::getCurrentWorkingDirectory()
+                          .getChildFile ("../third_party/NeuralAmpModelerCore/example_models"));
+
+    for (const auto& root : exampleRoots)
+    {
+        if (! root.isDirectory())
+            continue;
+        for (const auto& f : root.findChildFiles (juce::File::findFiles, false, "*.nam"))
+        {
+            // Prefer small useful examples; copy a few only.
+            const auto name = f.getFileName();
+            if (name.containsIgnoreCase ("wavenet") || name.containsIgnoreCase ("lstm")
+                || name.containsIgnoreCase ("A2"))
+            {
+                f.copyFileTo (shared.getChildFile (name));
+            }
+        }
+        break;
+    }
+}
+
+juce::File ToneLibrary::importNamModel (const juce::File& sourceNam,
+                                        const LiveInstrumentRole role,
+                                        const bool useSharedFolder) const
+{
+    if (! sourceNam.existsAsFile() || ! sourceNam.hasFileExtension (".nam"))
+        return {};
+
+    ensureDirectories (false);
+    auto destDir = useSharedFolder ? getSharedAmpModelsDirectory()
+                                   : getAmpModelsDirectoryForRole (role);
+    auto dest = destDir.getChildFile (sourceNam.getFileName());
+
+    if (dest.existsAsFile() && dest.getSize() == sourceNam.getSize())
+        return dest;
+
+    if (dest.existsAsFile())
+    {
+        int n = 2;
+        while (dest.existsAsFile())
+        {
+            dest = destDir.getChildFile (sourceNam.getFileNameWithoutExtension()
+                                         + "-" + juce::String (n) + ".nam");
+            ++n;
+        }
+    }
+
+    if (! sourceNam.copyFileTo (dest))
+        return {};
+
+    return dest;
+}
+
+juce::Array<juce::File> ToneLibrary::listNamModels (const LiveInstrumentRole role) const
+{
+    ensureDirectories (false);
+    juce::Array<juce::File> files;
+
+    auto addDir = [&files] (const juce::File& dir)
+    {
+        if (! dir.isDirectory())
+            return;
+        for (const auto& f : dir.findChildFiles (juce::File::findFiles, true, "*.nam"))
+            files.addIfNotAlreadyThere (f);
+    };
+
+    addDir (getAmpModelsDirectoryForRole (role));
+    addDir (getSharedAmpModelsDirectory());
+    files.sort();
+    return files;
+}
+
 bool ToneLibrary::load()
 {
+    ensureDirectories (true);
     const auto file = getLibraryFile();
     if (! file.existsAsFile())
     {

@@ -7,6 +7,41 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(third_party/JUCE EXCLUDE_FROM_ALL)
 
+# ---------------------------------------------------------------------------
+# NeuralAmpModelerCore (static — real .nam runtime for Performance rack)
+# ---------------------------------------------------------------------------
+set(NAM_CORE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/NeuralAmpModelerCore")
+if(EXISTS "${NAM_CORE_ROOT}/NAM/get_dsp.cpp")
+    file(GLOB NAM_CORE_SOURCES
+        "${NAM_CORE_ROOT}/NAM/*.cpp"
+        "${NAM_CORE_ROOT}/NAM/*/*.cpp")
+    add_library(nam_core STATIC ${NAM_CORE_SOURCES})
+    target_compile_features(nam_core PUBLIC cxx_std_20)
+    target_compile_definitions(nam_core PUBLIC
+        NAM_SAMPLE_FLOAT
+        NAM_ENABLE_A2_FAST)
+    target_include_directories(nam_core
+        PUBLIC
+            "${NAM_CORE_ROOT}"
+        SYSTEM PUBLIC
+            "${NAM_CORE_ROOT}/Dependencies/eigen"
+            "${NAM_CORE_ROOT}/Dependencies/nlohmann")
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(nam_core PUBLIC stdc++fs)
+    endif()
+    if(MSVC)
+        target_compile_definitions(nam_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+        target_compile_options(nam_core PRIVATE /W3 /wd4244 /wd4267)
+    else()
+        target_compile_options(nam_core PRIVATE
+            -Wno-unused-parameter -Wno-sign-compare -Wno-deprecated-declarations)
+    endif()
+    set(JAMSTUDIO_HAS_NAM_CORE ON)
+else()
+    message(WARNING "NeuralAmpModelerCore not found at ${NAM_CORE_ROOT} — NAM load disabled")
+    set(JAMSTUDIO_HAS_NAM_CORE OFF)
+endif()
+
 juce_add_gui_app(JamStudio
     PRODUCT_NAME "JamStudio"
     COMPANY_NAME "JamStudio"
@@ -73,6 +108,7 @@ target_sources(JamStudio PRIVATE
     src/performance/SetListData.cpp
     src/performance/SetListManager.cpp
     src/performance/ToneProfile.cpp
+    src/audio/NamModelEngine.cpp
     src/audio/LiveToneEngine.cpp
     src/ui/JamStudioTheme.cpp
     src/ui/JamStudioLookAndFeel.cpp
@@ -164,7 +200,8 @@ target_compile_definitions(JamStudio PRIVATE
     JUCE_REPORT_APP_USAGE=0
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=1
-    JAMSTUDIO_USE_FFMPEG=1)
+    JAMSTUDIO_USE_FFMPEG=1
+    JAMSTUDIO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 if(UNIX AND NOT APPLE)
     target_compile_definitions(JamStudio PRIVATE
@@ -175,6 +212,24 @@ elseif(WIN32)
         JUCE_ALSA=0
         JUCE_JACK=0)
 endif()
+
+# whole-archive: NAM registers architectures via static constructors
+if(JAMSTUDIO_HAS_NAM_CORE)
+    if(MSVC)
+        target_link_libraries(JamStudio PRIVATE nam_core)
+        target_link_options(JamStudio PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:nam_core>")
+    elseif(APPLE)
+        target_link_libraries(JamStudio PRIVATE
+            "-Wl,-force_load,$<TARGET_FILE:nam_core>"
+            nam_core)
+    else()
+        target_link_libraries(JamStudio PRIVATE
+            -Wl,--whole-archive
+            nam_core
+            -Wl,--no-whole-archive)
+    endif()
+endif()
+
 target_link_libraries(JamStudio PRIVATE
     JamStudioAssets
     juce::juce_audio_utils

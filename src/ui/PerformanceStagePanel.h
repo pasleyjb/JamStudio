@@ -94,6 +94,10 @@ private:
         void pushParamsToEngine();
         void styleKnob (juce::Slider& s, const juce::String& name);
         void bindKnob (juce::Slider& s);
+        void importNamModel();
+        void chooseExistingNam();
+        void openModelsFolder();
+        void updateModelLabel();
 
         jamstudio::performance::LiveInstrumentRole role;
         jamstudio::audio::LiveToneEngine& engine;
@@ -104,6 +108,8 @@ private:
         juce::ComboBox profileBox;
         juce::TextButton saveButton { "Save" };
         juce::TextButton saveAsButton { "Save As" };
+        juce::TextButton loadNamButton { "Load .nam" };
+        juce::TextButton modelsFolderButton { "Models folder" };
         juce::ToggleButton enableToggle { "On" };
         juce::ToggleButton bypassToggle { "Bypass" };
         juce::Label modelLabel;
@@ -111,6 +117,8 @@ private:
         juce::Label inMeterLabel, outMeterLabel;
         float inLevel = 0.0f, outLevel = 0.0f;
         juce::String currentProfileId;
+        juce::String currentNamPath;
+        std::unique_ptr<juce::FileChooser> fileChooser;
     };
 
     void timerCallback() override;

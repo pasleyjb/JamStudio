@@ -111,11 +111,19 @@ PerformanceStagePanel::NamPathPanel::NamPathPanel (
     bypassToggle.onClick = [this] { pushParamsToEngine(); };
     addAndMakeVisible (bypassToggle);
 
-    modelLabel.setText ("Model: built-in amp sim (NAM path ready)", juce::dontSendNotification);
+    modelLabel.setText ("Model: built-in amp sim", juce::dontSendNotification);
     modelLabel.setFont (juce::FontOptions (10.0f));
     modelLabel.setColour (juce::Label::textColourId,
                           JamStudioTheme::getColours().textSecondary);
     addAndMakeVisible (modelLabel);
+
+    loadNamButton.setTooltip ("Import a .nam into Documents/JamStudio/AmpModels and load it");
+    loadNamButton.onClick = [this] { importNamModel(); };
+    addAndMakeVisible (loadNamButton);
+
+    modelsFolderButton.setTooltip ("Open AmpModels folder (guitar / bass / shared)");
+    modelsFolderButton.onClick = [this] { openModelsFolder(); };
+    addAndMakeVisible (modelsFolderButton);
 
     styleKnob (inputGain, "Input");
     styleKnob (drive, "Drive");
@@ -166,6 +174,8 @@ void PerformanceStagePanel::NamPathPanel::setCompact (const bool shouldBeCompact
     compact = shouldBeCompact;
     saveButton.setVisible (! compact);
     saveAsButton.setVisible (! compact);
+    loadNamButton.setVisible (! compact);
+    modelsFolderButton.setVisible (! compact);
     modelLabel.setVisible (! compact);
     profileBox.setEnabled (! compact);
     // Knobs stay visible but smaller via resized
@@ -222,14 +232,28 @@ void PerformanceStagePanel::NamPathPanel::loadProfile (const jamstudio::performa
     setSilent (outputLevel, profile.outputLevel);
     bypassToggle.setToggleState (profile.bypass, juce::dontSendNotification);
 
-    if (profile.namModelPath.isNotEmpty())
-        modelLabel.setText ("Model: " + juce::File (profile.namModelPath).getFileName(),
-                            juce::dontSendNotification);
-    else
-        modelLabel.setText ("Model: built-in amp sim (NAM path ready)", juce::dontSendNotification);
+    currentNamPath = profile.namModelPath;
+    updateModelLabel();
 
     engine.applyProfile (role, profile);
     engine.setPathEnabled (role, enableToggle.getToggleState());
+
+    if (currentNamPath.isNotEmpty())
+    {
+        const juce::File f (currentNamPath);
+        if (f.existsAsFile())
+        {
+            engine.loadNamModelAsync (role, f, [this] (auto, bool ok, juce::String msg)
+            {
+                juce::ignoreUnused (msg);
+                if (ok)
+                    updateModelLabel();
+                else
+                    modelLabel.setText ("Model load failed - using amp sim",
+                                        juce::dontSendNotification);
+            });
+        }
+    }
 }
 
 jamstudio::performance::ToneProfile PerformanceStagePanel::NamPathPanel::captureProfile() const
@@ -243,11 +267,12 @@ jamstudio::performance::ToneProfile PerformanceStagePanel::NamPathPanel::capture
 
     if (const auto* existing = library.findById (currentProfileId))
     {
-        p.namModelPath = existing->namModelPath;
         p.cabIrPath = existing->cabIrPath;
         if (p.name.isEmpty())
             p.name = existing->name;
     }
+
+    p.namModelPath = currentNamPath;
 
     p.inputGain = (float) inputGain.getValue();
     p.drive = (float) drive.getValue();
@@ -269,6 +294,90 @@ void PerformanceStagePanel::NamPathPanel::pushParamsToEngine()
 {
     engine.applyProfile (role, captureProfile());
     engine.setPathEnabled (role, enableToggle.getToggleState());
+}
+
+void PerformanceStagePanel::NamPathPanel::updateModelLabel()
+{
+    if (engine.isNamLoaded (role))
+    {
+        modelLabel.setText ("NAM: " + engine.getNamModelName (role), juce::dontSendNotification);
+        return;
+    }
+
+    if (currentNamPath.isNotEmpty())
+        modelLabel.setText ("Model: " + juce::File (currentNamPath).getFileName() + " (loading...)",
+                            juce::dontSendNotification);
+    else
+        modelLabel.setText ("Model: built-in amp sim  |  Load .nam from TONE3000",
+                            juce::dontSendNotification);
+}
+
+void PerformanceStagePanel::NamPathPanel::openModelsFolder()
+{
+    library.ensureDirectories (true);
+    library.getAmpModelsDirectoryForRole (role).revealToUser();
+}
+
+void PerformanceStagePanel::NamPathPanel::importNamModel()
+{
+    library.ensureDirectories (true);
+    constexpr auto flags = juce::FileBrowserComponent::openMode
+                         | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser = std::make_unique<juce::FileChooser> (
+        "Import Neural Amp Model (.nam)",
+        library.getAmpModelsDirectoryForRole (role),
+        "*.nam");
+
+    fileChooser->launchAsync (flags, [this] (const juce::FileChooser& chooser)
+    {
+        const auto src = chooser.getResult();
+        if (! src.existsAsFile())
+            return;
+
+        const auto dest = library.importNamModel (src, role, false);
+        if (! dest.existsAsFile())
+        {
+            modelLabel.setText ("Import failed", juce::dontSendNotification);
+            return;
+        }
+
+        currentNamPath = dest.getFullPathName();
+        modelLabel.setText ("Loading " + dest.getFileName() + "...", juce::dontSendNotification);
+
+        engine.loadNamModelAsync (role, dest, [this, dest] (auto, bool ok, juce::String msg)
+        {
+            if (! ok)
+            {
+                modelLabel.setText ("NAM failed: " + msg, juce::dontSendNotification);
+                return;
+            }
+
+            currentNamPath = dest.getFullPathName();
+            updateModelLabel();
+
+            // Persist path on current profile
+            auto p = captureProfile();
+            p.namModelPath = currentNamPath;
+            if (p.id.isEmpty())
+                p.id = juce::Uuid().toDashedString();
+            if (! library.updateProfile (p))
+                library.addProfile (p);
+            library.save();
+            refreshProfileList();
+            selectProfileId (p.id);
+            pushParamsToEngine();
+
+            if (onProfileSaved)
+                onProfileSaved();
+        });
+    });
+}
+
+void PerformanceStagePanel::NamPathPanel::chooseExistingNam()
+{
+    // Reserved for a future picker of library models list.
+    importNamModel();
 }
 
 void PerformanceStagePanel::NamPathPanel::timerTick()
@@ -327,6 +436,8 @@ void PerformanceStagePanel::NamPathPanel::resized()
     bypassToggle.setBounds (row.removeFromLeft (64));
     if (! compact)
     {
+        modelsFolderButton.setBounds (row.removeFromRight (96).reduced (1));
+        loadNamButton.setBounds (row.removeFromRight (78).reduced (1));
         saveAsButton.setBounds (row.removeFromRight (70).reduced (1));
         saveButton.setBounds (row.removeFromRight (56).reduced (1));
     }
