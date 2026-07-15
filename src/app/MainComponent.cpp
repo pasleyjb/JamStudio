@@ -4,6 +4,7 @@
 #include "../audio/StemType.h"
 #include "../audio/TempoDetector.h"
 #include "../ui/AiToolsSetupDialog.h"
+#include "../ui/AudioSettingsDialog.h"
 #include "../ui/MidiControlDialog.h"
 #include "../ui/OnlineLyricsDialog.h"
 #include "../ui/TabLibraryBrowserDialog.h"
@@ -19,6 +20,7 @@ namespace jamstudio::app
 
 MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     : audioDeviceManager (deviceManager),
+      audioInterfaceManager (deviceManager),
       transportController (deviceManager),
       midiControlSurface (deviceManager, transportController),
       recordingExporter (transportController.getFormatManager()),
@@ -116,6 +118,11 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     addAndMakeVisible (stemViewport);
 
     audioDeviceManager.addAudioCallback (&audioRecorder);
+
+    // Plug-and-play: detect multi-IO interfaces, match channel counts, hot-plug USB.
+    audioInterfaceManager.initialiseAtStartup();
+    audioInterfaceManager.addChangeListener (this);
+    refreshAudioRoutingStatus();
 
     transportController.getStemMixer().addChangeListener (this);
     transportController.addChangeListener (this);
@@ -237,6 +244,7 @@ MainComponent::~MainComponent()
     demucsSeparator.cancel();
     whisperTranscriber.cancel();
     basicPitchTranscriber.cancel();
+    audioInterfaceManager.removeChangeListener (this);
     transportController.getStemMixer().removeChangeListener (this);
     transportController.removeChangeListener (this);
     juce::Desktop::getInstance().removeDarkModeSettingListener (this);
@@ -567,6 +575,7 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     {
         menu.addItem (helpInstructionsCmd, "Instructions…", true, false);
         menu.addSeparator();
+        menu.addItem (audioSettingsCmd, "Audio Interface…", true, false);
         menu.addItem (aiToolsCmd, "AI Tools Setup...", true, false);
         menu.addItem (midiControlCmd, "MIDI Control Surface...", true, false);
         menu.addSeparator();
@@ -614,6 +623,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case importTakeCmd: importTakeFromFile(); break;
         case aiToolsCmd: showAiToolsSetup(); break;
         case midiControlCmd: showMidiControlSetup(); break;
+        case audioSettingsCmd: showAudioSettings(); break;
         case toggleLyricsPanelCmd: toggleLyricsPanel(); break;
         case toggleNotationPanelCmd: toggleNotationPanel(); break;
         case toggleStemsPanelCmd: toggleStemsPanel(); break;
@@ -717,6 +727,12 @@ void MainComponent::refreshTheme()
 
 void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
+    if (source == &audioInterfaceManager)
+    {
+        refreshAudioRoutingStatus();
+        return;
+    }
+
     if (source == &transportController.getStemMixer())
     {
         rebuildStemLanes();
@@ -1470,6 +1486,16 @@ void MainComponent::showAiToolsSetup()
 void MainComponent::showMidiControlSetup()
 {
     jamstudio::ui::MidiControlDialog::show (this, midiControlSurface);
+}
+
+void MainComponent::showAudioSettings()
+{
+    jamstudio::ui::AudioSettingsDialog::show (this, audioInterfaceManager);
+}
+
+void MainComponent::refreshAudioRoutingStatus()
+{
+    setStatus (audioInterfaceManager.getStatusSummary());
 }
 
 void MainComponent::refreshMixerUiFromMidi()

@@ -52,21 +52,9 @@ public:
             splash = std::make_unique<juce::SplashScreen> ("JamStudio", displayImg, true);
         }
 
-        // Prefer multi-channel outputs for FOH + band monitors (falls back if unavailable).
-        audioDeviceManager.initialiseWithDefaultDevices (0, 6);
-
-        {
-            auto setup = audioDeviceManager.getAudioDeviceSetup();
-            // Request first 6 output channels when the interface supports them.
-            setup.useDefaultOutputChannels = false;
-            setup.outputChannels.clear();
-            const int maxOut = setup.outputDeviceName.isNotEmpty() ? 6 : 2;
-            for (int c = 0; c < maxOut; ++c)
-                setup.outputChannels.setBit (c);
-            juce::String err;
-            audioDeviceManager.setAudioDeviceSetup (setup, true);
-            juce::ignoreUnused (err);
-        }
+        // Open a modest default first; MainComponent's AudioInterfaceManager
+        // immediately applies plug-and-play routing (Scarlett in + PC out, etc.).
+        audioDeviceManager.initialiseWithDefaultDevices (2, 2);
 
         mainWindow = std::make_unique<MainWindow> (audioDeviceManager);
 

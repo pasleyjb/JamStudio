@@ -4,6 +4,7 @@
 #include "../ai/BasicPitchTranscriber.h"
 #include "../ai/DemucsSeparator.h"
 #include "../ai/WhisperTranscriber.h"
+#include "../audio/AudioInterfaceManager.h"
 #include "../audio/AudioRecorder.h"
 #include "../audio/RecordingExporter.h"
 #include "../audio/RecordingTakeManager.h"
@@ -85,6 +86,7 @@ private:
         helpInstructionsCmd,
         aiToolsCmd,
         midiControlCmd,
+        audioSettingsCmd,
         toggleLyricsPanelCmd,
         toggleNotationPanelCmd,
         toggleStemsPanelCmd,
@@ -148,7 +150,9 @@ private:
     void refreshTheme();
     void showAiToolsSetup();
     void showMidiControlSetup();
+    void showAudioSettings();
     void refreshMixerUiFromMidi();
+    void refreshAudioRoutingStatus();
     void detectTempoFromSong (const juce::File& audioFile, bool announceResult);
     void beginBackgroundTask (const juce::String& message, std::function<void()> onCancel);
     void endBackgroundTask();
@@ -198,6 +202,7 @@ private:
     void syncVideoOutputs();
 
     juce::AudioDeviceManager& audioDeviceManager;
+    jamstudio::audio::AudioInterfaceManager audioInterfaceManager;
     jamstudio::audio::TransportController transportController;
     jamstudio::midi::MidiControlSurface midiControlSurface;
     jamstudio::audio::AudioRecorder audioRecorder;

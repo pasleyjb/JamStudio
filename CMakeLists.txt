@@ -43,6 +43,7 @@ target_sources(JamStudio PRIVATE
     src/audio/FFmpegAudioFormat.cpp
     src/audio/TempoDetector.cpp
     src/audio/AudioRecorder.cpp
+    src/audio/AudioInterfaceManager.cpp
     src/audio/ExternalRecorder.cpp
     src/audio/RecordingExporter.cpp
     src/audio/RecordingTakeManager.cpp
@@ -93,6 +94,7 @@ target_sources(JamStudio PRIVATE
     src/ui/TranscriptionCorrectionDialog.cpp
     src/ui/OnlineLyricsDialog.cpp
     src/ui/MidiControlDialog.cpp
+    src/ui/AudioSettingsDialog.cpp
     src/ui/TransportBar.cpp
     src/ui/WaveformDisplay.cpp
     src/ui/SeparationProgressBar.cpp

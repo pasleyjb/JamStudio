@@ -121,6 +121,26 @@ juce::Array<HelpTopic> buildTopics()
         "Transport → Record / Stop arms recording through the audio device.\n"
         "Takes can be loaded as stems for practice and mixing."));
 
+    t.add (topic (
+        "audio-interface",
+        "Audio interface (plug and play)",
+        "Audio",
+        "audio interface scarlett focusrite asound alsa wasapi device input output monitor speakers plug hotplug",
+        "Help → Audio Interface… configures how JamStudio uses your hardware.\n\n"
+        "• Plug and play (default) — multi-input USB interfaces (Scarlett 18i20, etc.) "
+        "are preferred for capture. Monitor audio goes to computer speakers when "
+        "“monitor on computer speakers” is on — useful when nothing is plugged into "
+        "the interface outputs.\n"
+        "• Same device — interface for both in and out (stage multi-bus: outs 1–2 FOH, "
+        "3–4 Mon A, 5–6 Mon B).\n"
+        "• Manual — pick exact input and output devices.\n\n"
+        "Channel counts are matched to what the hardware actually exposes (not fixed "
+        "to 6 outs). USB hot-plug is detected every couple of seconds.\n\n"
+        "Jack sense: class-compliant USB audio does not report whether cables are "
+        "plugged into line outs. JamStudio cannot know empty Scarlett jacks; use "
+        "plug-and-play + computer monitor for that case.\n\n"
+        "Settings are saved in the JamStudio app data folder (audio-interface.json)."));
+
     // ---------- Mixer & Buses ----------
     t.add (topic (
         "mixer-overview",
