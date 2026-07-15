@@ -120,7 +120,7 @@ ExternalRecorderApp ArdourCompanion::detectArdour()
     return app; // empty exe — not available path for now
    #else
     const juce::String commands[] = {
-        "ardour8", "ardour7", "ardour6", "ardour", "Ardour"
+        "ardour9", "ardour8", "ardour7", "ardour6", "ardour", "Ardour"
     };
     for (const auto& cmd : commands)
     {
@@ -136,11 +136,14 @@ ExternalRecorderApp ArdourCompanion::detectArdour()
     }
 
     const juce::File candidates[] = {
+        juce::File ("/usr/bin/ardour9"),
         juce::File ("/usr/bin/ardour8"),
         juce::File ("/usr/bin/ardour7"),
         juce::File ("/usr/bin/ardour"),
+        juce::File ("/usr/local/bin/ardour9"),
         juce::File ("/usr/local/bin/ardour8"),
         juce::File ("/usr/local/bin/ardour"),
+        juce::File ("/opt/Ardour-9/bin/ardour9"),
         juce::File ("/opt/Ardour-8/bin/ardour8"),
         juce::File ("/opt/Ardour-7/bin/ardour7"),
         juce::File ("/var/lib/flatpak/exports/bin/org.ardour.Ardour"),

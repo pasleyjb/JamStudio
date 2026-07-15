@@ -95,28 +95,41 @@ juce::Array<ExternalRecorderApp> ExternalRecorder::detectInstalled()
 {
     juce::Array<ExternalRecorderApp> list;
 
-    // Prefer Audacity, then common DAWs.
+   #if JUCE_LINUX
+    // Linux: Ardour first (Record-mode studio companion), then lighter editors.
+    addIfOnPath (list, "Ardour", "ardour9");
+    addIfOnPath (list, "Ardour", "ardour8");
+    addIfOnPath (list, "Ardour", "ardour7");
+    addIfOnPath (list, "Ardour", "ardour6");
+    addIfOnPath (list, "Ardour", "ardour");
+    addIfExists (list, "Ardour", juce::File ("/usr/bin/ardour9"));
+    addIfExists (list, "Ardour", juce::File ("/usr/bin/ardour8"));
+    addIfExists (list, "Ardour", juce::File ("/usr/bin/ardour7"));
+    addIfExists (list, "Ardour", juce::File ("/usr/bin/ardour"));
+    addIfExists (list, "Ardour", juce::File ("/usr/local/bin/ardour"));
+    addIfExists (list, "Ardour", juce::File ("/opt/Ardour-9/bin/ardour9"));
+    addIfExists (list, "Ardour", juce::File ("/opt/Ardour-8/bin/ardour8"));
+    addIfExists (list, "Ardour", juce::File ("/var/lib/flatpak/exports/bin/org.ardour.Ardour"));
+    addIfExists (list, "Ardour", juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                                     .getChildFile (".local/share/flatpak/exports/bin/org.ardour.Ardour"));
+
     addIfOnPath (list, "Audacity", "audacity");
     addIfOnPath (list, "Audacity", "audacity-3");
-
-   #if JUCE_LINUX
     addIfExists (list, "Audacity", juce::File ("/usr/bin/audacity"));
     addIfExists (list, "Audacity", juce::File ("/usr/local/bin/audacity"));
     addIfExists (list, "Audacity", juce::File ("/snap/bin/audacity"));
     addIfExists (list, "Audacity", juce::File ("/var/lib/flatpak/exports/bin/org.audacityteam.Audacity"));
-    addIfOnPath (list, "Ardour", "ardour");
-    addIfOnPath (list, "Ardour", "ardour8");
-    addIfOnPath (list, "Ardour", "ardour7");
     addIfOnPath (list, "Reaper", "reaper");
     addIfOnPath (list, "Qtractor", "qtractor");
     addIfOnPath (list, "LMMS", "lmms", false);
     addIfOnPath (list, "Ocenaudio", "ocenaudio");
    #elif JUCE_MAC
+    addIfOnPath (list, "Audacity", "audacity");
+    addIfOnPath (list, "Audacity", "audacity-3");
     addIfExists (list, "Audacity", juce::File ("/Applications/Audacity.app"));
     addIfExists (list, "Reaper", juce::File ("/Applications/REAPER.app"));
     addIfExists (list, "Logic Pro", juce::File ("/Applications/Logic Pro.app"), false);
     addIfExists (list, "GarageBand", juce::File ("/Applications/GarageBand.app"), false);
-    addIfOnPath (list, "Audacity", "audacity");
    #elif JUCE_WINDOWS
     addIfOnPath (list, "Audacity", "audacity.exe");
     const auto pf = juce::File::getSpecialLocation (juce::File::globalApplicationsDirectory);
@@ -135,7 +148,12 @@ ExternalRecorderApp ExternalRecorder::getPreferred()
     if (apps.isEmpty())
         return {};
 
-    // Prefer Audacity by name.
+   #if JUCE_LINUX
+    for (const auto& a : apps)
+        if (a.name.containsIgnoreCase ("Ardour"))
+            return a;
+   #endif
+
     for (const auto& a : apps)
         if (a.name.containsIgnoreCase ("Audacity"))
             return a;

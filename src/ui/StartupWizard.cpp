@@ -319,7 +319,7 @@ StartupWizard::StartupWizard()
     recordingTitle.setColour (juce::Label::textColourId, juce::Colours::white);
     recordingPage.addAndMakeVisible (recordingTitle);
 
-    recordingHint.setText ("Load a backing track, then Open Audacity (or your DAW) to record with plugins/amp sims. Import the take when done.",
+    recordingHint.setText ("Load a backing track, then Open Studio (Ardour) for multi-track + plugins. Import the take when done.",
                            juce::dontSendNotification);
     recordingHint.setJustificationType (juce::Justification::centred);
     recordingHint.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.88f));

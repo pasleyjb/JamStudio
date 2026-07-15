@@ -55,7 +55,8 @@ TransportBar::TransportBar (jamstudio::audio::TransportController& transport)
     addAndMakeVisible (skipForwardButton);
 
     recordButton.setIndicatorColour (juce::Colour (0xffff3344));
-    recordButton.setTooltip ("Open external recorder (Audacity, etc.) with bounced mix for plugins / amp sims");
+    recordButton.setTooltip ("Open Studio (Ardour on Linux): hand off interface + session pack. "
+                             "Use Transport menu for Audacity if preferred.");
     recordButton.setButtonText ("EXT");
     recordButton.onClick = [this]
     {

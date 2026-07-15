@@ -69,10 +69,17 @@ void RecordingTakesPanel::setImportTakeCallback (VoidCallback cb)
 
 void RecordingTakesPanel::setPreferredRecorderName (const juce::String& name)
 {
-    if (name.isNotEmpty())
+    // Keep the product name "Open Studio" unless we have a clear studio host.
+    if (name.containsIgnoreCase ("Ardour") || name.containsIgnoreCase ("Studio"))
+        openExternalButton.setButtonText ("Open Studio (Ardour)");
+    else if (name.isNotEmpty() && ! name.containsIgnoreCase ("Audacity"))
         openExternalButton.setButtonText ("Open " + name);
     else
-        openExternalButton.setButtonText ("Open External Recorder");
+        openExternalButton.setButtonText ("Open Studio (Ardour)");
+
+    openExternalButton.setTooltip (
+        "Prepare session pack, release the audio interface, and open Ardour. "
+        "Use Transport → Open External Recorder for Audacity.");
 }
 
 void RecordingTakesPanel::refresh()

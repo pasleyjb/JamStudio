@@ -137,8 +137,15 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
         else
             setStatus ("Open a song before detecting tempo.");
     });
-    // REC prefers external DAW (Audacity etc.) for plugins / amp sims.
-    transportBar.setRecordCallback ([this] { openExternalRecorder(); });
+    // REC / Open Studio → Ardour companion on Linux; otherwise external recorder.
+    transportBar.setRecordCallback ([this]
+    {
+       #if JUCE_LINUX
+        openArdourStudio();
+       #else
+        openExternalRecorder();
+       #endif
+    });
     transportBar.setInputLevelProvider ([this] { return audioRecorder.getInputLevel(); });
 
     recordingTakesPanel.setTakeManager (&recordingTakeManager);
@@ -147,11 +154,23 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
         loadRecordingAsStem (take.file, take.displayName);
         setStatus ("Loaded " + take.displayName + " into mixer.");
     });
-    recordingTakesPanel.setOpenExternalCallback ([this] { openExternalRecorder(); });
+    recordingTakesPanel.setOpenExternalCallback ([this]
+    {
+       #if JUCE_LINUX
+        openArdourStudio();
+       #else
+        openExternalRecorder();
+       #endif
+    });
     recordingTakesPanel.setImportTakeCallback ([this] { importTakeFromFile(); });
     {
+       #if JUCE_LINUX
+        recordingTakesPanel.setPreferredRecorderName (
+            jamstudio::audio::ArdourCompanion::isAvailable() ? "Studio (Ardour)" : "Studio (install Ardour)");
+       #else
         const auto preferred = jamstudio::audio::ExternalRecorder::getPreferred();
         recordingTakesPanel.setPreferredRecorderName (preferred.name);
+       #endif
     }
     recordingTakesPanel.setVisible (false);
     addChildComponent (recordingTakesPanel);
@@ -2108,26 +2127,31 @@ void MainComponent::openArdourStudio()
 
 void MainComponent::openExternalRecorder()
 {
-   #if JUCE_LINUX
-    // Prefer full Ardour companion when available
-    if (jamstudio::audio::ArdourCompanion::isAvailable())
-    {
-        openArdourStudio();
-        return;
-    }
-   #endif
+    // Explicit menu: "Open External Recorder (Audacity…)" — never auto-route to Ardour
+    // so users can still pick Audacity when they want it. Open Studio uses openArdourStudio().
 
     auto app = jamstudio::audio::ExternalRecorder::getPreferred();
+    // Prefer Audacity only for this explicit path
+    {
+        const auto apps = jamstudio::audio::ExternalRecorder::detectInstalled();
+        for (const auto& a : apps)
+            if (a.name.containsIgnoreCase ("Audacity"))
+            {
+                app = a;
+                break;
+            }
+    }
+
     if (app.name.isEmpty())
     {
-        setStatus ("No external recorder found. Install Ardour: sudo apt install ardour");
+        setStatus ("No external recorder found. Install Audacity or use Open Studio (Ardour).");
         juce::AlertWindow::showMessageBoxAsync (
             juce::MessageBoxIconType::InfoIcon,
             "External recorder",
-            "JamStudio did not find Ardour (recommended on Linux) or Audacity.\n\n"
-            "Install Ardour:\n  sudo apt install ardour\n\n"
-            "Then use Transport → Open Studio (Ardour)…\n"
-            "Or Import Take from File… after recording elsewhere.");
+            "No Audacity (or other recorder) found.\n\n"
+            "On Linux prefer: Transport → Open Studio (Ardour)…\n"
+            "  sudo apt install ardour\n\n"
+            "Or install Audacity for a lighter editor.");
         return;
     }
 
