@@ -85,19 +85,40 @@ jobs:
             git clone --depth 1 https://github.com/juce-framework/JUCE.git third_party/JUCE
           fi
 
+      - name: Install Inno Setup
+        shell: bash
+        run: choco install innosetup -y --no-progress
+
       - name: Package Windows
         shell: pwsh
         run: |
           $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
           ./scripts/package-windows.ps1
 
-      - name: Upload Windows zip
+      - name: Verify MSVC runtime bundled
+        shell: pwsh
+        run: |
+          $stage = "dist/JamStudio-win64"
+          $required = @("JamStudio.exe", "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll")
+          foreach ($f in $required) {
+            $p = Join-Path $stage $f
+            if (-not (Test-Path $p)) { throw "Missing required package file: $p" }
+            Write-Host "OK $f"
+          }
+          $ffmpeg = Get-ChildItem $stage -Filter "avcodec*.dll"
+          if (-not $ffmpeg) { throw "Missing FFmpeg avcodec DLL in $stage" }
+          Write-Host "OK $($ffmpeg.Name)"
+          Get-ChildItem $stage | Format-Table Name, Length
+
+      - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
           name: jamstudio-windows-portable
           path: |
             dist/*-win64.zip
             dist/*-win64.zip.sha256
+            dist/JamStudio-Setup-*.exe
+            dist/JamStudio-Setup-*.exe.sha256
           if-no-files-found: error
 
   release:
@@ -113,7 +134,7 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p release-assets
-          find artifacts -type f \( -name '*.AppImage' -o -name '*.zip' -o -name '*.sha256' \) -exec cp -v {} release-assets/ \;
+          find artifacts -type f \( -name '*.AppImage' -o -name '*.zip' -o -name '*.exe' -o -name '*.sha256' \) -exec cp -v {} release-assets/ \;
           ls -lah release-assets
 
       - name: Create GitHub Release

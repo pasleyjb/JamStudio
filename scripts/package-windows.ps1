@@ -1,10 +1,11 @@
-# Build Release JamStudio for Windows and stage a portable zip + optional installer sources.
+# Build Release JamStudio for Windows and stage a portable zip + optional installer.
 # Run from a Visual Studio Developer PowerShell (or any shell with cmake + MSVC + vcpkg).
 #
 # Prerequisites:
-#   - Visual Studio 2022 Build Tools (C++)
+#   - Visual Studio 2022/2026 Build Tools (C++)
 #   - CMake 3.22+
 #   - vcpkg with ffmpeg:  vcpkg install ffmpeg:x64-windows
+#   - Optional: Inno Setup 6 (for Setup.exe)
 #
 # Usage:
 #   $env:VCPKG_ROOT = "C:\path\to\vcpkg"
@@ -31,6 +32,82 @@ if (-not $env:VCPKG_ROOT) {
 $Toolchain = Join-Path $env:VCPKG_ROOT "scripts\buildsystems\vcpkg.cmake"
 if (-not (Test-Path $Toolchain)) {
     Write-Error "vcpkg toolchain not found: $Toolchain"
+}
+
+function Find-MsvcCrtDirectory {
+    $candidates = @()
+
+    if ($env:VCToolsRedistDir -and (Test-Path $env:VCToolsRedistDir)) {
+        $candidates += Get-ChildItem -Path $env:VCToolsRedistDir -Recurse -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '[\\/]x64[\\/]' }
+    }
+
+    if ($env:VCINSTALLDIR -and (Test-Path $env:VCINSTALLDIR)) {
+        $redist = Join-Path $env:VCINSTALLDIR "Redist\MSVC"
+        if (Test-Path $redist) {
+            $candidates += Get-ChildItem -Path $redist -Recurse -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '[\\/]x64[\\/]' }
+        }
+    }
+
+    foreach ($root in @(
+            "${env:ProgramFiles}\Microsoft Visual Studio",
+            "${env:ProgramFiles(x86)}\Microsoft Visual Studio"
+        )) {
+        if (-not (Test-Path $root)) { continue }
+        $candidates += Get-ChildItem -Path $root -Recurse -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '[\\/]x64[\\/]' }
+    }
+
+    $hit = $candidates | Sort-Object FullName -Descending | Select-Object -First 1
+    if ($hit) { return $hit.FullName }
+    return $null
+}
+
+function Copy-MsvcCrtDlls {
+    param([Parameter(Mandatory = $true)][string]$Dest)
+
+    $crtDir = Find-MsvcCrtDirectory
+    if (-not $crtDir) {
+        Write-Error @"
+MSVC C/C++ runtime redistributable folder not found.
+JamStudio.exe requires VCRUNTIME140.dll / MSVCP140.dll on target PCs.
+Open a VS Developer shell, or install the 'Desktop development with C++' workload,
+then re-run this script. Alternatively install VC++ Redistributable x64 on the target machine:
+https://aka.ms/vs/17/release/vc_redist.x64.exe
+"@
+    }
+
+    Write-Host "==> Copying MSVC CRT from $crtDir"
+    $patterns = @("msvcp140*.dll", "vcruntime140*.dll", "concrt140.dll", "vccorlib140.dll")
+    $copied = @()
+    foreach ($pat in $patterns) {
+        Get-ChildItem $crtDir -Filter $pat -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName $Dest -Force
+            $copied += $_.Name
+            Write-Host "    $($_.Name)"
+        }
+    }
+
+    foreach ($need in @("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll")) {
+        if (-not (Test-Path (Join-Path $Dest $need))) {
+            Write-Error "Required CRT DLL missing after copy: $need (from $crtDir). Copied: $($copied -join ', ')"
+        }
+    }
+}
+
+function Find-Iscc {
+    $cmd = Get-Command iscc -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    foreach ($p in @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+            "${env:LocalAppData}\Programs\Inno Setup 6\ISCC.exe"
+        )) {
+        if (Test-Path $p) { return $p }
+    }
+    return $null
 }
 
 # Prefer Ninja+MSVC when available (GitHub windows-latest); fall back to VS generators.
@@ -99,6 +176,9 @@ Remove-Item -Recurse -Force $StageDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
 Copy-Item $Bin (Join-Path $StageDir "JamStudio.exe")
 
+# MSVC runtime — required on clean Windows PCs without VS / VC++ Redistributable
+Copy-MsvcCrtDlls -Dest $StageDir
+
 # Copy FFmpeg and other runtime DLLs from vcpkg installed bin
 $VcpkgBin = Join-Path $env:VCPKG_ROOT "installed\x64-windows\bin"
 if (Test-Path $VcpkgBin) {
@@ -122,25 +202,56 @@ Get-ChildItem $BinDir -Filter *.dll -ErrorAction SilentlyContinue | ForEach-Obje
 @"
 JamStudio $Version (Windows x64 portable)
 
-1. Run JamStudio.exe
-2. FFmpeg DLLs in this folder enable stage video (MP4 etc.)
-3. Optional: install Audacity for external recording with plugins
-4. Multi-out audio interfaces: first 6 channels = FOH / Mon A / Mon B
+1. Unzip this folder anywhere and run JamStudio.exe
+2. Keep all DLLs in the same folder as JamStudio.exe
+3. FFmpeg DLLs enable stage video (MP4 etc.)
+4. MSVC runtime DLLs (vcruntime140 / msvcp140) are included so a separate
+   Visual C++ Redistributable install is usually not required
+5. Optional: install Audacity for external recording with plugins
+6. Multi-out audio interfaces: first 6 channels = FOH / Mon A / Mon B
 
 See Help -> Instructions inside the app.
 "@ | Set-Content (Join-Path $StageDir "README.txt")
 
+# Zip contains a single top-level folder (cleaner extract UX)
 $ZipPath = Join-Path $DistDir "JamStudio-${Version}-win64.zip"
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
-Compress-Archive -Path (Join-Path $StageDir "*") -DestinationPath $ZipPath -Force
+Compress-Archive -Path $StageDir -DestinationPath $ZipPath -Force
 
 Get-FileHash $ZipPath -Algorithm SHA256 | ForEach-Object {
     "$($_.Hash.ToLower())  $(Split-Path $ZipPath -Leaf)" | Set-Content ($ZipPath + ".sha256")
+}
+
+$SetupPath = $null
+$Iscc = Find-Iscc
+if ($Iscc) {
+    Write-Host "==> Building Inno Setup installer with $Iscc"
+    $Iss = Join-Path $Root "scripts\windows\JamStudio.iss"
+    & $Iscc "/DMyAppVersion=$Version" $Iss
+    if ($LASTEXITCODE -ne 0) { Write-Error "Inno Setup compile failed" }
+    $SetupPath = Join-Path $DistDir "JamStudio-Setup-$Version.exe"
+    if (-not (Test-Path $SetupPath)) {
+        # Fallback: pick newest Setup exe if version string differs slightly
+        $SetupPath = Get-ChildItem $DistDir -Filter "JamStudio-Setup-*.exe" |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+    }
+    if ($SetupPath -and (Test-Path $SetupPath)) {
+        Get-FileHash $SetupPath -Algorithm SHA256 | ForEach-Object {
+            "$($_.Hash.ToLower())  $(Split-Path $SetupPath -Leaf)" | Set-Content ($SetupPath + ".sha256")
+        }
+    }
+} else {
+    Write-Host "Inno Setup (ISCC) not found — skipping Setup.exe (portable zip only)."
 }
 
 Write-Host ""
 Write-Host "Done."
 Write-Host "  Portable: $ZipPath"
 Write-Host "  Folder:   $StageDir"
+if ($SetupPath -and (Test-Path $SetupPath)) {
+    Write-Host "  Setup:    $SetupPath"
+}
 Write-Host ""
-Write-Host "Optional installer: install Inno Setup and compile scripts/windows/JamStudio.iss"
+Write-Host "Staged files:"
+Get-ChildItem $StageDir | ForEach-Object { Write-Host ("  {0,12}  {1}" -f $_.Length, $_.Name) }
