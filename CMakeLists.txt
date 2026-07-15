@@ -44,6 +44,7 @@ target_sources(JamStudio PRIVATE
     src/audio/TempoDetector.cpp
     src/audio/AudioRecorder.cpp
     src/audio/AudioInterfaceManager.cpp
+    src/audio/ArdourCompanion.cpp
     src/audio/ExternalRecorder.cpp
     src/audio/RecordingExporter.cpp
     src/audio/RecordingTakeManager.cpp

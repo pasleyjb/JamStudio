@@ -1,14 +1,17 @@
 #pragma once
 
+#include "../audio/MixBus.h"
 #include "../audio/StemMixer.h"
 #include "IndicatorButton.h"
+
+#include <array>
 
 namespace jamstudio::ui
 {
 
 /**
- * Vertical DAW channel: M/S, FOH fader, Mon A / Mon B sends, peak meter.
- * FOH = house PA; monitors = band / IEM mixes (independent levels).
+ * Vertical DAW channel: M/S, FOH + Mon 1–5 sends, peak meter.
+ * FOH = house PA; M1–M5 = band / IEM mixes (independent levels).
  */
 class MixerChannelStrip : public juce::Component,
                           private juce::Timer
@@ -38,12 +41,10 @@ private:
     juce::Label nameLabel;
     IndicatorButton muteButton { "mute", "M" };
     IndicatorButton soloButton { "solo", "S" };
-    juce::Label fohLabel { {}, "FOH" };
-    juce::Slider fohSlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
-    juce::Label monALabel { {}, "A" };
-    juce::Slider monASlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
-    juce::Label monBLabel { {}, "B" };
-    juce::Slider monBSlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
+
+    std::array<juce::Label, jamstudio::audio::kNumMixBuses> busLabels;
+    std::array<juce::Slider, jamstudio::audio::kNumMixBuses> busSliders;
+
     juce::Label levelLabel { {}, "0" };
     juce::Rectangle<int> meterBounds;
     float displayLevel = 0.0f;

@@ -2,6 +2,8 @@
 
 #include "JamStudioTheme.h"
 
+#include <array>
+
 namespace jamstudio::ui
 {
 
@@ -151,82 +153,151 @@ private:
 };
 
 
-/** Masters for FOH / Mon A / Mon B + click & stage routing hints. */
-class BusMasterStrip : public juce::Component
+/** Masters for FOH + Mon1–5 + per-bus click knobs + PC listen. */
+class BusMasterStrip : public juce::Component,
+                       private juce::Timer
 {
 public:
     explicit BusMasterStrip (jamstudio::audio::TransportController& transport)
         : transportController (transport)
     {
+        for (auto& s : busSliders)
+        {
+            s.setSliderStyle (juce::Slider::LinearVertical);
+            s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        }
+
+        for (auto& k : clickKnobs)
+        {
+            k.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            k.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        }
+
         title.setText ("BUSES", juce::dontSendNotification);
         title.setJustificationType (juce::Justification::centred);
         title.setFont (juce::FontOptions (11.0f, juce::Font::bold));
         addAndMakeVisible (title);
 
-        auto setup = [this] (juce::Slider& s, juce::Label& lab, jamstudio::audio::MixBus bus)
+        for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
         {
+            const auto bus = static_cast<jamstudio::audio::MixBus> (b);
+            const auto accent = jamstudio::audio::mixBusColour (bus);
+            auto& lab = busLabels[static_cast<size_t> (b)];
+            auto& s = busSliders[static_cast<size_t> (b)];
+            auto& clk = clickKnobs[static_cast<size_t> (b)];
+            auto& clkLab = clickLabels[static_cast<size_t> (b)];
+
             lab.setText (jamstudio::audio::mixBusName (bus), juce::dontSendNotification);
             lab.setJustificationType (juce::Justification::centred);
-            lab.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-            lab.setColour (juce::Label::textColourId, jamstudio::audio::mixBusColour (bus));
+            lab.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+            lab.setColour (juce::Label::textColourId, accent);
             addAndMakeVisible (lab);
+
+            clkLab.setText ("clk", juce::dontSendNotification);
+            clkLab.setJustificationType (juce::Justification::centred);
+            clkLab.setFont (juce::FontOptions (8.0f));
+            clkLab.setColour (juce::Label::textColourId, accent.withAlpha (0.85f));
+            addAndMakeVisible (clkLab);
+
+            clk.setRange (0.0, 1.0, 0.01);
+            clk.setValue (transportController.getMultiBusMaster().getClickBusSend (bus),
+                          juce::dontSendNotification);
+            clk.setSliderSnapsToMousePosition (true);
+            clk.setRotaryParameters (juce::MathConstants<float>::pi * 1.2f,
+                                     juce::MathConstants<float>::pi * 2.8f,
+                                     true);
+            clk.setColour (juce::Slider::rotarySliderFillColourId, accent);
+            clk.setColour (juce::Slider::rotarySliderOutlineColourId, accent.withAlpha (0.35f));
+            clk.setColour (juce::Slider::thumbColourId, accent.brighter (0.25f));
+            clk.setTooltip ("Click volume → " + jamstudio::audio::mixBusLongName (bus));
+            clk.onValueChange = [this, bus, &clk]
+            {
+                transportController.getMultiBusMaster().setClickBusSend (
+                    bus, static_cast<float> (clk.getValue()));
+            };
+            addAndMakeVisible (clk);
 
             s.setRange (0.0, 1.25, 0.01);
             s.setValue (transportController.getStemMixer().getBusMaster (bus), juce::dontSendNotification);
             s.setSliderSnapsToMousePosition (true);
-            s.setColour (juce::Slider::thumbColourId, jamstudio::audio::mixBusColour (bus));
-            s.setTooltip (jamstudio::audio::mixBusLongName (bus) + " master");
+            s.setColour (juce::Slider::thumbColourId, accent);
+            s.setTooltip (jamstudio::audio::mixBusLongName (bus) + " master · outs "
+                          + jamstudio::audio::mixBusHardwareOuts (bus));
             s.onValueChange = [this, bus, &s]
             {
                 transportController.getStemMixer().setBusMaster (
                     bus, static_cast<float> (s.getValue()));
             };
             addAndMakeVisible (s);
-        };
+        }
 
-        setup (fohSlider, fohLabel, jamstudio::audio::MixBus::foh);
-        setup (monASlider, monALabel, jamstudio::audio::MixBus::monitorA);
-        setup (monBSlider, monBLabel, jamstudio::audio::MixBus::monitorB);
-
-        routeHint.setText ("Out 1-2 FOH\\n3-4 Mon A\\n5-6 Mon B\\nClick->Mon",
+        routeHint.setText ("1-2 FOH · 3-4 M1 · 5-6 M2 · 7-8 M3 · 9-10 M4 · 11-12 M5",
                            juce::dontSendNotification);
-        routeHint.setJustificationType (juce::Justification::centredTop);
-        routeHint.setFont (juce::FontOptions (9.0f));
+        routeHint.setJustificationType (juce::Justification::centred);
+        routeHint.setFont (juce::FontOptions (8.0f));
         routeHint.setColour (juce::Label::textColourId, JamStudioTheme::getColours().textSecondary);
         addAndMakeVisible (routeHint);
 
-        // Click sends (quick toggles)
-        clickFoh.setButtonText ("Clk FOH");
-        clickMon.setButtonText ("Clk Mon");
-        clickFoh.setClickingTogglesState (true);
-        clickMon.setClickingTogglesState (true);
-        clickFoh.setToggleState (transportController.getMultiBusMaster().getClickBusSend (
-                                     jamstudio::audio::MixBus::foh) > 0.1f,
-                                 juce::dontSendNotification);
-        clickMon.setToggleState (transportController.getMultiBusMaster().getClickBusSend (
-                                     jamstudio::audio::MixBus::monitorA) > 0.1f,
-                                 juce::dontSendNotification);
-        clickFoh.onClick = [this]
+        listenLabel.setText ("PC LISTEN", juce::dontSendNotification);
+        listenLabel.setJustificationType (juce::Justification::centred);
+        listenLabel.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        listenLabel.setColour (juce::Label::textColourId, JamStudioTheme::getColours().accent);
+        addAndMakeVisible (listenLabel);
+
+        for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+            listenBox.addItem (jamstudio::audio::outputMonitorSelectName (
+                                   static_cast<jamstudio::audio::OutputMonitorSelect> (b)),
+                               b + 1);
+        listenBox.addItem ("Sum all buses", jamstudio::audio::kNumMixBuses + 1);
+        listenBox.setTooltip ("Which bus is fed to PC speakers / virtual interface fold-down");
         {
-            transportController.getMultiBusMaster().setClickBusSend (
-                jamstudio::audio::MixBus::foh, clickFoh.getToggleState() ? 0.7f : 0.0f);
-        };
-        clickMon.onClick = [this]
+            const auto sel = transportController.getMultiBusMaster().getOutputMonitorSelect();
+            listenBox.setSelectedId (static_cast<int> (sel) + 1, juce::dontSendNotification);
+        }
+        listenBox.onChange = [this]
         {
-            const float g = clickMon.getToggleState() ? 0.85f : 0.0f;
-            transportController.getMultiBusMaster().setClickBusSend (jamstudio::audio::MixBus::monitorA, g);
-            transportController.getMultiBusMaster().setClickBusSend (jamstudio::audio::MixBus::monitorB, g * 0.65f);
+            const auto id = listenBox.getSelectedId();
+            auto s = jamstudio::audio::OutputMonitorSelect::foh;
+            if (id == jamstudio::audio::kNumMixBuses + 1)
+                s = jamstudio::audio::OutputMonitorSelect::sumAll;
+            else if (id >= 1 && id <= jamstudio::audio::kNumMixBuses)
+                s = static_cast<jamstudio::audio::OutputMonitorSelect> (id - 1);
+            transportController.getMultiBusMaster().setOutputMonitorSelect (s);
+            transportController.getMultiBusMaster().saveSettings();
         };
-        addAndMakeVisible (clickFoh);
-        addAndMakeVisible (clickMon);
+        addAndMakeVisible (listenBox);
+
+        foldToggle.setButtonText ("Fold to PC stereo");
+        foldToggle.setTooltip ("On: only the selected bus reaches speakers (laptop / virtual). "
+                               "Off: full FOH+M1–M5 matrix when the device has enough outs.");
+        foldToggle.setToggleState (transportController.getMultiBusMaster().isStereoFoldListen(),
+                                   juce::dontSendNotification);
+        foldToggle.onClick = [this]
+        {
+            transportController.getMultiBusMaster().setStereoFoldListen (foldToggle.getToggleState());
+            transportController.getMultiBusMaster().saveSettings();
+        };
+        addAndMakeVisible (foldToggle);
+
+        startTimerHz (24);
     }
 
     void syncFromMixer()
     {
         auto& m = transportController.getStemMixer();
-        fohSlider.setValue (m.getBusMaster (jamstudio::audio::MixBus::foh), juce::dontSendNotification);
-        monASlider.setValue (m.getBusMaster (jamstudio::audio::MixBus::monitorA), juce::dontSendNotification);
-        monBSlider.setValue (m.getBusMaster (jamstudio::audio::MixBus::monitorB), juce::dontSendNotification);
+        auto& mb = transportController.getMultiBusMaster();
+        for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+        {
+            const auto bus = static_cast<jamstudio::audio::MixBus> (b);
+            busSliders[static_cast<size_t> (b)].setValue (m.getBusMaster (bus),
+                                                          juce::dontSendNotification);
+            clickKnobs[static_cast<size_t> (b)].setValue (mb.getClickBusSend (bus),
+                                                          juce::dontSendNotification);
+        }
+
+        const auto sel = mb.getOutputMonitorSelect();
+        listenBox.setSelectedId (static_cast<int> (sel) + 1, juce::dontSendNotification);
+        foldToggle.setToggleState (mb.isStereoFoldListen(), juce::dontSendNotification);
     }
 
     void paint (juce::Graphics& g) override
@@ -237,43 +308,89 @@ public:
         g.fillRoundedRectangle (bounds, 6.0f);
         g.setColour (colours.border);
         g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
+
+        auto& mb = transportController.getMultiBusMaster();
+        for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+        {
+            const auto bus = static_cast<jamstudio::audio::MixBus> (b);
+            auto r = meterBounds[static_cast<size_t> (b)];
+            const float lvl = juce::jlimit (0.0f, 1.0f, mb.getBusMeterLevel (bus));
+            g.setColour (colours.border.withAlpha (0.5f));
+            g.fillRoundedRectangle (r, 2.0f);
+            g.setColour (jamstudio::audio::mixBusColour (bus));
+            g.fillRoundedRectangle (r.withWidth (r.getWidth() * lvl), 2.0f);
+        }
     }
 
     void resized() override
     {
-        auto a = getLocalBounds().reduced (4);
-        title.setBounds (a.removeFromTop (18));
+        auto a = getLocalBounds().reduced (3);
+        title.setBounds (a.removeFromTop (16));
         a.removeFromTop (2);
-        auto clicks = a.removeFromBottom (48);
-        clickFoh.setBounds (clicks.removeFromTop (22).reduced (1));
-        clickMon.setBounds (clicks.reduced (1));
-        a.removeFromBottom (4);
-        routeHint.setBounds (a.removeFromBottom (52));
-        a.removeFromBottom (4);
 
-        const auto labH = 14;
-        auto col = a;
-        const auto w = col.getWidth() / 3;
-        auto c0 = col.removeFromLeft (w);
-        auto c1 = col.removeFromLeft (w);
-        auto c2 = col;
-        fohLabel.setBounds (c0.removeFromTop (labH));
-        fohSlider.setBounds (c0.reduced (1));
-        monALabel.setBounds (c1.removeFromTop (labH));
-        monASlider.setBounds (c1.reduced (1));
-        monBLabel.setBounds (c2.removeFromTop (labH));
-        monBSlider.setBounds (c2.reduced (1));
+        foldToggle.setBounds (a.removeFromBottom (22).reduced (1));
+        listenBox.setBounds (a.removeFromBottom (24).reduced (1));
+        listenLabel.setBounds (a.removeFromBottom (14));
+        a.removeFromBottom (2);
+        routeHint.setBounds (a.removeFromBottom (22));
+        a.removeFromBottom (2);
+
+        auto meters = a.removeFromBottom (7);
+        {
+            const auto w = juce::jmax (1, meters.getWidth() / jamstudio::audio::kNumMixBuses);
+            for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+            {
+                auto m = (b + 1 < jamstudio::audio::kNumMixBuses)
+                             ? meters.removeFromLeft (w)
+                             : meters;
+                meterBounds[static_cast<size_t> (b)] = m.reduced (1, 1).toFloat();
+            }
+        }
+        a.removeFromBottom (2);
+
+        // Column layout: bus name | clk label | rotary | master fader
+        const auto labH = 12;
+        const auto clkLabH = 10;
+        const auto knobH = juce::jlimit (28, 40, a.getHeight() / 5);
+        const auto w = juce::jmax (1, a.getWidth() / jamstudio::audio::kNumMixBuses);
+
+        // Optional thin "CLK" strip above knobs (first column only spans full width header)
+        // Per-column: label, clk tag, knob, fader
+        for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+        {
+            auto c = (b + 1 < jamstudio::audio::kNumMixBuses) ? a.removeFromLeft (w) : a;
+            busLabels[static_cast<size_t> (b)].setBounds (c.removeFromTop (labH));
+            clickLabels[static_cast<size_t> (b)].setBounds (c.removeFromTop (clkLabH));
+
+            auto knobArea = c.removeFromTop (knobH).reduced (2, 0);
+            // Keep knobs square-ish
+            const auto side = juce::jmin (knobArea.getWidth(), knobArea.getHeight());
+            clickKnobs[static_cast<size_t> (b)].setBounds (
+                knobArea.withSizeKeepingCentre (side, side));
+
+            c.removeFromTop (2);
+            busSliders[static_cast<size_t> (b)].setBounds (c.reduced (0, 1));
+        }
+
+    }
+
+    void timerCallback() override
+    {
+        repaint();
     }
 
 private:
     jamstudio::audio::TransportController& transportController;
     juce::Label title;
-    juce::Label fohLabel, monALabel, monBLabel;
-    juce::Slider fohSlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
-    juce::Slider monASlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
-    juce::Slider monBSlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
+    std::array<juce::Label, jamstudio::audio::kNumMixBuses> busLabels;
+    std::array<juce::Label, jamstudio::audio::kNumMixBuses> clickLabels;
+    std::array<juce::Slider, jamstudio::audio::kNumMixBuses> clickKnobs;
+    std::array<juce::Slider, jamstudio::audio::kNumMixBuses> busSliders;
+    std::array<juce::Rectangle<float>, jamstudio::audio::kNumMixBuses> meterBounds {};
     juce::Label routeHint;
-    juce::ToggleButton clickFoh, clickMon;
+    juce::Label listenLabel;
+    juce::ComboBox listenBox;
+    juce::ToggleButton foldToggle;
 };
 
 class MixerWindow::Content : public juce::Component,
@@ -479,7 +596,7 @@ public:
 
         // Bus masters + VIDEO on the right.
         const auto videoW = juce::jlimit (72, 96, bounds.getWidth() / 8);
-        const auto busW = juce::jlimit (96, 130, bounds.getWidth() / 6);
+        const auto busW = juce::jlimit (150, 220, bounds.getWidth() / 4);
         videoStrip.setBounds (bounds.removeFromRight (videoW));
         bounds.removeFromRight (4);
         busStrip.setBounds (bounds.removeFromRight (busW));
@@ -490,8 +607,8 @@ public:
 
         const auto area = viewport.getLocalBounds();
         const int count = juce::jmax (1, strips.size());
-        // Wider strips for FOH + Mon A + Mon B send columns.
-        const int minStripW = 96;
+        // Wider strips for FOH + Mon 1–5 send columns.
+        const int minStripW = 132;
         const auto stripWidth = juce::jmax (minStripW, area.getWidth() / count);
         stripContainer.setBounds (0, 0, stripWidth * count, area.getHeight());
         viewport.setViewedComponent (&stripContainer, false);
@@ -588,7 +705,7 @@ MixerWindow::MixerWindow (jamstudio::audio::TransportController& transport)
     setContentNonOwned (content.get(), false);
     setResizable (true, true);
     setResizeLimits (520, 360, 2800, 1200);
-    setSize (920, 520);
+    setSize (1100, 540);
     restoredBounds = getBounds();
 
     attachButton.setTooltip ("Stick Stage FX Controller to mixer (<>)");

@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 
+#include "../audio/ArdourCompanion.h"
 #include "../audio/ExternalRecorder.h"
 #include "../audio/StemType.h"
 #include "../audio/TempoDetector.h"
@@ -312,7 +313,10 @@ void MainComponent::toggleMixerWindow()
 
 void MainComponent::toggleStageFxController()
 {
-    stageFxController.showController (! stageFxController.isControllerVisible());
+    const bool show = ! stageFxController.isControllerVisible();
+    if (show)
+        syncVideoOutputs();
+    stageFxController.showController (show);
     floatingDock.onWindowVisibilityChanged();
 }
 
@@ -550,6 +554,7 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     {
         menu.addItem (detectTempoCmd, "Detect Tempo", true, false);
         menu.addSeparator();
+        menu.addItem (openArdourStudioCmd, "Open Studio (Ardour)…", true, false);
         menu.addItem (openExternalRecorderCmd, "Open External Recorder (Audacity…)", true, false);
         menu.addItem (importTakeCmd, "Import Take from File…", true, false);
         menu.addItem (recordCmd, "Internal Record / Stop", true, false);
@@ -619,6 +624,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
                            : "4-count intro OFF.");
             break;
         case recordCmd: toggleRecording(); break;
+        case openArdourStudioCmd: openArdourStudio(); break;
         case openExternalRecorderCmd: openExternalRecorder(); break;
         case importTakeCmd: importTakeFromFile(); break;
         case aiToolsCmd: showAiToolsSetup(); break;
@@ -2006,6 +2012,16 @@ void MainComponent::enterRecordingWorkspace()
     updatePanelToggleStates();
     refreshRecordingTakesPanel();
 
+   #if JUCE_LINUX
+    if (jamstudio::audio::ArdourCompanion::isAvailable())
+    {
+        recordingTakesPanel.setPreferredRecorderName ("Ardour Studio");
+        setStatus ("Recording mode — Open Studio (Ardour) sets up stems + hands off your interface. "
+                   "Import Take when you finish in Ardour.");
+        return;
+    }
+   #endif
+
     const auto preferred = jamstudio::audio::ExternalRecorder::getPreferred();
     recordingTakesPanel.setPreferredRecorderName (preferred.name);
 
@@ -2013,21 +2029,105 @@ void MainComponent::enterRecordingWorkspace()
         setStatus ("Recording mode — REC / Open " + preferred.name
                    + " bounces your mix and opens it for plugins & amp sims. Import Take when done.");
     else
-        setStatus ("Recording mode — install Audacity (or Reaper/Ardour), then Open External Recorder. Import Take when finished.");
+        setStatus ("Recording mode — install Ardour (sudo apt install ardour) for Open Studio, "
+                   "or Audacity for a lighter external recorder.");
+}
+
+void MainComponent::openArdourStudio()
+{
+   #if ! JUCE_LINUX
+    setStatus ("Open Studio (Ardour) is available on Linux.");
+    juce::AlertWindow::showMessageBoxAsync (
+        juce::MessageBoxIconType::InfoIcon,
+        "Open Studio",
+        "The Ardour companion currently targets Linux.\n"
+        "Use Transport → Open External Recorder on other platforms.");
+    return;
+   #else
+    transportController.pause();
+    transportController.stop();
+
+    jamstudio::audio::ArdourHandoffContext ctx;
+    ctx.songTitle = currentSongFile.existsAsFile()
+                        ? currentSongFile.getFileNameWithoutExtension()
+                        : juce::String ("JamStudio-Session");
+    ctx.songFile = currentSongFile;
+    ctx.tempoBpm = transportController.getMetronome().getBpm();
+
+    {
+        const auto setup = audioDeviceManager.getAudioDeviceSetup();
+        ctx.sampleRate = setup.sampleRate > 0.0 ? setup.sampleRate : 48000.0;
+        ctx.bufferSize = setup.bufferSize > 0 ? setup.bufferSize : 256;
+        ctx.inputDeviceName = setup.inputDeviceName;
+        ctx.outputDeviceName = setup.outputDeviceName;
+        ctx.inputChannels = setup.inputChannels.countNumberOfSetBits();
+        ctx.outputChannels = setup.outputChannels.countNumberOfSetBits();
+        ctx.deviceTypeName = audioDeviceManager.getCurrentAudioDeviceType();
+        if (auto* dev = audioDeviceManager.getCurrentAudioDevice())
+        {
+            ctx.sampleRate = dev->getCurrentSampleRate();
+            ctx.bufferSize = dev->getCurrentBufferSizeSamples();
+            ctx.inputChannels = dev->getActiveInputChannels().countNumberOfSetBits();
+            ctx.outputChannels = dev->getActiveOutputChannels().countNumberOfSetBits();
+        }
+    }
+
+    setStatus ("Preparing Ardour Studio pack (export stems, release interface)…");
+
+    const auto result = jamstudio::audio::ArdourCompanion::openStudio (
+        transportController.getStemMixer(),
+        transportController.getFormatManager(),
+        ctx,
+        [this]
+        {
+            // Release hardware so Ardour can claim ALSA / JACK / PipeWire.
+            audioDeviceManager.closeAudioDevice();
+        });
+
+    if (! result.ok)
+    {
+        setStatus (result.message.replaceCharacter ('\n', ' '));
+        juce::AlertWindow::showMessageBoxAsync (
+            juce::MessageBoxIconType::WarningIcon,
+            "Open Studio (Ardour)",
+            result.message);
+        // Try to restore audio
+        audioInterfaceManager.rescanAndApply();
+        return;
+    }
+
+    setStatus ("Ardour launched — interface handed off. Pack: " + result.sessionPackDir.getFileName()
+               + "  |  Import Take when finished.");
+
+    juce::AlertWindow::showMessageBoxAsync (
+        juce::MessageBoxIconType::InfoIcon,
+        "Ardour Studio ready",
+        result.message + "\n\nTip: drag everything from the opened interop/ folder into Ardour after New Session.");
+   #endif
 }
 
 void MainComponent::openExternalRecorder()
 {
+   #if JUCE_LINUX
+    // Prefer full Ardour companion when available
+    if (jamstudio::audio::ArdourCompanion::isAvailable())
+    {
+        openArdourStudio();
+        return;
+    }
+   #endif
+
     auto app = jamstudio::audio::ExternalRecorder::getPreferred();
     if (app.name.isEmpty())
     {
-        setStatus ("No external recorder found. Install Audacity from https://www.audacityteam.org/");
+        setStatus ("No external recorder found. Install Ardour: sudo apt install ardour");
         juce::AlertWindow::showMessageBoxAsync (
             juce::MessageBoxIconType::InfoIcon,
             "External recorder",
-            "JamStudio did not find Audacity, Reaper, Ardour, or similar on this system.\n\n"
-            "Install Audacity (free), then try again.\n"
-            "You can also use Transport → Import Take from File… after recording elsewhere.");
+            "JamStudio did not find Ardour (recommended on Linux) or Audacity.\n\n"
+            "Install Ardour:\n  sudo apt install ardour\n\n"
+            "Then use Transport → Open Studio (Ardour)…\n"
+            "Or Import Take from File… after recording elsewhere.");
         return;
     }
 
@@ -2435,6 +2535,10 @@ void MainComponent::syncVideoOutputs()
 
     if (juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
         title = performanceSetList.songs.getReference (performanceSongIndex).displayName;
+
+    // Stage FX controller previews always stay in sync (even when full-screen outs closed).
+    stageFxController.setSongTitle (title);
+    stageFxController.setLyrics (currentLyrics);
 
     if (karaokeOutput.isOutputVisible())
     {

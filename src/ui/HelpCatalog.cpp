@@ -132,13 +132,17 @@ juce::Array<HelpTopic> buildTopics()
         "“monitor on computer speakers” is on — useful when nothing is plugged into "
         "the interface outputs.\n"
         "• Same device — interface for both in and out (stage multi-bus: outs 1–2 FOH, "
-        "3–4 Mon A, 5–6 Mon B).\n"
+        "3–4 M1 … 11–12 M5).\n"
         "• Manual — pick exact input and output devices.\n\n"
         "Channel counts are matched to what the hardware actually exposes (not fixed "
         "to 6 outs). USB hot-plug is detected every couple of seconds.\n\n"
         "Jack sense: class-compliant USB audio does not report whether cables are "
         "plugged into line outs. JamStudio cannot know empty Scarlett jacks; use "
         "plug-and-play + computer monitor for that case.\n\n"
+        "No hardware? Create a virtual 18i20 for testing (Linux):\n"
+        "  ./scripts/virtual-scarlett-18i20.sh start\n"
+        "Then restart JamStudio and Rescan in this dialog. Stop with:\n"
+        "  ./scripts/virtual-scarlett-18i20.sh stop\n\n"
         "Settings are saved in the JamStudio app data folder (audio-interface.json)."));
 
     // ---------- Mixer & Buses ----------
@@ -150,7 +154,7 @@ juce::Array<HelpTopic> buildTopics()
         "View → Show Mixer opens the floating mixer board.\n\n"
         "• MAIN transport — song + linked stage video\n"
         "• Channel strips — each stem with mute, solo, and bus sends\n"
-        "• BUSES — FOH / Mon A / Mon B masters + click routing\n"
+        "• BUSES — FOH + Mon 1–5 masters, PC listen, click routing\n"
         "• VIDEO — stage media transport and level\n\n"
         "Maximise uses the middle title button; click again to restore size."));
 
@@ -161,7 +165,7 @@ juce::Array<HelpTopic> buildTopics()
         "save mix setlist track performance automation show",
         "In Performance mode, open the Mixer and use the top button:\n\n"
         "  Save Mix → Set Track\n\n"
-        "This captures every stem’s FOH, Mon A, Mon B, mute, and solo for the "
+        "This captures every stem’s FOH, Mon 1–5, mute, and solo for the "
         "song that is currently loaded in the set list, and writes it into the "
         ".setlist file.\n\n"
         "Next time that song plays, those levels are restored automatically.\n"
@@ -173,15 +177,19 @@ juce::Array<HelpTopic> buildTopics()
         "FOH and monitor / IEM buses",
         "Mixer",
         "foh monitor iem in-ear house pa bus send multi output",
-        "Each stem has three independent send faders:\n\n"
+        "Each stem has six independent send faders (band-sized monitor section):\n\n"
         "• FOH — Front of House / PA (hardware outs 1–2)\n"
-        "• A (Mon A) — band monitor / IEM mix A (outs 3–4)\n"
-        "• B (Mon B) — second monitor mix (outs 5–6)\n\n"
-        "Example: guitar quiet in FOH, loud in Mon A for the player; click only on monitors.\n\n"
+        "• M1–M5 — five band / IEM mixes (outs 3–4, 5–6, 7–8, 9–10, 11–12)\n\n"
+        "Example: guitar quiet in FOH, loud in M1 for the player; click on Mons only.\n\n"
         "Bus masters on the right set overall level per destination.\n"
-        "Requires a multi-output audio interface for full 6-channel routing.\n"
-        "Stereo-only devices receive the FOH pair only."));
-
+        "Full matrix needs a multi-output interface (up to 12 outs). Fewer outs open "
+        "only the buses that fit (FOH first).\n\n"
+        "PC LISTEN (mixer BUSES strip):\n"
+        "• Choose FOH / M1–M5 / Sum — that bus is folded to your PC speakers "
+        "so you can audition each player’s mix without 12-out hardware.\n"
+        "• “Fold to PC stereo” on = listen mode (default). Off + enough outs = "
+        "full matrix to hardware.\n"
+        "• Bus meters under the masters show activity on each pair."));
     t.add (topic (
         "mixer-video-strip",
         "VIDEO strip on the mixer",
@@ -334,21 +342,23 @@ juce::Array<HelpTopic> buildTopics()
     // ---------- Recording ----------
     t.add (topic (
         "recording-mode",
-        "Recording mode (external DAW)",
+        "Recording mode + Ardour Studio (Linux)",
         "Recording",
-        "recording mode audacity reaper external plugin amp sim import take",
-        "JamStudio prefers an external recorder for takes so you can use amp sims and plugins.\n\n"
-        "Wizard → Recording:\n"
-        "• Open Project / Open Backing / Empty Session\n\n"
-        "Then:\n"
-        "1. Press REC (or Open Audacity in the Recording panel)\n"
-        "2. JamStudio bounces the current mix to a WAV and launches Audacity/Reaper/Ardour\n"
-        "3. Record with effects/amp sims in that app\n"
-        "4. Export Audio as WAV from the external DAW\n"
-        "5. Import Take… (panel or Transport menu) to bring it back into the mixer\n\n"
-        "Detected apps: Audacity (preferred), Reaper, Ardour, Qtractor, Ocenaudio, etc.\n\n"
-        "Fallback: Transport → Internal Record / Stop still records inside JamStudio.\n"
-        "Takes live under Documents/JamStudio/Recordings/."));
+        "recording mode ardour studio companion handoff stems import take linux",
+        "On Linux, Recording mode is a seamless Ardour companion.\n\n"
+        "Transport → Open Studio (Ardour)…  or  Recording panel → Open Studio:\n\n"
+        "1. JamStudio exports stems + mix bounce into a session pack\n"
+        "   (Documents/JamStudio/ArdourSessions/…/interop/)\n"
+        "2. Writes jamstudio-bridge.json (sample rate, devices, inputs)\n"
+        "3. Releases the audio interface so Ardour can use it\n"
+        "4. Launches Ardour and opens the interop folder\n"
+        "5. In Ardour: New Session at that sample rate → Import all interop WAVs\n"
+        "6. Record with plugins / multi-track as usual\n"
+        "7. Export WAV → JamStudio Transport → Import Take…\n\n"
+        "Install Ardour:  sudo apt install ardour\n\n"
+        "Also available: Open External Recorder (Audacity…) for a lighter path.\n"
+        "Internal Record / Stop still works inside JamStudio.\n"
+        "Packs live under Documents/JamStudio/ArdourSessions/."));
 
     // ---------- MIDI ----------
     t.add (topic (

@@ -2,13 +2,14 @@
 
 #include "../audio/StageMediaPlayer.h"
 #include "../audio/TransportController.h"
+#include "../notation/LyricsTrack.h"
 #include "IndicatorButton.h"
 #include "TapeDeckButton.h"
 
 namespace jamstudio::ui
 {
 
-/** Floating stage media controller — file, transport, video-output routing. */
+/** Floating stage media controller — file, transport, video-output routing + live previews. */
 class StageFxControllerWindow : public juce::DocumentWindow
 {
 public:
@@ -38,6 +39,10 @@ public:
     /** Refresh display lists / open-state buttons (e.g. after menu open/close). */
     void syncVideoRoutingUi();
 
+    /** Keep karaoke preview in sync with the song (also used by full-screen karaoke). */
+    void setLyrics (const jamstudio::notation::LyricsTrack& lyrics);
+    void setSongTitle (const juce::String& title);
+
     [[nodiscard]] bool isControllerVisible() const noexcept { return windowOpen; }
 
     void setDockCallbacks (std::function<void()> onAttach, std::function<void()> onDetach);
@@ -58,7 +63,7 @@ private:
     juce::TextButton attachButton { "<>" };
     juce::TextButton detachButton { "><" };
     bool windowOpen = false;
-    juce::Rectangle<int> restoredBounds { 100, 80, 480, 420 };
+    juce::Rectangle<int> restoredBounds { 80, 60, 560, 640 };
 };
 
 } // namespace jamstudio::ui

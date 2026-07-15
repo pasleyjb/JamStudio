@@ -30,6 +30,11 @@ juce::var StemMixPref::toVar() const
     o->setProperty ("volume", volume);
     o->setProperty ("monA", monA);
     o->setProperty ("monB", monB);
+    o->setProperty ("mon1", monA); // canonical names
+    o->setProperty ("mon2", monB);
+    o->setProperty ("mon3", mon3);
+    o->setProperty ("mon4", mon4);
+    o->setProperty ("mon5", mon5);
     o->setProperty ("muted", muted);
     o->setProperty ("solo", solo);
     return juce::var (o);
@@ -43,11 +48,29 @@ StemMixPref StemMixPref::fromVar (const juce::var& data)
     {
         p.stemName = o->getProperty ("name").toString();
         p.volume = static_cast<float> (static_cast<double> (o->getProperty ("volume")));
-        p.monA = o->hasProperty ("monA")
-                     ? static_cast<float> (static_cast<double> (o->getProperty ("monA")))
-                     : p.volume; // older setlists: mirror FOH into Mon A
-        p.monB = o->hasProperty ("monB")
-                     ? static_cast<float> (static_cast<double> (o->getProperty ("monB")))
+        // Prefer mon1/mon2; fall back to monA/monB for older setlists.
+        if (o->hasProperty ("mon1"))
+            p.monA = static_cast<float> (static_cast<double> (o->getProperty ("mon1")));
+        else if (o->hasProperty ("monA"))
+            p.monA = static_cast<float> (static_cast<double> (o->getProperty ("monA")));
+        else
+            p.monA = p.volume;
+
+        if (o->hasProperty ("mon2"))
+            p.monB = static_cast<float> (static_cast<double> (o->getProperty ("mon2")));
+        else if (o->hasProperty ("monB"))
+            p.monB = static_cast<float> (static_cast<double> (o->getProperty ("monB")));
+        else
+            p.monB = 0.0f;
+
+        p.mon3 = o->hasProperty ("mon3")
+                     ? static_cast<float> (static_cast<double> (o->getProperty ("mon3")))
+                     : 0.0f;
+        p.mon4 = o->hasProperty ("mon4")
+                     ? static_cast<float> (static_cast<double> (o->getProperty ("mon4")))
+                     : 0.0f;
+        p.mon5 = o->hasProperty ("mon5")
+                     ? static_cast<float> (static_cast<double> (o->getProperty ("mon5")))
                      : 0.0f;
         p.muted = static_cast<bool> (o->getProperty ("muted"));
         p.solo = static_cast<bool> (o->getProperty ("solo"));

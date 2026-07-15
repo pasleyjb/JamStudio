@@ -10,8 +10,11 @@ struct StemMixPref
 {
     juce::String stemName; // "Guitar", "Vocals", "Drums", "Bass", ...
     float volume = 0.8f;   // FOH send
-    float monA = 0.7f;     // Monitor / IEM A send
-    float monB = 0.0f;     // Monitor / IEM B send
+    float monA = 0.7f;     // Monitor / IEM 1 (legacy monA)
+    float monB = 0.0f;     // Monitor / IEM 2 (legacy monB)
+    float mon3 = 0.0f;
+    float mon4 = 0.0f;
+    float mon5 = 0.0f;
     bool muted = false;
     bool solo = false;
 

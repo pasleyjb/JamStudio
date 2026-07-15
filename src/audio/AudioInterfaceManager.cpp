@@ -83,8 +83,17 @@ void AudioInterfaceSettings::load()
         preferredSampleRate = static_cast<double> (o->getProperty ("preferredSampleRate"));
         preferredBufferSize = static_cast<int> (o->getProperty ("preferredBufferSize"));
 
-        if (maxInputChannels <= 0) maxInputChannels = kDefaultMaxIn;
-        if (maxOutputChannels <= 0) maxOutputChannels = kDefaultMaxOut;
+        // Opening huge channel counts (e.g. 18/20) often breaks PipeWire ALSA duplex
+        // into "capture only" with silent playback. Keep opens modest.
+        if (maxInputChannels <= 0 || maxInputChannels > 8)
+            maxInputChannels = kDefaultMaxIn;
+        if (maxOutputChannels <= 0 || maxOutputChannels > kMaxMixChannels)
+            maxOutputChannels = kDefaultMaxOut;
+
+        // Drop sticky exclusive-hw preferences that commonly open capture-only under PW.
+        if (preferredOutputName.containsIgnoreCase ("Direct hardware")
+            || preferredOutputName.containsIgnoreCase ("hw:"))
+            preferredOutputName = {};
     }
 }
 
@@ -247,19 +256,40 @@ juce::String AudioInterfaceManager::applySettings (const AudioInterfaceSettings&
             else if (bestIn.typeName.isNotEmpty())
                 typeName = bestIn.typeName;
 
-            // When monitoring on computer speakers, only 2 outs exist — multi-bus folds to FOH.
-            if (settings.preferComputerSpeakersForMonitor
-                && looksLikeMultiIoInterface (bestIn.name, bestIn.maxInputChannels, bestIn.maxOutputChannels)
-                && ! looksLikeMultiIoInterface (bestOut.name, bestOut.maxInputChannels, bestOut.maxOutputChannels))
+            // Stereo fold for PC / virtual listen path.
+            wantOut = juce::jmin (wantOut, 2);
+            wantIn = juce::jmin (wantIn, 2);
+
+            // Prefer system default for speakers — exclusive "Direct hardware" often
+            // fails duplex under PipeWire and leaves JamStudio with capture only.
+            if (settings.preferComputerSpeakersForMonitor)
             {
-                wantOut = juce::jmin (wantOut, 2);
+                for (const auto& d : inv.outputs)
+                {
+                    const auto n = d.name.toLowerCase();
+                    if (n.contains ("default alsa") || n == "default"
+                        || n.contains ("pulse") || n.contains ("pipewire sound"))
+                    {
+                        outName = d.name;
+                        typeName = d.typeName.isNotEmpty() ? d.typeName : typeName;
+                        break;
+                    }
+                }
             }
             break;
         }
     }
 
+    // Clamp open sizes every mode (settings UI can still show higher "max" for future).
+    wantIn = juce::jlimit (0, 8, wantIn);
+    wantOut = juce::jlimit (2, kMaxMixChannels, juce::jmax (2, wantOut));
+
     if (typeName.isEmpty() && deviceManager.getAvailableDeviceTypes().size() > 0)
         typeName = deviceManager.getAvailableDeviceTypes().getUnchecked (0)->getTypeName();
+
+    // Empty output name → let applyChoice use defaults.
+    if (outName.isEmpty())
+        outName = {};
 
     return applyChoice (typeName, inName, outName, wantIn, wantOut);
 }
@@ -428,51 +458,112 @@ juce::String AudioInterfaceManager::applyChoice (const juce::String& typeName,
 {
     const juce::ScopedValueSetter<bool> guard (suppressRescan, true);
 
-    if (typeName.isNotEmpty())
-        deviceManager.setCurrentAudioDeviceType (typeName, true);
+    // Hard caps — large opens often yield capture-only streams under PipeWire.
+    // Allow up to 12 outs for FOH + five band monitors.
+    const int cappedWantIn = juce::jlimit (0, 8, wantInCh);
+    const int cappedWantOut = juce::jlimit (2, kMaxMixChannels, juce::jmax (2, wantOutCh));
 
-    // Probe channel counts for the chosen endpoints.
-    int maxIn = wantInCh;
-    int maxOut = wantOutCh;
-
-    if (auto* type = deviceManager.getCurrentDeviceTypeObject())
+    auto tryOpen = [this] (const juce::String& type,
+                           const juce::String& inDev,
+                           const juce::String& outDev,
+                           int numIn,
+                           int numOut) -> juce::String
     {
-        if (auto* dev = type->createDevice (outputName, inputName))
+        if (type.isNotEmpty())
+            deviceManager.setCurrentAudioDeviceType (type, true);
+
+        int maxIn = numIn;
+        int maxOut = numOut;
+
+        if (auto* devType = deviceManager.getCurrentDeviceTypeObject())
         {
-            std::unique_ptr<juce::AudioIODevice> holder (dev);
-            maxIn = juce::jmax (0, holder->getInputChannelNames().size());
-            maxOut = juce::jmax (0, holder->getOutputChannelNames().size());
+            if (auto* dev = devType->createDevice (outDev, inDev))
+            {
+                std::unique_ptr<juce::AudioIODevice> holder (dev);
+                maxIn = juce::jmax (0, holder->getInputChannelNames().size());
+                maxOut = juce::jmax (0, holder->getOutputChannelNames().size());
+            }
         }
-    }
 
-    const int openIn = juce::jlimit (0, juce::jmax (0, maxIn), wantInCh);
-    const int openOut = juce::jlimit (0, juce::jmax (0, maxOut), wantOutCh);
+        // Always insist on stereo playback if the device reports any outs.
+        int finalOut = juce::jlimit (0, juce::jmax (0, maxOut), numOut);
+        if (finalOut < 2 && maxOut >= 2)
+            finalOut = 2;
+        if (finalOut < 1 && maxOut > 0)
+            finalOut = juce::jmin (2, maxOut);
 
-    // Ensure at least something useful when hardware exists.
-    const int finalIn = openIn > 0 ? openIn : (maxIn > 0 ? juce::jmin (2, maxIn) : 0);
-    const int finalOut = openOut > 0 ? openOut : (maxOut > 0 ? juce::jmin (2, maxOut) : 0);
+        int finalIn = juce::jlimit (0, juce::jmax (0, maxIn), numIn);
+        if (finalIn < 1 && maxIn > 0)
+            finalIn = juce::jmin (2, maxIn);
 
-    juce::AudioDeviceManager::AudioDeviceSetup setup = deviceManager.getAudioDeviceSetup();
-    setup.inputDeviceName = inputName;
-    setup.outputDeviceName = outputName;
-    setup.useDefaultInputChannels = false;
-    setup.useDefaultOutputChannels = false;
-    enableFirstNChannels (setup.inputChannels, finalIn);
-    enableFirstNChannels (setup.outputChannels, finalOut);
+        juce::AudioDeviceManager::AudioDeviceSetup setup;
+        setup.inputDeviceName = inDev;
+        setup.outputDeviceName = outDev;
+        setup.useDefaultInputChannels = false;
+        setup.useDefaultOutputChannels = false;
+        enableFirstNChannels (setup.inputChannels, finalIn);
+        enableFirstNChannels (setup.outputChannels, finalOut);
 
-    if (settings.preferredSampleRate > 0.0)
-        setup.sampleRate = settings.preferredSampleRate;
-    if (settings.preferredBufferSize > 0)
-        setup.bufferSize = settings.preferredBufferSize;
+        if (settings.preferredSampleRate > 0.0)
+            setup.sampleRate = settings.preferredSampleRate;
+        if (settings.preferredBufferSize > 0)
+            setup.bufferSize = settings.preferredBufferSize;
 
-    const auto err = deviceManager.setAudioDeviceSetup (setup, true);
+        // Critical: never open with zero output bits if we want to hear anything.
+        if (setup.outputChannels.countNumberOfSetBits() == 0)
+        {
+            enableFirstNChannels (setup.outputChannels, 2);
+            setup.useDefaultOutputChannels = true;
+        }
+
+        return deviceManager.setAudioDeviceSetup (setup, true);
+    };
+
+    auto activeOutCount = [this]()
+    {
+        if (auto* dev = deviceManager.getCurrentAudioDevice())
+            return dev->getActiveOutputChannels().countNumberOfSetBits();
+        return deviceManager.getAudioDeviceSetup().outputChannels.countNumberOfSetBits();
+    };
+
+    juce::String err = tryOpen (typeName, inputName, outputName, cappedWantIn, cappedWantOut);
     lastError = err;
 
-    if (err.isNotEmpty())
+    // Fallback 1: system default stereo (most reliable on PipeWire / Pulse).
+    if (err.isNotEmpty() || activeOutCount() < 1)
     {
-        // Fallback: try default devices with modest channel counts.
-        deviceManager.initialiseWithDefaultDevices (juce::jmax (1, finalIn), juce::jmax (2, finalOut));
-        lastError = err;
+        err = tryOpen (typeName, {}, {}, 2, 2);
+        if (err.isNotEmpty() || activeOutCount() < 1)
+            deviceManager.initialiseWithDefaultDevices (2, 2);
+
+        if (activeOutCount() < 1)
+        {
+            // Fallback 2: explicit default / pulse names JUCE enumerates on Linux.
+            for (const auto& outTry : { juce::String ("default"),
+                                        juce::String ("Default ALSA Output"),
+                                        juce::String ("pulse"),
+                                        juce::String ("Pulseaudio output") })
+            {
+                err = tryOpen (typeName.isNotEmpty() ? typeName : juce::String ("ALSA"),
+                               {}, outTry, 2, 2);
+                if (err.isEmpty() && activeOutCount() > 0)
+                    break;
+            }
+        }
+
+        if (activeOutCount() < 1)
+            lastError = "No playback channels opened — check system audio output.";
+        else if (lastError.isNotEmpty())
+            lastError = "Fell back to default stereo output (" + lastError + ")";
+        else
+            lastError = {};
+    }
+
+    // Final sanity: if still no outs, last resort initialise.
+    if (activeOutCount() < 1)
+    {
+        deviceManager.initialiseWithDefaultDevices (2, 2);
+        lastError = "Forced default audio device (previous setup had no outputs).";
     }
 
     return lastError;
@@ -507,12 +598,17 @@ AudioRoutingSnapshot AudioInterfaceManager::getSnapshot() const
     s.availableBuses = juce::jlimit (1, kNumMixBuses, s.activeOutputChannels / kChannelsPerBus);
 
     juce::String busLabel;
-    if (s.availableBuses >= 3)
-        busLabel = "FOH + Mon A + Mon B (outs 1-6)";
+    if (s.availableBuses >= 6)
+        busLabel = "FOH + M1–M5 (outs 1-12)";
+    else if (s.availableBuses >= 4)
+        busLabel = "FOH + M1–M" + juce::String (s.availableBuses - 1)
+                   + " (outs 1-" + juce::String (s.availableBuses * 2) + ")";
+    else if (s.availableBuses == 3)
+        busLabel = "FOH + M1–M2 (outs 1-6)";
     else if (s.availableBuses == 2)
-        busLabel = "FOH + Mon A (outs 1-4)";
+        busLabel = "FOH + M1 (outs 1-4)";
     else
-        busLabel = "FOH only (stereo monitor)";
+        busLabel = "FOH only (stereo / PC listen)";
 
     s.summary = "In: " + (s.inputName.isNotEmpty() ? s.inputName : juce::String ("(none)"))
                 + " (" + juce::String (s.activeInputChannels) + " ch)  |  Out: "
@@ -574,19 +670,27 @@ int AudioInterfaceManager::scoreAsComputerMonitor (const juce::String& name, con
     auto n = name.toLowerCase();
     int score = juce::jmin (maxOut, 2) * 8;
 
+    // System default path is the most reliable under PipeWire.
+    if (n.contains ("default alsa") || n == "default" || n.startsWith ("default "))
+        score += 160;
+    if (n.contains ("pulse") || n.contains ("pipewire sound"))
+        score += 140;
+
     if (n.contains ("pch") || n.contains ("hda") || n.contains ("realtek")
         || n.contains ("built-in") || n.contains ("built in") || n.contains ("internal")
-        || n.contains ("speakers") || n.contains ("macbook") || n.contains ("notebook")
-        || n.contains ("analog"))
+        || n.contains ("speakers") || n.contains ("macbook") || n.contains ("notebook"))
         score += 90;
 
-    if (n.contains ("pulse") || n.contains ("default"))
-        score += 45;
+    // Prefer plug devices over exclusive "direct hardware" (hw:) which breaks duplex.
+    if (n.contains ("direct hardware"))
+        score -= 80;
+    if (n.contains ("analog") && ! n.contains ("direct"))
+        score += 20;
 
     if (n.contains ("hdmi") || n.contains ("displayport") || n.contains ("display"))
         score -= 40;
 
-    // Multi-IO boxes are poor default *monitors* when the user has no speakers on them.
+    // Multi-IO / virtual Scarlett test sinks are not PC speaker monitors.
     if (looksLikeMultiIoInterface (name, 0, maxOut) || maxOut >= 8)
         score -= 80;
 
@@ -595,7 +699,7 @@ int AudioInterfaceManager::scoreAsComputerMonitor (const juce::String& name, con
     };
     for (auto* b : brands)
         if (n.contains (b))
-            score -= 100;
+            score -= 150;
 
     return score;
 }

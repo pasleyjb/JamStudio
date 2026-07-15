@@ -32,8 +32,9 @@ AudioSettingsDialog::AudioSettingsDialog (jamstudio::audio::AudioInterfaceManage
     introLabel.setText (
         "Plug-and-play: JamStudio detects multi-input interfaces (Scarlett, etc.) for capture "
         "and can monitor on your PC speakers — ideal when nothing is plugged into the interface outs.\n"
-        "Same device: use the interface for both in and out (stage multi-bus FOH / Mon A / Mon B).\n"
-        "Manual: pick exact devices below.",
+        "Same device: use the interface for both in and out (FOH + Mon 1–5, up to 12 outs).\n"
+        "Manual: pick exact devices below.\n"
+        "No box on hand (Linux): ./scripts/virtual-scarlett-18i20.sh start  then Rescan.",
         juce::dontSendNotification);
     introLabel.setJustificationType (juce::Justification::topLeft);
     addAndMakeVisible (introLabel);
@@ -62,7 +63,7 @@ AudioSettingsDialog::AudioSettingsDialog (jamstudio::audio::AudioInterfaceManage
     addAndMakeVisible (maxInBox);
 
     addAndMakeVisible (maxOutLabel);
-    for (int n : { 2, 4, 6, 8, 10, 12, 18, 20 })
+    for (int n : { 2, 4, 6, 8, 10, 12 })
         maxOutBox.addItem (juce::String (n), n);
     maxOutBox.setSelectedId (manager.getSettings().maxOutputChannels, juce::dontSendNotification);
     if (maxOutBox.getSelectedId() <= 0)

@@ -12,6 +12,12 @@ MixerChannelStrip::MixerChannelStrip (const int stemIndex,
       stemMixer (mixer),
       onStemChanged (std::move (onChanged))
 {
+    for (auto& s : busSliders)
+    {
+        s.setSliderStyle (juce::Slider::LinearVertical);
+        s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    }
+
     const auto* track = stemMixer.getStem (index);
 
     if (track != nullptr)
@@ -23,9 +29,10 @@ MixerChannelStrip::MixerChannelStrip (const int stemIndex,
                            juce::dontSendNotification);
         muteButton.setToggleState (track->isMuted(), juce::dontSendNotification);
         soloButton.setToggleState (track->isSolo(), juce::dontSendNotification);
-        fohSlider.setValue (track->getBusSend (jamstudio::audio::MixBus::foh), juce::dontSendNotification);
-        monASlider.setValue (track->getBusSend (jamstudio::audio::MixBus::monitorA), juce::dontSendNotification);
-        monBSlider.setValue (track->getBusSend (jamstudio::audio::MixBus::monitorB), juce::dontSendNotification);
+        for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+            busSliders[static_cast<size_t> (b)].setValue (
+                track->getBusSend (static_cast<jamstudio::audio::MixBus> (b)),
+                juce::dontSendNotification);
         levelLabel.setText (juce::String (static_cast<int> (track->getVolume() * 100)),
                             juce::dontSendNotification);
     }
@@ -44,8 +51,14 @@ MixerChannelStrip::MixerChannelStrip (const int stemIndex,
     soloButton.onClick = [this] { applyControlsToMixer(); updateIndicators(); };
     addAndMakeVisible (soloButton);
 
-    auto setupFader = [this] (juce::Slider& s, juce::Label& lab, juce::Colour accent)
+    for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
     {
+        const auto bus = static_cast<jamstudio::audio::MixBus> (b);
+        const auto accent = jamstudio::audio::mixBusColour (bus);
+        auto& lab = busLabels[static_cast<size_t> (b)];
+        auto& s = busSliders[static_cast<size_t> (b)];
+
+        lab.setText (jamstudio::audio::mixBusName (bus), juce::dontSendNotification);
         lab.setJustificationType (juce::Justification::centred);
         lab.setFont (juce::FontOptions (9.0f, juce::Font::bold));
         lab.setColour (juce::Label::textColourId, accent);
@@ -58,22 +71,18 @@ MixerChannelStrip::MixerChannelStrip (const int stemIndex,
         s.setNumDecimalPlacesToDisplay (0);
         s.setColour (juce::Slider::thumbColourId, accent);
         s.setColour (juce::Slider::trackColourId, accent.withAlpha (0.35f));
+        s.setTooltip (jamstudio::audio::mixBusLongName (bus)
+                      + "  (HW outs " + jamstudio::audio::mixBusHardwareOuts (bus) + ")");
         s.onValueChange = [this]
         {
-            levelLabel.setText (juce::String (static_cast<int> (fohSlider.getValue() * 100)),
-                                juce::dontSendNotification);
+            levelLabel.setText (
+                juce::String (static_cast<int> (
+                    busSliders[static_cast<size_t> (jamstudio::audio::MixBus::foh)].getValue() * 100)),
+                juce::dontSendNotification);
             applyControlsToMixer();
         };
         addAndMakeVisible (s);
-    };
-
-    setupFader (fohSlider, fohLabel, jamstudio::audio::mixBusColour (jamstudio::audio::MixBus::foh));
-    setupFader (monASlider, monALabel, jamstudio::audio::mixBusColour (jamstudio::audio::MixBus::monitorA));
-    setupFader (monBSlider, monBLabel, jamstudio::audio::mixBusColour (jamstudio::audio::MixBus::monitorB));
-
-    fohSlider.setTooltip ("Front of house / PA send");
-    monASlider.setTooltip ("Monitor / IEM mix A send");
-    monBSlider.setTooltip ("Monitor / IEM mix B send");
+    }
 
     levelLabel.setJustificationType (juce::Justification::centred);
     levelLabel.setFont (juce::FontOptions (10.0f));
@@ -92,9 +101,10 @@ void MixerChannelStrip::syncFromTrack (const jamstudio::audio::StemTrack& track)
                        juce::dontSendNotification);
     muteButton.setToggleState (track.isMuted(), juce::dontSendNotification);
     soloButton.setToggleState (track.isSolo(), juce::dontSendNotification);
-    fohSlider.setValue (track.getBusSend (jamstudio::audio::MixBus::foh), juce::dontSendNotification);
-    monASlider.setValue (track.getBusSend (jamstudio::audio::MixBus::monitorA), juce::dontSendNotification);
-    monBSlider.setValue (track.getBusSend (jamstudio::audio::MixBus::monitorB), juce::dontSendNotification);
+    for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+        busSliders[static_cast<size_t> (b)].setValue (
+            track.getBusSend (static_cast<jamstudio::audio::MixBus> (b)),
+            juce::dontSendNotification);
     levelLabel.setText (juce::String (static_cast<int> (track.getVolume() * 100)),
                         juce::dontSendNotification);
     updateIndicators();
@@ -105,12 +115,10 @@ void MixerChannelStrip::applyControlsToMixer()
 {
     stemMixer.setStemMuted (index, muteButton.getToggleState());
     stemMixer.setStemSolo (index, soloButton.getToggleState());
-    stemMixer.setStemBusSend (index, jamstudio::audio::MixBus::foh,
-                              static_cast<float> (fohSlider.getValue()));
-    stemMixer.setStemBusSend (index, jamstudio::audio::MixBus::monitorA,
-                              static_cast<float> (monASlider.getValue()));
-    stemMixer.setStemBusSend (index, jamstudio::audio::MixBus::monitorB,
-                              static_cast<float> (monBSlider.getValue()));
+    for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+        stemMixer.setStemBusSend (index,
+                                  static_cast<jamstudio::audio::MixBus> (b),
+                                  static_cast<float> (busSliders[static_cast<size_t> (b)].getValue()));
     notifyChanged();
 }
 
@@ -207,13 +215,13 @@ void MixerChannelStrip::paint (juce::Graphics& g)
 
 void MixerChannelStrip::resized()
 {
-    auto bounds = getLocalBounds().reduced (juce::jmax (2, getWidth() / 16),
+    auto bounds = getLocalBounds().reduced (juce::jmax (2, getWidth() / 20),
                                             juce::jmax (3, getHeight() / 50));
 
     const auto nameH = juce::jlimit (16, 28, getHeight() / 14);
     const auto btnH = juce::jlimit (20, 32, getHeight() / 12);
     const auto levelH = juce::jlimit (12, 18, getHeight() / 20);
-    const auto labH = juce::jlimit (12, 16, getHeight() / 28);
+    const auto labH = juce::jlimit (11, 15, getHeight() / 30);
 
     nameLabel.setBounds (bounds.removeFromTop (nameH));
     bounds.removeFromTop (2);
@@ -226,24 +234,20 @@ void MixerChannelStrip::resized()
     levelLabel.setBounds (bounds.removeFromBottom (levelH));
     bounds.removeFromBottom (2);
 
-    const auto meterW = juce::jlimit (7, 12, bounds.getWidth() / 8);
+    const auto meterW = juce::jlimit (6, 10, bounds.getWidth() / 10);
     meterBounds = bounds.removeFromRight (meterW).reduced (1, 2);
-    bounds.removeFromRight (2);
+    bounds.removeFromRight (1);
 
-    // Three send columns: FOH | Mon A | Mon B
-    const auto colW = bounds.getWidth() / 3;
-    auto fohCol = bounds.removeFromLeft (colW);
-    auto monACol = bounds.removeFromLeft (colW);
-    auto monBCol = bounds;
-
-    fohLabel.setBounds (fohCol.removeFromTop (labH));
-    fohSlider.setBounds (fohCol.reduced (1, 1));
-
-    monALabel.setBounds (monACol.removeFromTop (labH));
-    monASlider.setBounds (monACol.reduced (1, 1));
-
-    monBLabel.setBounds (monBCol.removeFromTop (labH));
-    monBSlider.setBounds (monBCol.reduced (1, 1));
+    // Six send columns: FOH | M1 | M2 | M3 | M4 | M5
+    const auto colW = juce::jmax (1, bounds.getWidth() / jamstudio::audio::kNumMixBuses);
+    for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+    {
+        auto col = (b + 1 < jamstudio::audio::kNumMixBuses)
+                       ? bounds.removeFromLeft (colW)
+                       : bounds;
+        busLabels[static_cast<size_t> (b)].setBounds (col.removeFromTop (labH));
+        busSliders[static_cast<size_t> (b)].setBounds (col.reduced (0, 1));
+    }
 }
 
 } // namespace jamstudio::ui

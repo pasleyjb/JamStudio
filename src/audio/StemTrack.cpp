@@ -26,7 +26,7 @@ bool StemTrack::loadFromFile (const juce::File& file, juce::AudioFormatManager& 
 
     muted = false;
     solo = false;
-    busSends = { 0.8f, 0.7f, 0.0f };
+    busSends = defaultStemBusSends();
     meterLevel.store (0.0f, std::memory_order_relaxed);
     meterPeakHold.store (0.0f, std::memory_order_relaxed);
     peakHoldTimer.store (0.0f, std::memory_order_relaxed);

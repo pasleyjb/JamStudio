@@ -40,7 +40,7 @@ private:
 
     juce::Label title { {}, "RECORDING" };
     juce::Label hint { {}, "Use external DAW for amp sims / plugins" };
-    juce::TextButton openExternalButton { "Open Audacity" };
+    juce::TextButton openExternalButton { "Open Studio" };
     juce::TextButton importButton { "Import Take..." };
     juce::ListBox list;
     juce::TextButton loadButton { "Load to Mixer" };

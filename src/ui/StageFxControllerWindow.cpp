@@ -3,9 +3,271 @@
 #include "JamStudioTheme.h"
 #include "VideoOutputWindow.h"
 
+#include <cmath>
+
 namespace jamstudio::ui
 {
 
+namespace
+{
+/** Mini karaoke monitor (same layout language as full KaraokeOutputWindow). */
+class KaraokePreviewPanel : public juce::Component,
+                            private juce::Timer
+{
+public:
+    explicit KaraokePreviewPanel (jamstudio::audio::TransportController& t)
+        : transport (t)
+    {
+        startTimerHz (20);
+    }
+
+    void setLyrics (const jamstudio::notation::LyricsTrack& l)
+    {
+        lyrics = l;
+        lyrics.sanitizeAll();
+        activeLine = lyrics.isEmpty() ? -1 : lyrics.getActiveLineIndex (transport.getPosition());
+        repaint();
+    }
+
+    void setSongTitle (const juce::String& t)
+    {
+        songTitle = jamstudio::notation::LyricsTrack::sanitizeDisplayText (t);
+        repaint();
+    }
+
+    void setOutputLive (const bool live)
+    {
+        if (outputLive != live)
+        {
+            outputLive = live;
+            repaint();
+        }
+    }
+
+    void timerCallback() override
+    {
+        if (lyrics.isEmpty())
+            return;
+        const auto line = lyrics.getActiveLineIndex (transport.getPosition());
+        if (line != activeLine)
+        {
+            activeLine = line;
+            repaint();
+        }
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colours::black);
+        g.setColour (JamStudioTheme::getColours().border);
+        g.drawRect (getLocalBounds(), 1);
+
+        auto area = getLocalBounds().reduced (8, 6);
+
+        // Header
+        g.setColour (juce::Colours::white.withAlpha (0.7f));
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        auto head = area.removeFromTop (16);
+        g.drawText ("KARAOKE PREVIEW", head.removeFromLeft (head.getWidth() / 2),
+                    juce::Justification::centredLeft);
+        g.setColour (outputLive ? juce::Colour (0xff33cc66) : juce::Colours::white.withAlpha (0.35f));
+        g.setFont (juce::FontOptions (10.0f));
+        g.drawText (outputLive ? "LIVE ON DISPLAY" : "preview only", head,
+                    juce::Justification::centredRight);
+
+        if (songTitle.isNotEmpty())
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.45f));
+            g.setFont (juce::FontOptions (10.0f));
+            g.drawText (songTitle, area.removeFromTop (14), juce::Justification::centred);
+        }
+
+        area.removeFromTop (4);
+
+        if (lyrics.isEmpty())
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.setFont (juce::FontOptions (12.0f));
+            g.drawText ("No lyrics loaded", area, juce::Justification::centred);
+            return;
+        }
+
+        const int prev = activeLine > 0 ? activeLine - 1 : -1;
+        const int next = (activeLine >= 0 && activeLine + 1 < lyrics.getNumLines())
+                             ? activeLine + 1
+                             : (activeLine < 0 && lyrics.getNumLines() > 0 ? 0 : -1);
+
+        const auto rowH = area.getHeight() / 3;
+        auto top = area.removeFromTop (rowH);
+        auto mid = area.removeFromTop (rowH);
+        auto bot = area;
+
+        auto drawLine = [&] (juce::Rectangle<int> r, int idx, bool current)
+        {
+            if (idx < 0)
+                return;
+            if (const auto* line = lyrics.getLine (idx))
+            {
+                if (current)
+                {
+                    g.setColour (juce::Colour (0xff1a3a5c).withAlpha (0.9f));
+                    g.fillRoundedRectangle (r.reduced (2).toFloat(), 6.0f);
+                }
+                g.setColour (current ? juce::Colour (0xffffdd44) : juce::Colours::white.withAlpha (0.4f));
+                g.setFont (juce::FontOptions (current ? 13.0f : 11.0f,
+                                              current ? juce::Font::bold : juce::Font::plain));
+                g.drawFittedText (line->text, r.reduced (6, 2), juce::Justification::centred, 2);
+            }
+        };
+
+        if (activeLine < 0)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.3f));
+            g.drawText ("…", mid, juce::Justification::centred);
+            drawLine (bot, 0, false);
+        }
+        else
+        {
+            drawLine (top, prev, false);
+            drawLine (mid, activeLine, true);
+            drawLine (bot, next, false);
+        }
+    }
+
+private:
+    jamstudio::audio::TransportController& transport;
+    jamstudio::notation::LyricsTrack lyrics;
+    juce::String songTitle;
+    int activeLine = -1;
+    bool outputLive = false;
+};
+
+/** Mini stage / video monitor (video frame or reactive FX). */
+class StagePreviewPanel : public juce::Component,
+                          private juce::Timer
+{
+public:
+    explicit StagePreviewPanel (jamstudio::audio::TransportController& t)
+        : transport (t)
+    {
+        startTimerHz (18);
+    }
+
+    void setSongTitle (const juce::String& t)
+    {
+        songTitle = jamstudio::notation::LyricsTrack::sanitizeDisplayText (t);
+        repaint();
+    }
+
+    void setOutputLive (const bool live)
+    {
+        if (outputLive != live)
+        {
+            outputLive = live;
+            repaint();
+        }
+    }
+
+    void timerCallback() override
+    {
+        auto& stage = transport.getStageMedia();
+        energy = juce::jmax (energy * 0.88f, stage.getMeterLevel());
+        phase += (stage.isPlaying() || transport.isPlaying()) ? 0.05f : 0.015f;
+        if (phase > juce::MathConstants<float>::twoPi)
+            phase -= juce::MathConstants<float>::twoPi;
+
+        if (stage.hasVideo() || stage.isSlideshow())
+        {
+            const auto serial = stage.getVideoFrameSerial();
+            auto next = stage.getVideoFrame();
+            if (next.isValid() && (serial != lastSerial || ! frame.isValid()))
+            {
+                lastSerial = serial;
+                frame = std::move (next);
+            }
+        }
+        else if (frame.isValid())
+        {
+            frame = {};
+            lastSerial = 0;
+        }
+
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0xff050508));
+        g.setColour (JamStudioTheme::getColours().border);
+        g.drawRect (getLocalBounds(), 1);
+
+        auto area = getLocalBounds().reduced (8, 6);
+        g.setColour (juce::Colours::white.withAlpha (0.7f));
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        auto head = area.removeFromTop (16);
+        g.drawText ("STAGE FX PREVIEW", head.removeFromLeft (head.getWidth() / 2),
+                    juce::Justification::centredLeft);
+        g.setColour (outputLive ? juce::Colour (0xff33cc66) : juce::Colours::white.withAlpha (0.35f));
+        g.setFont (juce::FontOptions (10.0f));
+        g.drawText (outputLive ? "LIVE ON DISPLAY" : "preview only", head,
+                    juce::Justification::centredRight);
+        area.removeFromTop (2);
+
+        const auto w = static_cast<float> (area.getWidth());
+        const auto h = static_cast<float> (area.getHeight());
+        const auto cx = area.getX() + w * 0.5f;
+        const auto cy = area.getY() + h * 0.5f;
+
+        if (frame.isValid())
+        {
+            g.setImageResamplingQuality (juce::Graphics::mediumResamplingQuality);
+            g.drawImageWithin (frame, area.getX(), area.getY(), area.getWidth(), area.getHeight(),
+                               juce::RectanglePlacement::centred | juce::RectanglePlacement::onlyReduceInSize,
+                               false);
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.fillRect (area.removeFromBottom (22));
+        }
+        else
+        {
+            const auto glowR = juce::jmin (w, h) * (0.22f + 0.12f * energy);
+            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff2a6cff).withAlpha (0.35f * juce::jmax (0.15f, energy)),
+                                                     cx, cy,
+                                                     juce::Colours::transparentBlack, cx + glowR, cy, true));
+            g.fillEllipse (cx - glowR, cy - glowR, glowR * 2.0f, glowR * 2.0f);
+
+            const int bars = 28;
+            auto barArea = area.removeFromBottom (juce::jmax (24, area.getHeight() / 3)).reduced (6, 4).toFloat();
+            const auto barW = barArea.getWidth() / static_cast<float> (bars);
+            for (int i = 0; i < bars; ++i)
+            {
+                const auto t = static_cast<float> (i) / static_cast<float> (bars);
+                const auto wave = 0.5f + 0.5f * std::sin (phase * 2.0f + t * 10.0f);
+                const auto barH = barArea.getHeight() * wave * juce::jmax (0.2f, energy);
+                g.setColour (juce::Colour::fromHSV (std::fmod (t + phase * 0.04f, 1.0f), 0.8f, 0.95f, 0.9f));
+                g.fillRoundedRectangle (barArea.getX() + t * barArea.getWidth() + 1.0f,
+                                        barArea.getBottom() - barH, barW - 2.0f, barH, 1.5f);
+            }
+        }
+
+        g.setColour (juce::Colours::white.withAlpha (0.85f));
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (songTitle.isNotEmpty() ? songTitle : "Stage board",
+                    getLocalBounds().reduced (10).removeFromBottom (20),
+                    juce::Justification::centred);
+    }
+
+private:
+    jamstudio::audio::TransportController& transport;
+    juce::Image frame;
+    juce::String songTitle;
+    uint32_t lastSerial = 0;
+    float phase = 0.0f;
+    float energy = 0.1f;
+    bool outputLive = false;
+};
+} // namespace
+
+//==============================================================================
 class StageFxControllerWindow::Content : public juce::Component,
                                          private juce::Timer,
                                          private juce::ChangeListener
@@ -15,7 +277,9 @@ public:
              VideoRouting& routing)
         : transportController (transport),
           stageMedia (transport.getStageMedia()),
-          videoRouting (routing)
+          videoRouting (routing),
+          karaokePreview (transport),
+          stagePreview (transport)
     {
         title.setText ("Stage Visual Effects", juce::dontSendNotification);
         title.setFont (juce::FontOptions (16.0f, juce::Font::bold));
@@ -83,7 +347,6 @@ public:
         positionLabel.setColour (juce::Label::textColourId, JamStudioTheme::getColours().textSecondary);
         addAndMakeVisible (positionLabel);
 
-        // ---- Video outputs ----
         outputsHeading.setText ("Video outputs", juce::dontSendNotification);
         outputsHeading.setFont (juce::FontOptions (13.0f, juce::Font::bold));
         addAndMakeVisible (outputsHeading);
@@ -101,15 +364,11 @@ public:
             const auto idx = karaokeDisplayBox.getSelectedItemIndex();
             if (idx < 0)
                 return;
-
             if (videoRouting.setKaraokeDisplay)
                 videoRouting.setKaraokeDisplay (idx);
-
-            // Move live output if already open
             if (videoRouting.isKaraokeVisible && videoRouting.isKaraokeVisible()
                 && videoRouting.openKaraoke)
                 videoRouting.openKaraoke();
-
             updateOutputButtons();
         };
         addAndMakeVisible (karaokeDisplayBox);
@@ -119,14 +378,11 @@ public:
             const auto idx = stageDisplayBox.getSelectedItemIndex();
             if (idx < 0)
                 return;
-
             if (videoRouting.setStageDisplay)
                 videoRouting.setStageDisplay (idx);
-
             if (videoRouting.isStageVisible && videoRouting.isStageVisible()
                 && videoRouting.openStage)
                 videoRouting.openStage();
-
             updateOutputButtons();
         };
         addAndMakeVisible (stageDisplayBox);
@@ -171,11 +427,17 @@ public:
         };
         addAndMakeVisible (stageToggle);
 
+        previewsHeading.setText ("Output previews", juce::dontSendNotification);
+        previewsHeading.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        addAndMakeVisible (previewsHeading);
+
+        addAndMakeVisible (karaokePreview);
+        addAndMakeVisible (stagePreview);
+
         refreshDisplayLists();
 
-        hint.setText ("Choose displays for Karaoke and Stage FX, then Open. "
-                      "Screens do not auto-open in Performance mode. "
-                      "MPEG/video media plays on Stage FX output.",
+        hint.setText ("Previews mirror the full-screen outputs. Open Karaoke / Stage FX to send "
+                      "them to the chosen displays (does not auto-open in Performance mode).",
                       juce::dontSendNotification);
         hint.setColour (juce::Label::textColourId, JamStudioTheme::getColours().textSecondary);
         addAndMakeVisible (hint);
@@ -189,6 +451,17 @@ public:
     ~Content() override
     {
         stageMedia.removeChangeListener (this);
+    }
+
+    void setLyrics (const jamstudio::notation::LyricsTrack& lyrics)
+    {
+        karaokePreview.setLyrics (lyrics);
+    }
+
+    void setSongTitle (const juce::String& songTitle)
+    {
+        karaokePreview.setSongTitle (songTitle);
+        stagePreview.setSongTitle (songTitle);
     }
 
     void syncVideoRoutingUi()
@@ -218,7 +491,6 @@ public:
         g.setColour (JamStudioTheme::getColours().border);
         g.drawRoundedRectangle (meter, 3.0f, 1.0f);
 
-        // Subtle panel behind output controls
         if (! outputPanelBounds.isEmpty())
         {
             g.setColour (JamStudioTheme::getColours().panelBackground.brighter (0.04f));
@@ -226,38 +498,62 @@ public:
             g.setColour (JamStudioTheme::getColours().border);
             g.drawRoundedRectangle (outputPanelBounds.toFloat(), 8.0f, 1.0f);
         }
+
+        if (! previewPanelBounds.isEmpty())
+        {
+            g.setColour (JamStudioTheme::getColours().panelBackground.brighter (0.03f));
+            g.fillRoundedRectangle (previewPanelBounds.toFloat(), 8.0f);
+            g.setColour (JamStudioTheme::getColours().border);
+            g.drawRoundedRectangle (previewPanelBounds.toFloat(), 8.0f, 1.0f);
+        }
     }
 
     void resized() override
     {
         auto a = getLocalBounds().reduced (12);
-        title.setBounds (a.removeFromTop (24));
-        a.removeFromTop (6);
-        auto fileRow = a.removeFromTop (30);
+        title.setBounds (a.removeFromTop (22));
+        a.removeFromTop (4);
+
+        // Previews pinned to the bottom of the controller
+        const auto previewH = juce::jlimit (140, 220, getHeight() / 3);
+        previewPanelBounds = a.removeFromBottom (previewH);
+        auto prev = previewPanelBounds.reduced (10, 8);
+        previewsHeading.setBounds (prev.removeFromTop (16));
+        prev.removeFromTop (4);
+        const auto gap = 8;
+        auto left = prev.removeFromLeft ((prev.getWidth() - gap) / 2);
+        prev.removeFromLeft (gap);
+        karaokePreview.setBounds (left);
+        stagePreview.setBounds (prev);
+
+        a.removeFromBottom (6);
+        hint.setBounds (a.removeFromBottom (36));
+        a.removeFromBottom (6);
+
+        auto fileRow = a.removeFromTop (28);
         openButton.setBounds (fileRow.removeFromRight (120).reduced (2));
         fileLabel.setBounds (fileRow);
-        a.removeFromTop (10);
+        a.removeFromTop (8);
 
-        auto deck = a.removeFromTop (48);
-        const auto b = juce::jmin (44, deck.getHeight());
+        auto deck = a.removeFromTop (44);
+        const auto b = juce::jmin (40, deck.getHeight());
         playButton.setBounds (deck.removeFromLeft (b + 6).withSizeKeepingCentre (b, b));
         pauseButton.setBounds (deck.removeFromLeft (b + 6).withSizeKeepingCentre (b, b));
         stopButton.setBounds (deck.removeFromLeft (b + 6).withSizeKeepingCentre (b, b));
         deck.removeFromLeft (6);
         loopButton.setBounds (deck.removeFromLeft (64).reduced (1));
         positionLabel.setBounds (deck.reduced (8, 4));
-        a.removeFromTop (10);
+        a.removeFromTop (8);
 
-        volumeLabel.setBounds (a.removeFromTop (18));
-        auto volRow = a.removeFromTop (28);
+        volumeLabel.setBounds (a.removeFromTop (16));
+        auto volRow = a.removeFromTop (26);
         volumeReadout.setBounds (volRow.removeFromRight (48));
         volumeSlider.setBounds (volRow);
+        a.removeFromTop (6);
+        meterBounds = a.removeFromTop (12);
         a.removeFromTop (8);
-        meterBounds = a.removeFromTop (14);
-        a.removeFromTop (10);
 
-        // Outputs block
-        outputPanelBounds = a.removeFromTop (118);
+        outputPanelBounds = a;
         auto out = outputPanelBounds.reduced (10, 8);
         outputsHeading.setBounds (out.removeFromTop (18));
         out.removeFromTop (4);
@@ -272,9 +568,6 @@ public:
         stageLabel.setBounds (stageRow.removeFromLeft (70));
         stageToggle.setBounds (stageRow.removeFromRight (110).reduced (2));
         stageDisplayBox.setBounds (stageRow.reduced (2));
-
-        a.removeFromTop (8);
-        hint.setBounds (a.removeFromTop (52));
     }
 
 private:
@@ -307,6 +600,8 @@ private:
 
         karaokeToggle.setButtonText (karaokeOpen ? "Close Karaoke" : "Open Karaoke");
         stageToggle.setButtonText (stageOpen ? "Close Stage" : "Open Stage");
+        karaokePreview.setOutputLive (karaokeOpen);
+        stagePreview.setOutputLive (stageOpen);
     }
 
     void chooseFile()
@@ -323,12 +618,10 @@ private:
         fileChooser->launchAsync (browserFlags, [this] (const juce::FileChooser& chooser)
         {
             const auto file = chooser.getResult();
-
             if (! file.existsAsFile())
                 return;
 
             juce::String error;
-
             if (! stageMedia.loadFile (file, error))
             {
                 juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
@@ -336,7 +629,6 @@ private:
                                                         error);
                 return;
             }
-
             updateTransport();
         });
     }
@@ -417,11 +709,17 @@ private:
     juce::TextButton stageToggle;
     juce::Rectangle<int> outputPanelBounds;
 
+    juce::Label previewsHeading;
+    KaraokePreviewPanel karaokePreview;
+    StagePreviewPanel stagePreview;
+    juce::Rectangle<int> previewPanelBounds;
+
     juce::Label hint;
     juce::Rectangle<int> meterBounds;
     std::unique_ptr<juce::FileChooser> fileChooser;
 };
 
+//==============================================================================
 StageFxControllerWindow::StageFxControllerWindow (jamstudio::audio::TransportController& transport)
     : DocumentWindow ("Stage FX Controller",
                       JamStudioTheme::getColours().windowBackground,
@@ -435,8 +733,8 @@ StageFxControllerWindow::StageFxControllerWindow (jamstudio::audio::TransportCon
     content = std::make_unique<Content> (transport, videoRouting);
     setContentNonOwned (content.get(), false);
     setResizable (true, true);
-    setResizeLimits (400, 360, 900, 700);
-    setSize (500, 440);
+    setResizeLimits (460, 520, 1100, 900);
+    setSize (560, 640);
     restoredBounds = getBounds();
 
     attachButton.setTooltip ("Stick to mixer (<>)");
@@ -451,7 +749,6 @@ StageFxControllerWindow::StageFxControllerWindow (jamstudio::audio::TransportCon
         if (dockDetach)
             dockDetach();
     };
-    // ResizableWindow shadows Component& overload — pass pointers.
     addAndMakeVisible (&attachButton);
     addAndMakeVisible (&detachButton);
     setDockStickyState (true);
@@ -479,6 +776,18 @@ void StageFxControllerWindow::syncVideoRoutingUi()
 {
     if (content != nullptr)
         content->syncVideoRoutingUi();
+}
+
+void StageFxControllerWindow::setLyrics (const jamstudio::notation::LyricsTrack& lyrics)
+{
+    if (content != nullptr)
+        content->setLyrics (lyrics);
+}
+
+void StageFxControllerWindow::setSongTitle (const juce::String& title)
+{
+    if (content != nullptr)
+        content->setSongTitle (title);
 }
 
 void StageFxControllerWindow::showController (const bool shouldShow)
@@ -539,7 +848,7 @@ void StageFxControllerWindow::setDockStickyState (const bool sticky)
 void StageFxControllerWindow::layoutDockButtons()
 {
     const auto titleH = getTitleBarHeight();
-    const auto reserve = titleH + 8; // close only
+    const auto reserve = titleH + 8;
     auto r = juce::Rectangle<int> (getWidth() - reserve - 72, 2, 68, juce::jmax (18, titleH - 4));
     if (detachButton.isVisible())
         detachButton.setBounds (r.removeFromRight (32));

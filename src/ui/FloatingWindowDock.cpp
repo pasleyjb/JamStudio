@@ -15,6 +15,26 @@ juce::File jamStudioConfigDir()
     dir.createDirectory();
     return dir;
 }
+
+/** Keep a window rectangle mostly visible on the multi-display desktop. */
+juce::Rectangle<int> clampToDesktop (juce::Rectangle<int> r)
+{
+    auto total = juce::Desktop::getInstance().getDisplays().getTotalBounds (true);
+    if (total.isEmpty())
+        return r;
+
+    // Prefer keeping the title bar reachable.
+    const int minVisible = 48;
+    if (r.getRight() < total.getX() + minVisible)
+        r.setX (total.getX() + minVisible - r.getWidth());
+    if (r.getX() > total.getRight() - minVisible)
+        r.setX (total.getRight() - minVisible);
+    if (r.getBottom() < total.getY() + minVisible)
+        r.setY (total.getY() + minVisible - r.getHeight());
+    if (r.getY() > total.getBottom() - minVisible)
+        r.setY (total.getBottom() - minVisible);
+    return r;
+}
 } // namespace
 
 juce::File FloatingDockSettings::getSettingsFile()
@@ -47,7 +67,6 @@ FloatingDockSettings::Side FloatingDockSettings::sideFromString (const juce::Str
 
 void FloatingDockSettings::load()
 {
-    // Defaults already set on the struct.
     const auto file = getSettingsFile();
     if (! file.existsAsFile())
         return;
@@ -132,6 +151,10 @@ void FloatingWindowDock::setSettings (const FloatingDockSettings& s)
 
 void FloatingWindowDock::attach()
 {
+    // If both windows are already open, pick the side that matches their relative pose.
+    if (bothVisible())
+        settings.dockSide = inferDockSideFromGeometry();
+
     settings.sticky = true;
     settings.save();
     applyDockLayout();
@@ -160,28 +183,77 @@ bool FloatingWindowDock::bothVisible() const
            && mixerWindow->isShowing() && stageWindow->isShowing();
 }
 
+FloatingDockSettings::Side FloatingWindowDock::inferDockSideFromGeometry() const
+{
+    if (! bothVisible())
+        return settings.dockSide;
+
+    const auto m = mixerWindow->getBounds();
+    const auto s = stageWindow->getBounds();
+    const auto thr = juce::jmax (settings.snapThresholdPx, settings.gapPx + 8);
+
+    // Distance from stage edge to the corresponding mixer edge (lower = better match).
+    const int distRight = std::abs (s.getX() - (m.getRight() + settings.gapPx));
+    const int distLeft = std::abs (s.getRight() - (m.getX() - settings.gapPx));
+    const int distBottom = std::abs (s.getY() - (m.getBottom() + settings.gapPx));
+    const int distTop = std::abs (s.getBottom() - (m.getY() - settings.gapPx));
+
+    // Prefer sides where the windows roughly share the other axis (overlap).
+    const bool overlapY = s.getY() < m.getBottom() + thr && s.getBottom() > m.getY() - thr;
+    const bool overlapX = s.getX() < m.getRight() + thr && s.getRight() > m.getX() - thr;
+
+    struct Candidate
+    {
+        FloatingDockSettings::Side side;
+        int score;
+    };
+
+    // Lower score wins. Bonus when the pair already overlaps on the shared axis.
+    Candidate cands[] = {
+        { FloatingDockSettings::Side::right, distRight + (overlapY ? 0 : 200) },
+        { FloatingDockSettings::Side::left, distLeft + (overlapY ? 0 : 200) },
+        { FloatingDockSettings::Side::bottom, distBottom + (overlapX ? 0 : 200) },
+        { FloatingDockSettings::Side::top, distTop + (overlapX ? 0 : 200) },
+    };
+
+    auto best = cands[0];
+    for (const auto& c : cands)
+        if (c.score < best.score)
+            best = c;
+
+    return best.side;
+}
+
 juce::Rectangle<int> FloatingWindowDock::stageBoundsForMixer (const juce::Rectangle<int> mixerBounds) const
 {
     if (stageWindow == nullptr)
         return {};
 
-    const auto w = stageWindow->getWidth() > 0 ? stageWindow->getWidth() : 500;
-    const auto h = stageWindow->getHeight() > 0 ? stageWindow->getHeight() : 440;
+    const auto w = stageWindow->getWidth() > 0 ? stageWindow->getWidth() : 560;
+    const auto h = stageWindow->getHeight() > 0 ? stageWindow->getHeight() : 640;
     const auto g = settings.gapPx;
+
+    juce::Rectangle<int> r;
 
     switch (settings.dockSide)
     {
         case FloatingDockSettings::Side::left:
-            return { mixerBounds.getX() - w - g, mixerBounds.getY(), w, h };
+            // Align tops; sit to the left of mixer
+            r = { mixerBounds.getX() - w - g, mixerBounds.getY(), w, h };
+            break;
         case FloatingDockSettings::Side::right:
-            return { mixerBounds.getRight() + g, mixerBounds.getY(), w, h };
+            r = { mixerBounds.getRight() + g, mixerBounds.getY(), w, h };
+            break;
         case FloatingDockSettings::Side::top:
-            return { mixerBounds.getX(), mixerBounds.getY() - h - g, w, h };
+            // Center horizontally on mixer when docking above/below
+            r = { mixerBounds.getCentreX() - w / 2, mixerBounds.getY() - h - g, w, h };
+            break;
         case FloatingDockSettings::Side::bottom:
-            return { mixerBounds.getX(), mixerBounds.getBottom() + g, w, h };
+            r = { mixerBounds.getCentreX() - w / 2, mixerBounds.getBottom() + g, w, h };
+            break;
     }
 
-    return { mixerBounds.getRight() + g, mixerBounds.getY(), w, h };
+    return clampToDesktop (r);
 }
 
 void FloatingWindowDock::applyDockLayout()
@@ -216,8 +288,10 @@ bool FloatingWindowDock::edgesTouching() const
     if (! bothVisible())
         return false;
 
-    const auto a = mixerWindow->getBounds().expanded (settings.snapThresholdPx);
-    return a.intersects (stageWindow->getBounds());
+    // Expand both by snap threshold so near-miss top/bottom edges also count.
+    const auto thr = settings.snapThresholdPx;
+    const auto a = mixerWindow->getBounds().expanded (thr);
+    return a.intersects (stageWindow->getBounds().expanded (thr / 2));
 }
 
 void FloatingWindowDock::withSuppressed (const std::function<void()>& fn)
@@ -233,23 +307,29 @@ void FloatingWindowDock::movePairFromStageDrag (const juce::Rectangle<int> newSt
     if (mixerWindow == nullptr || stageWindow == nullptr)
         return;
 
-    // Stage moved while sticky: apply same delta to mixer, then re-dock stage.
+    // Stage moved while sticky: apply same delta to mixer, then re-dock stage
+    // so top/bottom/left/right gap + alignment stay exact.
     const auto oldStage = lastStageBounds.isEmpty() ? stageWindow->getBounds() : lastStageBounds;
     const auto dx = newStageBounds.getX() - oldStage.getX();
     const auto dy = newStageBounds.getY() - oldStage.getY();
 
     withSuppressed ([this, dx, dy]
     {
-        mixerWindow->setBounds (mixerWindow->getBounds().translated (dx, dy));
+        auto mixerBounds = mixerWindow->getBounds().translated (dx, dy);
+        mixerWindow->setBounds (clampToDesktop (mixerBounds));
         applyDockLayout();
     });
 }
 
 void FloatingWindowDock::componentMovedOrResized (juce::Component& component,
                                                   const bool wasMoved,
-                                                  const bool /*wasResized*/)
+                                                  const bool wasResized)
 {
-    if (suppressCallbacks || ! wasMoved)
+    if (suppressCallbacks)
+        return;
+
+    // Re-dock on move *and* resize (width/height changes affect top/bottom/left/right placement).
+    if (! wasMoved && ! wasResized)
         return;
 
     if (! bothVisible())
@@ -266,13 +346,23 @@ void FloatingWindowDock::componentMovedOrResized (juce::Component& component,
     {
         if (settings.sticky)
         {
-            movePairFromStageDrag (stageWindow->getBounds());
+            // Only follow pure moves; resizing the stage alone should not shove the mixer.
+            if (wasMoved)
+                movePairFromStageDrag (stageWindow->getBounds());
+            else if (wasResized)
+            {
+                // Keep attached: re-place stage relative to mixer after stage resize.
+                applyDockLayout();
+            }
             return;
         }
 
-        // Detached: optional auto-stick when edges touch after drag.
+        // Detached: optional auto-stick when edges touch after drag (all four sides).
         if (settings.autoStickOnTouch && edgesTouching())
+        {
+            settings.dockSide = inferDockSideFromGeometry();
             attach();
+        }
         else
             lastStageBounds = stageWindow->getBounds();
     }

@@ -79,6 +79,7 @@ private:
         aiLyricsCmd,
         recordCmd,
         openExternalRecorderCmd,
+        openArdourStudioCmd,
         importTakeCmd,
         detectTempoCmd,
         toggleCountInCmd,
@@ -139,6 +140,7 @@ private:
     void transcribeTab();
     void toggleRecording();
     void openExternalRecorder();
+    void openArdourStudio();
     void importTakeFromFile();
     [[nodiscard]] juce::File findStemFileForType (jamstudio::audio::StemType preferredType);
     [[nodiscard]] juce::File findMelodicStemFile();

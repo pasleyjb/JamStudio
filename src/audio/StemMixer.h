@@ -10,9 +10,10 @@ namespace jamstudio::audio
 
 /**
  * Mixes stems to multiple stereo buses (FOH + monitors).
- * Output layout when device has enough channels:
- *   0-1 FOH L/R, 2-3 Mon A L/R, 4-5 Mon B L/R
- * If fewer channels, active buses fold into available pairs (FOH first).
+ * Output layout when device has enough channels (stereo pairs):
+ *   1-2 FOH, 3-4 M1, 5-6 M2, 7-8 M3, 9-10 M4, 11-12 M5
+ * Fewer channels → only the buses that fit (FOH first).
+ * With stereo-fold PC listen, all buses are still mixed internally.
  */
 class StemMixer : public juce::AudioSource,
                   public juce::ChangeBroadcaster
@@ -61,7 +62,7 @@ private:
 
     juce::AudioFormatManager& formatManager;
     std::vector<std::unique_ptr<StemTrack>> stems;
-    std::array<float, kNumMixBuses> busMaster { 1.0f, 1.0f, 1.0f };
+    std::array<float, kNumMixBuses> busMaster { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
     double deviceSampleRate = 44100.0;
     double positionSeconds = 0.0;
     double lengthSeconds = 0.0;

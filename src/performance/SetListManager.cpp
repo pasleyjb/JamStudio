@@ -202,8 +202,11 @@ void applyStemPrefs (jamstudio::audio::StemMixer& mixer, const juce::Array<StemM
             continue;
 
         mixer.setStemBusSend (i, jamstudio::audio::MixBus::foh, match->volume);
-        mixer.setStemBusSend (i, jamstudio::audio::MixBus::monitorA, match->monA);
-        mixer.setStemBusSend (i, jamstudio::audio::MixBus::monitorB, match->monB);
+        mixer.setStemBusSend (i, jamstudio::audio::MixBus::mon1, match->monA);
+        mixer.setStemBusSend (i, jamstudio::audio::MixBus::mon2, match->monB);
+        mixer.setStemBusSend (i, jamstudio::audio::MixBus::mon3, match->mon3);
+        mixer.setStemBusSend (i, jamstudio::audio::MixBus::mon4, match->mon4);
+        mixer.setStemBusSend (i, jamstudio::audio::MixBus::mon5, match->mon5);
         mixer.setStemMuted (i, match->muted);
         mixer.setStemSolo (i, match->solo);
     }
@@ -224,8 +227,11 @@ juce::Array<StemMixPref> captureStemPrefs (const jamstudio::audio::StemMixer& mi
                          ? stem->getName()
                          : jamstudio::audio::stemTypeToString (stem->getType());
         p.volume = stem->getBusSend (jamstudio::audio::MixBus::foh);
-        p.monA = stem->getBusSend (jamstudio::audio::MixBus::monitorA);
-        p.monB = stem->getBusSend (jamstudio::audio::MixBus::monitorB);
+        p.monA = stem->getBusSend (jamstudio::audio::MixBus::mon1);
+        p.monB = stem->getBusSend (jamstudio::audio::MixBus::mon2);
+        p.mon3 = stem->getBusSend (jamstudio::audio::MixBus::mon3);
+        p.mon4 = stem->getBusSend (jamstudio::audio::MixBus::mon4);
+        p.mon5 = stem->getBusSend (jamstudio::audio::MixBus::mon5);
         p.muted = stem->isMuted();
         p.solo = stem->isSolo();
         prefs.add (p);

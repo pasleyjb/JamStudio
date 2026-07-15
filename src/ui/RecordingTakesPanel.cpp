@@ -15,7 +15,9 @@ RecordingTakesPanel::RecordingTakesPanel()
     hint.setColour (juce::Label::textColourId, JamStudioTheme::getColours().textSecondary);
     addAndMakeVisible (hint);
 
-    openExternalButton.setTooltip ("Bounce current mix (if any) and open external recorder (Audacity, etc.)");
+    openExternalButton.setButtonText ("Open Studio");
+    openExternalButton.setTooltip ("Linux: prepare Ardour session pack, hand off audio interface, launch Ardour. "
+                                   "Elsewhere: bounce mix and open external recorder.");
     openExternalButton.onClick = [this]
     {
         if (onOpenExternal)

@@ -81,6 +81,8 @@ private:
 
     [[nodiscard]] bool bothVisible() const;
     [[nodiscard]] bool edgesTouching() const;
+    /** Pick left/right/top/bottom from current relative window positions. */
+    [[nodiscard]] FloatingDockSettings::Side inferDockSideFromGeometry() const;
     [[nodiscard]] juce::Rectangle<int> stageBoundsForMixer (juce::Rectangle<int> mixerBounds) const;
     void movePairFromStageDrag (juce::Rectangle<int> newStageBounds);
     void withSuppressed (const std::function<void()>& fn);

@@ -61,7 +61,7 @@ private:
     juce::File sourceFile;
     juce::String name;
     StemType type = StemType::unknown;
-    std::array<float, kNumMixBuses> busSends { 0.8f, 0.7f, 0.0f }; // FOH, MonA, MonB
+    std::array<float, kNumMixBuses> busSends = defaultStemBusSends();
     bool muted = false;
     bool solo = false;
 
