@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ToneProfile.h"
+
 #include <JuceHeader.h>
 
 namespace jamstudio::performance
@@ -50,6 +52,9 @@ struct SetListSong
     juce::Array<juce::String> stageSlidePaths;   // explicit slide image paths (slideshow)
     bool stageMediaAutoPlay = true;              // start with the song
     float stageSlideSeconds = 5.0f;              // per-slide duration for slideshows
+
+    /** Live rack: G1 / G2 / Bass tone profile ids from the tone library. */
+    SongToneAssignment tones;
 
     [[nodiscard]] juce::var toVar() const;
     [[nodiscard]] static SetListSong fromVar (const juce::var& data);

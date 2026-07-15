@@ -126,6 +126,148 @@ void JamStudioLookAndFeel::drawLinearSlider (juce::Graphics& g,
                                             0.0f, 0.0f, style, slider);
 }
 
+void JamStudioLookAndFeel::drawRotarySlider (juce::Graphics& g,
+                                            const int x, const int y,
+                                            const int width, const int height,
+                                            const float sliderPosProportional,
+                                            const float rotaryStartAngle,
+                                            const float rotaryEndAngle,
+                                            juce::Slider& slider)
+{
+    const auto theme = JamStudioTheme::getColours();
+    const auto isOver = slider.isMouseOverOrDragging();
+    const auto isDown = slider.isMouseButtonDown();
+    const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat();
+
+    // Prefer a circular pot inside the allocated square
+    const auto diameter = juce::jmin (bounds.getWidth(), bounds.getHeight()) - 2.0f;
+    auto r = juce::Rectangle<float> (diameter, diameter).withCentre (bounds.getCentre());
+
+    const auto accent = slider.findColour (juce::Slider::rotarySliderFillColourId);
+    const auto angle = rotaryStartAngle
+                       + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
+
+    // Drop shadow under the pot
+    g.setColour (juce::Colours::black.withAlpha (0.45f));
+    g.fillEllipse (r.translated (0.0f, 2.5f).expanded (1.0f));
+
+    // Recessed well / chassis around knob
+    auto well = r.expanded (2.5f);
+    g.setGradientFill (juce::ColourGradient (theme.panelBackground.darker (0.35f),
+                                             well.getTopLeft(),
+                                             theme.panelBackground.brighter (0.05f),
+                                             well.getBottomRight(), false));
+    g.fillEllipse (well);
+    g.setColour (juce::Colours::black.withAlpha (0.55f));
+    g.drawEllipse (well, 1.2f);
+
+    // Tick marks around the travel arc
+    {
+        const auto cx = r.getCentreX();
+        const auto cy = r.getCentreY();
+        const auto outer = diameter * 0.52f;
+        const auto inner = diameter * 0.40f;
+        g.setColour (theme.textSecondary.withAlpha (0.55f));
+        for (int i = 0; i <= 10; ++i)
+        {
+            const auto t = static_cast<float> (i) / 10.0f;
+            const auto a = rotaryStartAngle + t * (rotaryEndAngle - rotaryStartAngle);
+            const auto thick = (i == 0 || i == 5 || i == 10) ? 1.6f : 1.0f;
+            const auto lenIn = (i == 0 || i == 5 || i == 10) ? inner - 1.5f : inner;
+            g.drawLine (cx + std::cos (a - juce::MathConstants<float>::halfPi) * outer,
+                        cy + std::sin (a - juce::MathConstants<float>::halfPi) * outer,
+                        cx + std::cos (a - juce::MathConstants<float>::halfPi) * lenIn,
+                        cy + std::sin (a - juce::MathConstants<float>::halfPi) * lenIn,
+                        thick);
+        }
+    }
+
+    // Value arc (glow under the knob skirt)
+    {
+        juce::Path valueArc;
+        valueArc.addCentredArc (r.getCentreX(), r.getCentreY(),
+                                diameter * 0.48f, diameter * 0.48f, 0.0f,
+                                rotaryStartAngle, angle, true);
+        g.setColour (accent.withAlpha (isOver ? 0.85f : 0.65f));
+        g.strokePath (valueArc, juce::PathStrokeType (2.4f, juce::PathStrokeType::curved,
+                                                      juce::PathStrokeType::rounded));
+    }
+
+    // Metal skirt / bezel
+    auto bezel = r.reduced (1.0f);
+    g.setGradientFill (juce::ColourGradient (juce::Colour (0xffc8c8c8),
+                                             bezel.getTopLeft(),
+                                             juce::Colour (0xff4a4a4a),
+                                             bezel.getBottomRight(), false));
+    g.fillEllipse (bezel);
+
+    // Main knob body (matte plastic with slight top highlight)
+    auto body = r.reduced (diameter * 0.12f);
+    auto bodyTop = juce::Colour (0xff3a3a3e);
+    auto bodyBot = juce::Colour (0xff1a1a1c);
+    if (slider.findColour (juce::Slider::rotarySliderFillColourId).getBrightness() > 0.01f)
+    {
+        // Tint body slightly with bus accent
+        bodyTop = accent.darker (0.55f).withMultipliedSaturation (0.45f);
+        bodyBot = accent.darker (0.85f).withMultipliedSaturation (0.35f);
+    }
+    if (isDown)
+    {
+        bodyTop = bodyTop.darker (0.1f);
+        bodyBot = bodyBot.darker (0.05f);
+    }
+    else if (isOver)
+    {
+        bodyTop = bodyTop.brighter (0.12f);
+    }
+
+    g.setGradientFill (juce::ColourGradient (bodyTop.brighter (0.25f),
+                                             body.getCentreX(), body.getY(),
+                                             bodyBot, body.getCentreX(), body.getBottom(), false));
+    g.fillEllipse (body);
+
+    // Soft specular highlight (upper left)
+    {
+        auto hi = body.reduced (body.getWidth() * 0.18f);
+        hi.setHeight (hi.getHeight() * 0.45f);
+        hi.setY (body.getY() + body.getHeight() * 0.08f);
+        g.setGradientFill (juce::ColourGradient (juce::Colours::white.withAlpha (0.28f),
+                                                 hi.getCentreX(), hi.getY(),
+                                                 juce::Colours::transparentWhite,
+                                                 hi.getCentreX(), hi.getBottom(), false));
+        g.fillEllipse (hi);
+    }
+
+    // Ridged outer ring suggestion
+    g.setColour (juce::Colours::white.withAlpha (0.06f));
+    g.drawEllipse (body.reduced (0.5f), 1.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.45f));
+    g.drawEllipse (body, 1.2f);
+
+    // Pointer / index line (like a real pot)
+    {
+        const auto cx = body.getCentreX();
+        const auto cy = body.getCentreY();
+        const auto pointerLen = body.getWidth() * 0.38f;
+        const auto hubR = body.getWidth() * 0.08f;
+        const auto px = cx + std::cos (angle - juce::MathConstants<float>::halfPi) * pointerLen;
+        const auto py = cy + std::sin (angle - juce::MathConstants<float>::halfPi) * pointerLen;
+
+        // Hub
+        g.setColour (juce::Colours::black.withAlpha (0.5f));
+        g.fillEllipse (cx - hubR, cy - hubR, hubR * 2.0f, hubR * 2.0f);
+
+        // Pointer shaft
+        g.setColour (juce::Colours::white.withAlpha (0.92f));
+        g.drawLine (cx, cy, px, py, juce::jmax (2.0f, diameter * 0.06f));
+
+        // Tip cap
+        g.setColour (accent.brighter (0.35f));
+        const auto tip = juce::jmax (2.5f, diameter * 0.07f);
+        g.fillEllipse (px - tip, py - tip, tip * 2.0f, tip * 2.0f);
+    }
+}
+
 void JamStudioLookAndFeel::drawVerticalFader (juce::Graphics& g,
                                              juce::Rectangle<float> bounds,
                                              const float sliderPos,

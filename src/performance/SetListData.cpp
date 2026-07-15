@@ -152,6 +152,7 @@ juce::var SetListSong::toVar() const
     o->setProperty ("stageMediaPath", stageMediaPath);
     o->setProperty ("stageMediaAutoPlay", stageMediaAutoPlay);
     o->setProperty ("stageSlideSeconds", stageSlideSeconds);
+    o->setProperty ("tones", tones.toVar());
 
     juce::Array<juce::var> prefs;
     for (const auto& p : stemPrefs)
@@ -189,6 +190,9 @@ SetListSong SetListSong::fromVar (const juce::var& data)
         s.stageSlideSeconds = o->hasProperty ("stageSlideSeconds")
                                   ? static_cast<float> (static_cast<double> (o->getProperty ("stageSlideSeconds")))
                                   : 5.0f;
+
+        if (o->hasProperty ("tones"))
+            s.tones = SongToneAssignment::fromVar (o->getProperty ("tones"));
 
         if (const auto* arr = o->getProperty ("stemPrefs").getArray())
             for (const auto& v : *arr)

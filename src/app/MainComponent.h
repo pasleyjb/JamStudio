@@ -6,6 +6,7 @@
 #include "../ai/WhisperTranscriber.h"
 #include "../audio/AudioInterfaceManager.h"
 #include "../audio/AudioRecorder.h"
+#include "../audio/LiveToneEngine.h"
 #include "../audio/RecordingExporter.h"
 #include "../audio/RecordingTakeManager.h"
 #include "../audio/TransportController.h"
@@ -29,12 +30,14 @@
 #include "../ui/TranscriptionCorrectionDialog.h"
 #include "../ui/TransportBar.h"
 #include "../ui/PerformanceBar.h"
+#include "../ui/PerformanceStagePanel.h"
 #include "../ui/RecordingTakesPanel.h"
 #include "../ui/SetListEditorDialog.h"
 #include "../ui/VideoOutputWindow.h"
 #include "../project/RecentProjects.h"
 #include "../performance/SetListData.h"
 #include "../performance/SetListManager.h"
+#include "../performance/ToneProfile.h"
 #include "../ui/WaveformDisplay.h"
 #include "PracticeSetupPipeline.h"
 
@@ -107,6 +110,8 @@ private:
         editSetListCmd,
         openStageShowBuilderCmd,
         performanceNextSongCmd,
+        performanceGoLiveCmd,
+        performanceBackSetupCmd,
         stopPerformanceCmd,
         openKaraokeOutputCmd,
         openStageFxOutputCmd,
@@ -184,14 +189,19 @@ private:
     void autoSavePracticeProject (const juce::String& projectTitle);
     [[nodiscard]] static juce::File getProjectsDirectory();
 
-    // Performance mode
+    // Performance mode (Setup + On Stage Live)
     void openSetListEditor (bool stageShowBuilder = false);
     void startPerformanceMode (jamstudio::performance::SetList list);
     void stopPerformanceMode();
+    void enterPerformanceSetup();
+    void enterPerformanceLive();
+    void applyPerformanceWorkspaceLayout();
     void performanceTriggerNext();
     void loadPerformanceSong (int index, bool autoPlay);
     void onPerformanceSongEnded();
     void applyPerformanceStemPrefsForCurrentSong();
+    void applyPerformanceTonesForCurrentSong();
+    void saveCurrentSongTonesToSetlist();
     void saveCurrentMixerToSetlistTrack();
     void updateMixerPerformanceContext();
     void loadSongStageMedia (const jamstudio::performance::SetListSong& song);
@@ -243,7 +253,10 @@ private:
     jamstudio::ui::FloatingWindowDock floatingDock;
     jamstudio::ui::FullPageTabsWindow fullPageTabsWindow;
     jamstudio::ui::FullPageLyricsWindow fullPageLyricsWindow;
+    jamstudio::audio::LiveToneEngine liveToneEngine;
+    jamstudio::performance::ToneLibrary toneLibrary;
     jamstudio::ui::PerformanceBar performanceBar;
+    jamstudio::ui::PerformanceStagePanel performanceStagePanel;
     jamstudio::ui::RecordingTakesPanel recordingTakesPanel;
     jamstudio::ui::KaraokeOutputWindow karaokeOutput;
     jamstudio::ui::StageFxOutputWindow stageFxOutput;
@@ -252,7 +265,12 @@ private:
     int performanceSongIndex = -1;
     bool performanceActive = false;
     bool performanceWaitingForTrigger = false;
+    /** True only after a song finishes/skips — NEXT advances to the following track.
+        False when the current song is pre-loaded and waiting for first play. */
+    bool performanceAwaitingNextSong = false;
     bool performanceWasPlaying = false;
+    jamstudio::ui::PerformanceStageMode performanceStageMode =
+        jamstudio::ui::PerformanceStageMode::setup;
     int karaokeDisplayIndex = 0;
     int stageFxDisplayIndex = 1;
 

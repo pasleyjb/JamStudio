@@ -243,6 +243,20 @@ juce::Array<HelpTopic> buildTopics()
 
     // ---------- Stage Show / Performance ----------
     t.add (topic (
+        "performance-setup-live",
+        "Performance Setup vs On Stage Live",
+        "Performance",
+        "performance setup live stage manager nam guitar bass tone go live",
+        "Performance is two modes:\n\n"
+        "• Setup — build the show: G1 / G2 / Bass NAM-style rack, save tone profiles, "
+        "assign tones to the current setlist song, buses/mixer, dry-run.\n"
+        "• Live — stage manager: START / NEXT (or foot pedal) advances the set; "
+        "loads stems, mix, three tone profiles, and stage media together.\n\n"
+        "Lyrics and tabs stay off the main performance page. Use Karaoke / Stage FX "
+        "outputs for words and visuals.\n\n"
+        "Tone profiles live in Documents/JamStudio/Tones/ and are referenced from the setlist."));
+
+    t.add (topic (
         "performance-setlist",
         "Performance set list",
         "Performance",
@@ -250,8 +264,10 @@ juce::Array<HelpTopic> buildTopics()
         "Performance → Edit / Start Set List builds an ordered show from .jamstudio projects.\n\n"
         "• Add / remove / reorder songs\n"
         "• Stem mix prefs per song (or lead-guitar+singer defaults)\n"
+        "• G1 / G2 / Bass tone profiles per song (Performance Setup rack)\n"
         "• Save set list under Documents/JamStudio/SetLists/\n"
-        "• Start Performance — wait for Next / foot pedal between songs\n\n"
+        "• Start Performance → Setup first, then GO LIVE\n"
+        "• START / NEXT or foot pedal between songs\n\n"
         "MIDI Next Song / sustain pedal can trigger the next song."));
 
     t.add (topic (

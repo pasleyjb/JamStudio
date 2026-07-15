@@ -72,6 +72,8 @@ target_sources(JamStudio PRIVATE
     src/project/RecentProjects.cpp
     src/performance/SetListData.cpp
     src/performance/SetListManager.cpp
+    src/performance/ToneProfile.cpp
+    src/audio/LiveToneEngine.cpp
     src/ui/JamStudioTheme.cpp
     src/ui/JamStudioLookAndFeel.cpp
     src/ui/BrandAssets.cpp
@@ -101,6 +103,7 @@ target_sources(JamStudio PRIVATE
     src/ui/SeparationProgressBar.cpp
     src/ui/StartupWizard.cpp
     src/ui/PerformanceBar.cpp
+    src/ui/PerformanceStagePanel.cpp
     src/ui/SetListEditorDialog.cpp
     src/ui/VideoOutputWindow.cpp
     src/ui/StageFxControllerWindow.cpp)

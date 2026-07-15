@@ -57,9 +57,11 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
       stageFxController (transportController),
       fullPageTabsWindow (transportController),
       fullPageLyricsWindow (transportController),
+      performanceStagePanel (liveToneEngine, toneLibrary),
       karaokeOutput (transportController),
       stageFxOutput (transportController)
 {
+    toneLibrary.load();
     setSize (1280, 900);
     refreshTheme();
 
@@ -194,6 +196,17 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     performanceBar.setTriggerCallback ([this] { performanceTriggerNext(); });
     addChildComponent (performanceBar);
 
+    performanceStagePanel.setVisible (false);
+    performanceStagePanel.setTriggerCallback ([this] { performanceTriggerNext(); });
+    performanceStagePanel.setGoLiveCallback ([this] { enterPerformanceLive(); });
+    performanceStagePanel.setBackToSetupCallback ([this] { enterPerformanceSetup(); });
+    performanceStagePanel.setSaveSongTonesCallback ([this] { saveCurrentSongTonesToSetlist(); });
+    addChildComponent (performanceStagePanel);
+
+    // Live G1/G2/Bass amp paths (inputs 1–3 → FOH) — enabled only in performance.
+    audioDeviceManager.addAudioCallback (&liveToneEngine);
+    liveToneEngine.setEnabled (false);
+
     practiceSetupPipeline = std::make_unique<PracticeSetupPipeline> (
         demucsSeparator, whisperTranscriber, basicPitchTranscriber,
         transportController.getFormatManager());
@@ -260,6 +273,8 @@ MainComponent::~MainComponent()
     karaokeOutput.hideOutput();
     stageFxOutput.hideOutput();
     audioRecorder.stopRecording();
+    liveToneEngine.setEnabled (false);
+    audioDeviceManager.removeAudioCallback (&liveToneEngine);
     audioDeviceManager.removeAudioCallback (&audioRecorder);
     demucsSeparator.cancel();
     whisperTranscriber.cancel();
@@ -373,7 +388,22 @@ void MainComponent::resized()
 
     bounds = bounds.reduced (8);
 
-    // Performance stage bar (next-song / foot pedal) above the transport stack.
+    // Performance Setup / Live: focused stage panel (NAM rack) — no lyrics/tabs column.
+    if (performanceStagePanel.isVisible())
+    {
+        // Keep a slim transport + optional waveform at the bottom for cues.
+        const int waveHeight = 56;
+        const int transportHeight = 48;
+        auto bottom = bounds.removeFromBottom (waveHeight + 4 + transportHeight);
+        waveformDisplay.setBounds (bottom.removeFromTop (waveHeight));
+        bottom.removeFromTop (4);
+        transportBar.setBounds (bottom.removeFromTop (transportHeight));
+        bounds.removeFromBottom (6);
+        performanceStagePanel.setBounds (bounds);
+        return;
+    }
+
+    // Legacy slim performance bar (if ever shown without stage panel).
     if (performanceBar.isVisible())
     {
         performanceBar.setBounds (bounds.removeFromBottom (64));
@@ -585,6 +615,13 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     {
         menu.addItem (editSetListCmd, "Edit / Start Set List...", true, false);
         menu.addItem (openStageShowBuilderCmd, "Stage Show Builder...", true, false);
+        menu.addSeparator();
+        menu.addItem (performanceGoLiveCmd, "Go Live (On Stage)", performanceActive,
+                      performanceActive
+                          && performanceStageMode == jamstudio::ui::PerformanceStageMode::live);
+        menu.addItem (performanceBackSetupCmd, "Back to Performance Setup", performanceActive,
+                      performanceActive
+                          && performanceStageMode == jamstudio::ui::PerformanceStageMode::setup);
         menu.addItem (performanceNextSongCmd, "Next Song / Start (Foot Pedal)", performanceActive, false);
         menu.addItem (stopPerformanceCmd, "Stop Performance Mode", performanceActive, false);
         menu.addSeparator();
@@ -711,6 +748,8 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case editSetListCmd: openSetListEditor (false); break;
         case openStageShowBuilderCmd: openSetListEditor (true); break;
         case performanceNextSongCmd: performanceTriggerNext(); break;
+        case performanceGoLiveCmd: enterPerformanceLive(); break;
+        case performanceBackSetupCmd: enterPerformanceSetup(); break;
         case stopPerformanceCmd: stopPerformanceMode(); break;
         case openKaraokeOutputCmd: openKaraokeOutput(); break;
         case openStageFxOutputCmd: openStageFxOutput(); break;
@@ -919,7 +958,10 @@ void MainComponent::loadProjectFile (const juce::File& file)
 
         currentProjectFile = file;
         setStatus ("Failed to restore audio: " + error);
-        revealWorkspacePanels();
+        if (performanceActive)
+            applyPerformanceWorkspaceLayout();
+        else
+            revealWorkspacePanels();
 
         if (needsRecovery && juce::File (data.songFilePath).existsAsFile() && demucsSeparator.isAvailable())
         {
@@ -959,7 +1001,10 @@ void MainComponent::loadProjectFile (const juce::File& file)
 
     rebuildStemLanes();
     rebuildMixerWindow();
-    revealWorkspacePanels();
+    if (performanceActive)
+        applyPerformanceWorkspaceLayout();
+    else
+        revealWorkspacePanels();
 
     juce::StringArray loadedParts;
 
@@ -2479,24 +2524,81 @@ void MainComponent::startPerformanceMode (jamstudio::performance::SetList list)
     performanceActive = true;
     performanceSongIndex = -1;
     performanceWaitingForTrigger = true;
+    performanceAwaitingNextSong = false;
     performanceWasPlaying = false;
     currentMode = jamstudio::ui::StartupWizard::Mode::performance;
 
     hideStartupWizard();
-    revealWorkspacePanels();
-    performanceBar.setVisible (true);
-    updatePerformanceBar();
-    performanceBar.setWaitingForTrigger (true);
-    performanceBar.setPhaseMessage ("Press NEXT / START or foot pedal (MIDI: Next Song) for song 1");
+    toneLibrary.load();
+    performanceStagePanel.refreshFromLibrary();
+    liveToneEngine.setEnabled (true);
+
+    // Load song 1 immediately so mixer stems / tones populate; playback waits for START.
+    loadPerformanceSong (0, false);
+
+    enterPerformanceSetup();
 
     // Do not auto-open video screens — user assigns displays from Stage FX Controller.
     syncVideoOutputs();
     stageFxController.syncVideoRoutingUi();
 
-    setStatus ("Performance ready - " + performanceSetList.name + " ("
+    setStatus ("Performance Setup — " + performanceSetList.name + " ("
                + juce::String (performanceSetList.songs.size()) + " songs). "
-               + "Open Karaoke / Stage FX from Stage FX Controller or Performance menu.");
+               + "Assign G1/G2/Bass tones, then GO LIVE when ready.");
     updateMixerPerformanceContext();
+    resized();
+}
+
+void MainComponent::applyPerformanceWorkspaceLayout()
+{
+    // Focused performance page: no lyrics / tabs / stem lanes on the main canvas.
+    lyricsPanelVisible = false;
+    notationPanelVisible = false;
+    stemsPanelVisible = false;
+    performanceBar.setVisible (false);
+    performanceStagePanel.setVisible (true);
+    applyPanelVisibility();
+    mixerWindow.showMixer (true);
+    updatePanelToggleStates();
+}
+
+void MainComponent::enterPerformanceSetup()
+{
+    if (! performanceActive)
+        return;
+
+    performanceStageMode = jamstudio::ui::PerformanceStageMode::setup;
+    performanceStagePanel.setStageMode (jamstudio::ui::PerformanceStageMode::setup);
+    applyPerformanceWorkspaceLayout();
+    updatePerformanceBar();
+    performanceStagePanel.setPhaseMessage (
+        "Setup: edit G1/G2/Bass tones · save profiles · assign to song · open mixer for buses");
+    setStatus ("Performance Setup — craft the show. GO LIVE when the set is ready.");
+    resized();
+}
+
+void MainComponent::enterPerformanceLive()
+{
+    if (! performanceActive)
+        return;
+
+    // Snapshot current knobs onto engine before locking into live chrome.
+    for (int i = 0; i < jamstudio::performance::kNumLiveTonePaths; ++i)
+    {
+        const auto role = static_cast<jamstudio::performance::LiveInstrumentRole> (i);
+        liveToneEngine.applyProfile (role, performanceStagePanel.capturePathProfile (role));
+    }
+
+    performanceStageMode = jamstudio::ui::PerformanceStageMode::live;
+    performanceStagePanel.setStageMode (jamstudio::ui::PerformanceStageMode::live);
+    applyPerformanceWorkspaceLayout();
+    updatePerformanceBar();
+    performanceStagePanel.setWaitingForTrigger (performanceWaitingForTrigger);
+    performanceStagePanel.setPhaseMessage (
+        performanceWaitingForTrigger
+            ? "Live — press START / NEXT or foot pedal"
+            : "Live — show running");
+    setStatus ("On Stage Live — stage manager active. START / NEXT advances the set.");
     resized();
 }
 
@@ -2504,9 +2606,13 @@ void MainComponent::stopPerformanceMode()
 {
     performanceActive = false;
     performanceWaitingForTrigger = false;
+    performanceAwaitingNextSong = false;
     performanceSongIndex = -1;
     performanceWasPlaying = false;
+    performanceStageMode = jamstudio::ui::PerformanceStageMode::setup;
     performanceBar.setVisible (false);
+    performanceStagePanel.setVisible (false);
+    liveToneEngine.setEnabled (false);
     // Leave video outputs as the user left them (do not force-close on stop).
     transportController.stop();
     stageFxController.syncVideoRoutingUi();
@@ -2592,6 +2698,25 @@ void MainComponent::updatePerformanceBar()
                                    performanceSongIndex,
                                    performanceSetList.songs.size(),
                                    title);
+    performanceStagePanel.setSetListInfo (performanceSetList.name,
+                                          performanceSongIndex,
+                                          performanceSetList.songs.size(),
+                                          title);
+
+    juce::String upNext;
+    const auto next = performanceSongIndex + 1;
+    if (performanceAwaitingNextSong
+        && juce::isPositiveAndBelow (next, performanceSetList.songs.size()))
+        upNext = performanceSetList.songs.getReference (next).displayName;
+    else if (performanceWaitingForTrigger
+             && performanceSongIndex >= 0
+             && ! performanceAwaitingNextSong)
+        upNext = {}; // current song ready to start
+    else if (juce::isPositiveAndBelow (next, performanceSetList.songs.size()))
+        upNext = performanceSetList.songs.getReference (next).displayName;
+
+    performanceStagePanel.setUpNext (upNext);
+    performanceStagePanel.setWaitingForTrigger (performanceWaitingForTrigger);
     syncVideoOutputs();
 }
 
@@ -2603,21 +2728,57 @@ void MainComponent::performanceTriggerNext()
         return;
     }
 
-    // Between songs or before first: advance and play.
+    // Waiting for START / NEXT (before first play, between songs, or missing file).
     if (performanceWaitingForTrigger || performanceSongIndex < 0)
     {
-        const auto next = performanceSongIndex + 1;
-
-        if (next >= performanceSetList.songs.size())
+        // Nothing loaded yet (fallback if pre-load was skipped).
+        if (performanceSongIndex < 0)
         {
-            performanceBar.setPhaseMessage ("Set complete - nice show!");
-            performanceBar.setWaitingForTrigger (false);
-            setStatus ("Set list finished.");
-            transportController.stop();
+            if (performanceSetList.songs.isEmpty())
+                return;
+
+            loadPerformanceSong (0, true);
             return;
         }
 
-        loadPerformanceSong (next, true);
+        // After a song finishes/skips — advance to the following track.
+        if (performanceAwaitingNextSong)
+        {
+            const auto next = performanceSongIndex + 1;
+
+            if (next >= performanceSetList.songs.size())
+            {
+                performanceBar.setPhaseMessage ("Set complete - nice show!");
+                performanceBar.setWaitingForTrigger (false);
+                performanceAwaitingNextSong = false;
+                setStatus ("Set list finished.");
+                transportController.stop();
+                return;
+            }
+
+            loadPerformanceSong (next, true);
+            return;
+        }
+
+        // Current song is already loaded (e.g. pre-loaded song 1) — start playback.
+        transportController.setPosition (0.0);
+        transportController.play();
+        performanceWasPlaying = true;
+        performanceWaitingForTrigger = false;
+        performanceAwaitingNextSong = false;
+        performanceBar.setWaitingForTrigger (false);
+        performanceBar.setPhaseMessage ("Playing...");
+        performanceStagePanel.setWaitingForTrigger (false);
+        performanceStagePanel.setPhaseMessage ("Playing...");
+        updatePerformanceBar();
+
+        if (juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
+        {
+            const auto& song = performanceSetList.songs.getReference (performanceSongIndex);
+            setStatus ("Now: " + song.displayName
+                       + "  (" + juce::String (performanceSongIndex + 1) + "/"
+                       + juce::String (performanceSetList.songs.size()) + ")");
+        }
         return;
     }
 
@@ -2634,6 +2795,7 @@ void MainComponent::onPerformanceSongEnded()
     transportController.pause();
     performanceWasPlaying = false;
     performanceWaitingForTrigger = true;
+    performanceAwaitingNextSong = true;
     updatePerformanceBar();
 
     const auto next = performanceSongIndex + 1;
@@ -2642,6 +2804,9 @@ void MainComponent::onPerformanceSongEnded()
     {
         performanceBar.setWaitingForTrigger (false);
         performanceBar.setPhaseMessage ("Set complete!");
+        performanceStagePanel.setWaitingForTrigger (false);
+        performanceStagePanel.setPhaseMessage ("Set complete!");
+        performanceStagePanel.setUpNext ({});
         setStatus ("Last song finished.");
         return;
     }
@@ -2649,6 +2814,9 @@ void MainComponent::onPerformanceSongEnded()
     const auto& nextSong = performanceSetList.songs.getReference (next);
     performanceBar.setWaitingForTrigger (true);
     performanceBar.setPhaseMessage ("Song ended - press foot pedal / NEXT for: " + nextSong.displayName);
+    performanceStagePanel.setWaitingForTrigger (true);
+    performanceStagePanel.setPhaseMessage ("Song ended — press START / NEXT for: " + nextSong.displayName);
+    performanceStagePanel.setUpNext (nextSong.displayName);
     syncVideoOutputs();
     setStatus ("Paused between songs. Pedal to start: " + nextSong.displayName);
 }
@@ -2666,45 +2834,130 @@ void MainComponent::loadPerformanceSong (const int index, const bool autoPlay)
         setStatus ("Missing project: " + song.projectPath);
         performanceBar.setPhaseMessage ("Missing file - skip with NEXT");
         performanceWaitingForTrigger = true;
-        performanceSongIndex = index; // stay on broken slot so next advances
+        performanceAwaitingNextSong = true; // NEXT skips this broken slot
+        performanceSongIndex = index;
         updatePerformanceBar();
+        updateMixerPerformanceContext();
         return;
     }
 
     loadProjectFile (projectFile);
     performanceSongIndex = index;
-    performanceWaitingForTrigger = false;
+    performanceAwaitingNextSong = false;
     updateMixerPerformanceContext();
     applyPerformanceStemPrefsForCurrentSong();
+    applyPerformanceTonesForCurrentSong();
     loadSongStageMedia (song);
 
+    // Performance main canvas never shows lyrics/tabs — karaoke/stage outs only.
+    // (Still load score/lyrics data for karaoke if present in the project.)
     if (song.showTabs)
-    {
-        notationPanelVisible = true;
         preferLeadTabPart (song.preferredPartHint);
-        setNotationDisplayMode (jamstudio::notation::NotationMode::tab);
-    }
 
-    if (song.showLyrics)
-        lyricsPanelVisible = true;
-
-    applyPanelVisibility();
+    applyPerformanceWorkspaceLayout();
     updatePerformanceBar();
-    performanceBar.setWaitingForTrigger (false);
-    performanceBar.setPhaseMessage (autoPlay ? "Playing..." : "Loaded - press play or pedal");
 
     if (autoPlay)
     {
+        performanceWaitingForTrigger = false;
+        performanceBar.setWaitingForTrigger (false);
+        performanceBar.setPhaseMessage ("Playing...");
+        performanceStagePanel.setWaitingForTrigger (false);
+        performanceStagePanel.setPhaseMessage ("Playing...");
         transportController.setPosition (0.0);
         transportController.play();
         performanceWasPlaying = true;
     }
+    else
+    {
+        // Stems/mixer/tones ready; wait for START without auto-playing.
+        performanceWaitingForTrigger = true;
+        performanceWasPlaying = false;
+        performanceBar.setWaitingForTrigger (true);
+        performanceBar.setPhaseMessage ("Loaded — press START / NEXT or foot pedal");
+        performanceStagePanel.setWaitingForTrigger (true);
+        performanceStagePanel.setPhaseMessage ("Loaded — press START / NEXT or foot pedal");
+    }
 
     syncVideoOutputs();
-    setStatus ("Now: " + song.displayName
+    setStatus ((autoPlay ? "Now: " : "Loaded: ") + song.displayName
                + "  (" + juce::String (index + 1) + "/"
                + juce::String (performanceSetList.songs.size()) + ")"
                + (song.hasStageMedia() ? "  [stage media]" : juce::String()));
+}
+
+void MainComponent::applyPerformanceTonesForCurrentSong()
+{
+    if (! juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
+        return;
+
+    const auto& song = performanceSetList.songs.getReference (performanceSongIndex);
+    using Role = jamstudio::performance::LiveInstrumentRole;
+
+    for (int i = 0; i < jamstudio::performance::kNumLiveTonePaths; ++i)
+    {
+        const auto role = static_cast<Role> (i);
+        const auto profile = toneLibrary.resolve (role, song.tones.idFor (role));
+        liveToneEngine.applyProfile (role, profile);
+        performanceStagePanel.loadPathFromProfile (role, profile);
+    }
+}
+
+void MainComponent::saveCurrentSongTonesToSetlist()
+{
+    if (! performanceActive)
+    {
+        setStatus ("Start a set list first.");
+        return;
+    }
+
+    if (! juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
+    {
+        setStatus ("No current song — load a track first.");
+        return;
+    }
+
+    auto& song = performanceSetList.songs.getReference (performanceSongIndex);
+    using Role = jamstudio::performance::LiveInstrumentRole;
+
+    for (int i = 0; i < jamstudio::performance::kNumLiveTonePaths; ++i)
+    {
+        const auto role = static_cast<Role> (i);
+        auto profile = performanceStagePanel.capturePathProfile (role);
+        if (profile.id.isEmpty())
+            profile.id = juce::Uuid().toDashedString();
+
+        if (! toneLibrary.updateProfile (profile))
+            toneLibrary.addProfile (profile);
+
+        song.tones.idFor (role) = profile.id;
+        liveToneEngine.applyProfile (role, profile);
+    }
+
+    toneLibrary.save();
+
+    auto file = performanceSetList.sourceFile();
+    if (! file.existsAsFile())
+    {
+        const auto safeName = juce::File::createLegalFileName (
+            performanceSetList.name.isNotEmpty() ? performanceSetList.name : "My Set");
+        file = jamstudio::performance::SetListManager::getSetListsDirectory()
+                   .getChildFile (safeName + ".setlist");
+    }
+
+    if (! jamstudio::performance::SetListManager::saveSetList (file, performanceSetList))
+    {
+        setStatus ("Could not write set list file.");
+        return;
+    }
+
+    auto defaultCopy = performanceSetList;
+    juce::ignoreUnused (jamstudio::performance::SetListManager::saveSetList (
+        jamstudio::performance::SetListManager::defaultSetListFile(), defaultCopy));
+
+    performanceStagePanel.refreshFromLibrary();
+    setStatus ("Saved G1/G2/Bass tones for set track " + juce::String (performanceSongIndex + 1)
+               + ": " + song.displayName);
 }
 
 void MainComponent::loadSongStageMedia (const jamstudio::performance::SetListSong& song)

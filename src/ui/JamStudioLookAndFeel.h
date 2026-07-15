@@ -25,6 +25,11 @@ public:
                            float sliderPos, float minSliderPos, float maxSliderPos,
                            juce::Slider::SliderStyle style, juce::Slider& slider) override;
 
+    /** Realistic metal/plastic rotary pot for click and utility knobs. */
+    void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
+                           float sliderPosProportional, float rotaryStartAngle,
+                           float rotaryEndAngle, juce::Slider& slider) override;
+
     int getSliderThumbRadius (juce::Slider& slider) override;
 
 private:

@@ -202,14 +202,19 @@ public:
             clk.setRange (0.0, 1.0, 0.01);
             clk.setValue (transportController.getMultiBusMaster().getClickBusSend (bus),
                           juce::dontSendNotification);
-            clk.setSliderSnapsToMousePosition (true);
+            clk.setSliderSnapsToMousePosition (false);
+            clk.setMouseDragSensitivity (180);
+            // ~270° pot travel (classic console feel)
             clk.setRotaryParameters (juce::MathConstants<float>::pi * 1.2f,
                                      juce::MathConstants<float>::pi * 2.8f,
                                      true);
             clk.setColour (juce::Slider::rotarySliderFillColourId, accent);
-            clk.setColour (juce::Slider::rotarySliderOutlineColourId, accent.withAlpha (0.35f));
-            clk.setColour (juce::Slider::thumbColourId, accent.brighter (0.25f));
+            clk.setColour (juce::Slider::rotarySliderOutlineColourId, accent.withAlpha (0.4f));
+            clk.setColour (juce::Slider::thumbColourId, juce::Colours::white);
             clk.setTooltip ("Click volume → " + jamstudio::audio::mixBusLongName (bus));
+            clk.setPopupDisplayEnabled (true, true, this);
+            clk.setTextValueSuffix (" %");
+            clk.setNumDecimalPlacesToDisplay (0);
             clk.onValueChange = [this, bus, &clk]
             {
                 transportController.getMultiBusMaster().setClickBusSend (
@@ -348,27 +353,28 @@ public:
         }
         a.removeFromBottom (2);
 
-        // Column layout: bus name | clk label | rotary | master fader
+        // Column layout: bus name | clk label | larger rotary pot | master fader
         const auto labH = 12;
-        const auto clkLabH = 10;
-        const auto knobH = juce::jlimit (28, 40, a.getHeight() / 5);
-        const auto w = juce::jmax (1, a.getWidth() / jamstudio::audio::kNumMixBuses);
+        const auto clkLabH = 11;
+        // Bigger pots: ~36–52 px depending on strip height / column width
+        const auto colW = juce::jmax (1, a.getWidth() / jamstudio::audio::kNumMixBuses);
+        const auto knobH = juce::jlimit (36, 52, juce::jmin (colW - 2, a.getHeight() / 4));
+        const auto w = colW;
 
-        // Optional thin "CLK" strip above knobs (first column only spans full width header)
-        // Per-column: label, clk tag, knob, fader
         for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
         {
             auto c = (b + 1 < jamstudio::audio::kNumMixBuses) ? a.removeFromLeft (w) : a;
             busLabels[static_cast<size_t> (b)].setBounds (c.removeFromTop (labH));
             clickLabels[static_cast<size_t> (b)].setBounds (c.removeFromTop (clkLabH));
 
-            auto knobArea = c.removeFromTop (knobH).reduced (2, 0);
-            // Keep knobs square-ish
-            const auto side = juce::jmin (knobArea.getWidth(), knobArea.getHeight());
+            auto knobArea = c.removeFromTop (knobH);
+            // Prefer a solid pot size; allow slight padding
+            const auto side = juce::jlimit (34, 50, juce::jmin (knobArea.getWidth() - 2,
+                                                                knobArea.getHeight() - 2));
             clickKnobs[static_cast<size_t> (b)].setBounds (
                 knobArea.withSizeKeepingCentre (side, side));
 
-            c.removeFromTop (2);
+            c.removeFromTop (3);
             busSliders[static_cast<size_t> (b)].setBounds (c.reduced (0, 1));
         }
 
@@ -596,7 +602,8 @@ public:
 
         // Bus masters + VIDEO on the right.
         const auto videoW = juce::jlimit (72, 96, bounds.getWidth() / 8);
-        const auto busW = juce::jlimit (150, 220, bounds.getWidth() / 4);
+        // Wide enough for six bus columns with larger click pots
+        const auto busW = juce::jlimit (170, 260, bounds.getWidth() / 3);
         videoStrip.setBounds (bounds.removeFromRight (videoW));
         bounds.removeFromRight (4);
         busStrip.setBounds (bounds.removeFromRight (busW));
