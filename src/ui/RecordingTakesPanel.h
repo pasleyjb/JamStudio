@@ -44,7 +44,7 @@ private:
     juce::TextButton importButton { "Import Take..." };
     juce::ListBox list;
     juce::TextButton loadButton { "Load to Mixer" };
-    juce::Label emptyLabel { {}, "No takes yet — record in external app, then Import" };
+    juce::Label emptyLabel { {}, "No takes yet - record in external app, then Import" };
 };
 
 } // namespace jamstudio::ui

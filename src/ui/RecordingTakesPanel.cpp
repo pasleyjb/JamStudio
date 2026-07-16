@@ -79,7 +79,7 @@ void RecordingTakesPanel::setPreferredRecorderName (const juce::String& name)
 
     openExternalButton.setTooltip (
         "Prepare session pack, release the audio interface, and open Ardour. "
-        "Use Transport → Open External Recorder for Audacity.");
+        "Use Transport -> Open External Recorder for Audacity.");
 }
 
 void RecordingTakesPanel::refresh()

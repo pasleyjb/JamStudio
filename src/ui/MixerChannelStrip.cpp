@@ -7,9 +7,11 @@ namespace jamstudio::ui
 
 MixerChannelStrip::MixerChannelStrip (const int stemIndex,
                                       jamstudio::audio::StemMixer& mixer,
+                                      jamstudio::audio::MultiBusMaster& multiBusMaster,
                                       StemChangedCallback onChanged)
     : index (stemIndex),
       stemMixer (mixer),
+      multiBus (multiBusMaster),
       onStemChanged (std::move (onChanged))
 {
     for (auto& s : busSliders)
@@ -58,7 +60,6 @@ MixerChannelStrip::MixerChannelStrip (const int stemIndex,
         auto& lab = busLabels[static_cast<size_t> (b)];
         auto& s = busSliders[static_cast<size_t> (b)];
 
-        lab.setText (jamstudio::audio::mixBusName (bus), juce::dontSendNotification);
         lab.setJustificationType (juce::Justification::centred);
         lab.setFont (juce::FontOptions (9.0f, juce::Font::bold));
         lab.setColour (juce::Label::textColourId, accent);
@@ -71,8 +72,6 @@ MixerChannelStrip::MixerChannelStrip (const int stemIndex,
         s.setNumDecimalPlacesToDisplay (0);
         s.setColour (juce::Slider::thumbColourId, accent);
         s.setColour (juce::Slider::trackColourId, accent.withAlpha (0.35f));
-        s.setTooltip (jamstudio::audio::mixBusLongName (bus)
-                      + "  (HW outs " + jamstudio::audio::mixBusHardwareOuts (bus) + ")");
         s.onValueChange = [this]
         {
             levelLabel.setText (
@@ -83,13 +82,28 @@ MixerChannelStrip::MixerChannelStrip (const int stemIndex,
         };
         addAndMakeVisible (s);
     }
+    refreshBusLabels();
 
     levelLabel.setJustificationType (juce::Justification::centred);
     levelLabel.setFont (juce::FontOptions (10.0f));
     addAndMakeVisible (levelLabel);
 
     updateIndicators();
-    startTimerHz (30);
+    startTimerHz (15);
+}
+
+void MixerChannelStrip::refreshBusLabels()
+{
+    for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+    {
+        const auto bus = static_cast<jamstudio::audio::MixBus> (b);
+        const auto name = multiBus.getBusDisplayName (bus);
+        const auto longName = multiBus.getBusLongDisplayName (bus);
+        busLabels[static_cast<size_t> (b)].setText (name, juce::dontSendNotification);
+        busLabels[static_cast<size_t> (b)].setTooltip (longName);
+        busSliders[static_cast<size_t> (b)].setTooltip (
+            longName + "  (HW outs " + jamstudio::audio::mixBusHardwareOuts (bus) + ")");
+    }
 }
 
 void MixerChannelStrip::syncFromTrack (const jamstudio::audio::StemTrack& track)
@@ -107,6 +121,7 @@ void MixerChannelStrip::syncFromTrack (const jamstudio::audio::StemTrack& track)
             juce::dontSendNotification);
     levelLabel.setText (juce::String (static_cast<int> (track.getVolume() * 100)),
                         juce::dontSendNotification);
+    refreshBusLabels();
     updateIndicators();
     repaint();
 }

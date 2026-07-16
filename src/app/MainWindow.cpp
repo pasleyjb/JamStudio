@@ -12,6 +12,8 @@ MainWindow::MainWindow (juce::AudioDeviceManager& deviceManager)
                       jamstudio::ui::JamStudioTheme::getColours().windowBackground,
                       DocumentWindow::allButtons)
 {
+    // Stay invisible until size + position are final (avoids a flash at 0,0).
+    setVisible (false);
     setUsingNativeTitleBar (true);
 
     if (const auto icon = jamstudio::ui::BrandAssets::loadWindowIcon (256); icon.isValid())
@@ -24,8 +26,15 @@ MainWindow::MainWindow (juce::AudioDeviceManager& deviceManager)
     setMenuBar (menuBarModel.get());
 
     setResizable (true, true);
-    centreWithSize (getWidth(), getHeight());
+
+    // Prefer a solid default size then centre on the primary display.
+    const int w = juce::jmax (1100, content->getWidth());
+    const int h = juce::jmax (720, content->getHeight());
+    setSize (w, h);
+    centreWithSize (w, h);
+
     setVisible (true);
+    toFront (true);
 }
 
 MainWindow::~MainWindow()

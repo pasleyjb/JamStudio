@@ -30,11 +30,11 @@ AudioSettingsDialog::AudioSettingsDialog (jamstudio::audio::AudioInterfaceManage
     addAndMakeVisible (titleLabel);
 
     introLabel.setText (
-        "Plug-and-play: JamStudio detects multi-input interfaces (Scarlett, etc.) for capture "
-        "and can monitor on your PC speakers — ideal when nothing is plugged into the interface outs.\n"
-        "Same device: use the interface for both in and out (FOH + Mon 1–5, up to 12 outs).\n"
-        "Manual: pick exact devices below.\n"
-        "No box on hand (Linux): ./scripts/virtual-scarlett-18i20.sh start  then Rescan.",
+        "Plug-and-play: Scarlett multi-in (guitar + vocal) + PC speakers for monitor.\n"
+        "Linux/PipeWire: enable Multi-input Pro Audio so the Scarlett is ONE device with "
+        "many channels (In1=guitar, In2=mic…). HiFi \"Mic1/Mic2\" only allow one jack at a time.\n"
+        "Avoid exclusive \"Direct hardware\". MON → All hears every open input.\n"
+        "Same device: interface for in + out (stage multi-bus). Manual: pick devices below.",
         juce::dontSendNotification);
     introLabel.setJustificationType (juce::Justification::topLeft);
     addAndMakeVisible (introLabel);
@@ -49,6 +49,13 @@ AudioSettingsDialog::AudioSettingsDialog (jamstudio::audio::AudioInterfaceManage
                                          juce::dontSendNotification);
     addAndMakeVisible (preferComputerToggle);
 
+    preferProAudioToggle.setToggleState (manager.getSettings().preferProAudioProfile,
+                                         juce::dontSendNotification);
+    preferProAudioToggle.setTooltip (
+        "Sets the Scarlett PipeWire profile to pro-audio so all inputs open together. "
+        "Turn off only if you need the desktop HiFi Mic1/Mic2 split ports.");
+    addAndMakeVisible (preferProAudioToggle);
+
     addAndMakeVisible (inputLabel);
     addAndMakeVisible (inputBox);
     addAndMakeVisible (outputLabel);
@@ -59,7 +66,7 @@ AudioSettingsDialog::AudioSettingsDialog (jamstudio::audio::AudioInterfaceManage
         maxInBox.addItem (juce::String (n), n);
     maxInBox.setSelectedId (manager.getSettings().maxInputChannels, juce::dontSendNotification);
     if (maxInBox.getSelectedId() <= 0)
-        maxInBox.setSelectedId (2, juce::dontSendNotification);
+        maxInBox.setSelectedId (8, juce::dontSendNotification);
     addAndMakeVisible (maxInBox);
 
     addAndMakeVisible (maxOutLabel);
@@ -78,8 +85,8 @@ AudioSettingsDialog::AudioSettingsDialog (jamstudio::audio::AudioInterfaceManage
 
     jackNoteLabel.setText (
         "Jack sense: USB audio interfaces do not tell the OS whether speakers/headphones are "
-        "physically plugged into their outputs. JamStudio cannot detect empty Scarlett jacks — "
-        "use Plug and play + “monitor on computer speakers” for that workflow.",
+        "physically plugged into their outputs. JamStudio cannot detect empty Scarlett jacks - "
+        "use Plug and play + 'monitor on computer speakers' for that workflow.",
         juce::dontSendNotification);
     jackNoteLabel.setJustificationType (juce::Justification::topLeft);
     addAndMakeVisible (jackNoteLabel);
@@ -117,7 +124,7 @@ AudioSettingsDialog::AudioSettingsDialog (jamstudio::audio::AudioInterfaceManage
     manager.addChangeListener (this);
     refreshDeviceLists();
     refreshStatus();
-    setSize (640, 560);
+    setSize (640, 620);
     startTimerHz (2);
 }
 
@@ -137,15 +144,17 @@ void AudioSettingsDialog::resized()
     auto r = getLocalBounds().reduced (16);
     titleLabel.setBounds (r.removeFromTop (28));
     r.removeFromTop (6);
-    introLabel.setBounds (r.removeFromTop (78));
-    r.removeFromTop (10);
+    introLabel.setBounds (r.removeFromTop (88));
+    r.removeFromTop (8);
 
     auto modeRow = r.removeFromTop (28);
     modeLabel.setBounds (modeRow.removeFromLeft (110));
     modeBox.setBounds (modeRow);
     r.removeFromTop (8);
-    preferComputerToggle.setBounds (r.removeFromTop (36));
-    r.removeFromTop (10);
+    preferComputerToggle.setBounds (r.removeFromTop (32));
+    r.removeFromTop (4);
+    preferProAudioToggle.setBounds (r.removeFromTop (32));
+    r.removeFromTop (8);
 
     auto inRow = r.removeFromTop (28);
     inputLabel.setBounds (inRow.removeFromLeft (110));
@@ -227,8 +236,21 @@ void AudioSettingsDialog::refreshDeviceLists()
         ++id;
     }
 
-    inputBox.setSelectedId (inSel, juce::dontSendNotification);
-    outputBox.setSelectedId (outSel, juce::dontSendNotification);
+    // Plug-and-play / same-device: show Auto — greyed lists still listed sticky
+    // names which made people think JACK (1 ch) was the active capture path.
+    if (settings.mode != jamstudio::audio::AudioRoutingMode::manual)
+    {
+        inputBox.setSelectedId (1, juce::dontSendNotification);
+        // Show real active output if we know it; still Auto-selectable.
+        outputBox.setSelectedId (outSel > 1 ? outSel : 1, juce::dontSendNotification);
+        if (settings.mode == jamstudio::audio::AudioRoutingMode::plugAndPlay)
+            outputBox.setSelectedId (1, juce::dontSendNotification);
+    }
+    else
+    {
+        inputBox.setSelectedId (inSel, juce::dontSendNotification);
+        outputBox.setSelectedId (outSel, juce::dontSendNotification);
+    }
 }
 
 void AudioSettingsDialog::refreshStatus()
@@ -248,6 +270,7 @@ void AudioSettingsDialog::applyFromUi()
     }
 
     s.preferComputerSpeakersForMonitor = preferComputerToggle.getToggleState();
+    s.preferProAudioProfile = preferProAudioToggle.getToggleState();
     s.maxInputChannels = juce::jmax (1, maxInBox.getSelectedId());
     s.maxOutputChannels = juce::jmax (2, maxOutBox.getSelectedId());
 
@@ -262,13 +285,11 @@ void AudioSettingsDialog::applyFromUi()
     }
     else
     {
-        // Keep last manual picks as soft preferences for scoring only.
-        const auto inId = inputBox.getSelectedId();
-        const auto outId = outputBox.getSelectedId();
-        if (inId > 1)
-            s.preferredInputName = inputNames[inId - 2];
-        if (outId > 1)
-            s.preferredOutputName = outputNames[outId - 2];
+        // Plug-and-play must not keep a sticky "JACK (1 ch)" preference — that
+        // forced mono capture and ignored the Scarlett multi-in device.
+        s.preferredInputName = {};
+        s.preferredOutputName = {};
+        s.deviceTypeName = {};
     }
 
     const auto err = manager.applySettings (s);

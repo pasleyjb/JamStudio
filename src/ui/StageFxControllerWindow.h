@@ -9,7 +9,7 @@
 namespace jamstudio::ui
 {
 
-/** Floating stage media controller — file, transport, video-output routing + live previews. */
+/** Floating stage media controller - file, transport, video-output routing + live previews. */
 class StageFxControllerWindow : public juce::DocumentWindow
 {
 public:

@@ -123,7 +123,7 @@ public:
         if (activeLine < 0)
         {
             g.setColour (juce::Colours::white.withAlpha (0.3f));
-            g.drawText ("…", mid, juce::Justification::centred);
+            g.drawText ("...", mid, juce::Justification::centred);
             drawLine (bot, 0, false);
         }
         else

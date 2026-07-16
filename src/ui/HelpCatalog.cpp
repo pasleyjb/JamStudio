@@ -43,11 +43,16 @@ juce::Array<HelpTopic> buildTopics()
         "Getting Started",
         "wizard practice performance recording stage show welcome",
         "When JamStudio opens, pick a mode from the floating tiles:\n\n"
-        "• Practice — learn songs with stems, tabs, and lyrics.\n"
-        "• Performance — run a live set list with foot-pedal next song.\n"
-        "• Stage Show — build set lists with pinned videos/slideshows.\n"
-        "• Recording — capture yourself and use takes as stems.\n\n"
-        "You can switch features later from the menus even if you started in another mode."));
+        "- Practice - learn songs with stems, tabs, and lyrics.\n"
+        "- Performance - run a live set list with foot-pedal next song.\n"
+        "- Stage Show - build set lists with pinned videos/slideshows.\n"
+        "- Recording - capture yourself and use takes as stems.\n\n"
+        "Skip the wizard anytime:\n"
+        "- File / Project → Open Project... or Recent Projects...\n"
+        "- File → Open Song...\n"
+        "- File → New Practice from Song...\n\n"
+        "Bring the wizard back: File / Project → Welcome Wizard...\n"
+        "(choose mode again without quitting)."));
 
     t.add (topic (
         "start-practice",
@@ -55,8 +60,8 @@ juce::Array<HelpTopic> buildTopics()
         "Getting Started",
         "practice open project new song demucs setup",
         "In Practice mode:\n\n"
-        "• Open Project — load a saved .jamstudio file with stems, tabs, lyrics.\n"
-        "• New from Song — pick an audio file; JamStudio can separate stems (Demucs), "
+        "- Open Project - load a saved .jamstudio file with stems, tabs, lyrics.\n"
+        "- New from Song - pick an audio file; JamStudio can separate stems (Demucs), "
         "fetch tabs/lyrics when AI tools are available, and auto-save a project.\n\n"
         "Use File / Project menus anytime for open/save."));
 
@@ -66,9 +71,11 @@ juce::Array<HelpTopic> buildTopics()
         "Save and load projects",
         "Projects",
         "save load project jamstudio media stems",
+        "Project / File → Open Project... loads a .jamstudio session (works even from the "
+        "welcome wizard — the wizard closes automatically).\n"
         "Project → Save Project stores the song, stems, mix state, tabs, and lyrics.\n"
         "Media is kept under the project's .media folder when possible.\n\n"
-        "Project → Load Project / Recent Projects restores a session.\n"
+        "Recent Projects... restores a recent session.\n"
         "If stems are missing, JamStudio may offer to re-separate and recover them."));
 
     t.add (topic (
@@ -76,7 +83,7 @@ juce::Array<HelpTopic> buildTopics()
         "Open a song file",
         "Projects",
         "open song wav mp3 flac audio import",
-        "File → Open Song loads an audio file into the workspace.\n"
+        "File -> Open Song loads an audio file into the workspace.\n"
         "Supported formats include WAV, FLAC, OGG, AIFF, and compressed formats when codecs are available.\n\n"
         "After opening, separate stems or use the file as a single mix track."));
 
@@ -87,9 +94,9 @@ juce::Array<HelpTopic> buildTopics()
         "Transport",
         "play pause stop skip forward back scrub linked video",
         "The main transport bar controls setlist/song stems and, by default, stage video together:\n\n"
-        "• Skip back (5 s) · Play · Pause · Stop · Skip forward (5 s)\n"
-        "• Position scrubber seeks song and linked stage media.\n"
-        "• Master volume controls stem master (FOH).\n\n"
+        "- Skip back (5 s) - Play - Pause - Stop - Skip forward (5 s)\n"
+        "- Position scrubber seeks song and linked stage media.\n"
+        "- Master volume controls stem master (FOH).\n\n"
         "Mixer MAIN row has the same linked transport.\n"
         "Mixer LINK toggles whether main transport also drives stage video."));
 
@@ -98,8 +105,8 @@ juce::Array<HelpTopic> buildTopics()
         "4-count intro",
         "Transport",
         "count in count-in intro 4-in metronome click",
-        "Transport → 4-Count Intro (or 4-IN on the transport bar / mixer):\n\n"
-        "When enabled, Play clicks 1–2–3–4 at the current BPM, then starts the song.\n"
+        "Transport -> 4-Count Intro (or 4-IN on the transport bar / mixer):\n\n"
+        "When enabled, Play clicks 1-2-3-4 at the current BPM, then starts the song.\n"
         "Works in every mode. Stop/Pause cancels an in-progress count-in.\n"
         "Count-in clicks always sound; normal Metro on/off applies after playback starts."));
 
@@ -114,11 +121,29 @@ juce::Array<HelpTopic> buildTopics()
         "Use Clk FOH / Clk Mon on the BUSES strip to route click."));
 
     t.add (topic (
+        "transport-input-monitor",
+        "Hear yourself (input monitor)",
+        "Transport",
+        "input monitor mon hear myself guitar mic line latency direct",
+        "The IN meter shows your live input. MON mixes that input into the speakers "
+        "so you can hear yourself with the stems — guitar, singing, or both.\n\n"
+        "- MON button ON (green) = software monitor (default)\n"
+        "- Channel box: In 1 / In 2 / … = which jack; All = guitar + vocal together\n"
+        "- Small slider = your monitor level\n"
+        "- Turn MON off if you get feedback with open mics + speakers\n"
+        "- Scarlett Direct Monitor is still best for zero-latency headphones\n\n"
+        "Linux multi-input: Help → Audio Interface → enable Multi-input Pro Audio "
+        "so the Scarlett is one multi-channel device (not separate Mic1/Mic2). "
+        "Then open 8 input channels and set MON to All.\n\n"
+        "In Performance mode, the G1/G2/Bass NAM rack replaces dry MON "
+        "(processed amp sound instead of raw input)."));
+
+    t.add (topic (
         "transport-record",
         "Record",
         "Transport",
         "record recording take stem",
-        "Transport → Record / Stop arms recording through the audio device.\n"
+        "Transport -> Record / Stop arms recording through the audio device.\n"
         "Takes can be loaded as stems for practice and mixing."));
 
     t.add (topic (
@@ -126,14 +151,14 @@ juce::Array<HelpTopic> buildTopics()
         "Audio interface (plug and play)",
         "Audio",
         "audio interface scarlett focusrite asound alsa wasapi device input output monitor speakers plug hotplug",
-        "Help → Audio Interface… configures how JamStudio uses your hardware.\n\n"
-        "• Plug and play (default) — multi-input USB interfaces (Scarlett 18i20, etc.) "
+        "Help -> Audio Interface... configures how JamStudio uses your hardware.\n\n"
+        "- Plug and play (default) - multi-input USB interfaces (Scarlett 18i20, etc.) "
         "are preferred for capture. Monitor audio goes to computer speakers when "
-        "“monitor on computer speakers” is on — useful when nothing is plugged into "
+        "'monitor on computer speakers' is on - useful when nothing is plugged into "
         "the interface outputs.\n"
-        "• Same device — interface for both in and out (stage multi-bus: outs 1–2 FOH, "
-        "3–4 M1 … 11–12 M5).\n"
-        "• Manual — pick exact input and output devices.\n\n"
+        "- Same device - interface for both in and out (stage multi-bus: outs 1-2 FOH, "
+        "3-4 M1 ... 11-12 M5).\n"
+        "- Manual - pick exact input and output devices.\n\n"
         "Channel counts are matched to what the hardware actually exposes (not fixed "
         "to 6 outs). USB hot-plug is detected every couple of seconds.\n\n"
         "Jack sense: class-compliant USB audio does not report whether cables are "
@@ -151,11 +176,11 @@ juce::Array<HelpTopic> buildTopics()
         "Mixer window overview",
         "Mixer",
         "mixer fader mute solo strip channel",
-        "View → Show Mixer opens the floating mixer board.\n\n"
-        "• MAIN transport — song + linked stage video\n"
-        "• Channel strips — each stem with mute, solo, and bus sends\n"
-        "• BUSES — FOH + Mon 1–5 masters, PC listen, click routing\n"
-        "• VIDEO — stage media transport and level\n\n"
+        "View -> Show Mixer opens the floating mixer board.\n\n"
+        "- MAIN transport - song + linked stage video\n"
+        "- Channel strips - each stem with mute, solo, and bus sends\n"
+        "- BUSES - FOH + Mon 1-5 masters, PC listen, click routing\n"
+        "- VIDEO - stage media transport and level\n\n"
         "Maximise uses the middle title button; click again to restore size."));
 
     t.add (topic (
@@ -164,8 +189,8 @@ juce::Array<HelpTopic> buildTopics()
         "Mixer",
         "save mix setlist track performance automation show",
         "In Performance mode, open the Mixer and use the top button:\n\n"
-        "  Save Mix → Set Track\n\n"
-        "This captures every stem’s FOH, Mon 1–5, mute, and solo for the "
+        "  Save Mix -> Set Track\n\n"
+        "This captures every stem's FOH, Mon 1-5, mute, and solo for the "
         "song that is currently loaded in the set list, and writes it into the "
         ".setlist file.\n\n"
         "Next time that song plays, those levels are restored automatically.\n"
@@ -178,18 +203,21 @@ juce::Array<HelpTopic> buildTopics()
         "Mixer",
         "foh monitor iem in-ear house pa bus send multi output",
         "Each stem has six independent send faders (band-sized monitor section):\n\n"
-        "• FOH — Front of House / PA (hardware outs 1–2)\n"
-        "• M1–M5 — five band / IEM mixes (outs 3–4, 5–6, 7–8, 9–10, 11–12)\n\n"
-        "Example: guitar quiet in FOH, loud in M1 for the player; click on Mons only.\n\n"
+        "- FOH - Front of House / PA (hardware outs 1-2)\n"
+        "- M1-M5 - five band / IEM mixes (outs 3-4, 5-6, 7-8, 9-10, 11-12)\n\n"
+        "Name whose monitor is which in Performance Setup (MONITOR MIXES row) — "
+        "click FOH / M1… and type a person or instrument (e.g. Jay, Vocals). "
+        "Names show on mixer sends and bus masters and are remembered.\n\n"
+        "Example: guitar quiet in FOH, loud in Jay's mix; click on Mons only.\n\n"
         "Bus masters on the right set overall level per destination.\n"
         "Full matrix needs a multi-output interface (up to 12 outs). Fewer outs open "
         "only the buses that fit (FOH first).\n\n"
         "PC LISTEN (mixer BUSES strip):\n"
-        "• Choose FOH / M1–M5 / Sum — that bus is folded to your PC speakers "
-        "so you can audition each player’s mix without 12-out hardware.\n"
-        "• “Fold to PC stereo” on = listen mode (default). Off + enough outs = "
+        "- Choose FOH / M1-M5 / Sum - that bus is folded to your PC speakers "
+        "so you can audition each player's mix without 12-out hardware.\n"
+        "- 'Fold to PC stereo' on = listen mode (default). Off + enough outs = "
         "full matrix to hardware.\n"
-        "• Bus meters under the masters show activity on each pair."));
+        "- Bus meters under the masters show activity on each pair."));
     t.add (topic (
         "mixer-video-strip",
         "VIDEO strip on the mixer",
@@ -205,11 +233,11 @@ juce::Array<HelpTopic> buildTopics()
         "Stage FX Controller",
         "Stage FX",
         "stage fx controller media open play loop output display",
-        "View / Performance → Show Stage FX Controller.\n\n"
-        "• Open Media — load video/audio (MPEG via FFmpeg) or use set-list pins\n"
-        "• Play / Pause / Stop / LOOP — stage transport\n"
-        "• Video sound — level (also on mixer VIDEO fader)\n"
-        "• Karaoke / Stage FX display pickers and Open/Close\n\n"
+        "View / Performance -> Show Stage FX Controller.\n\n"
+        "- Open Media - load video/audio (MPEG via FFmpeg) or use set-list pins\n"
+        "- Play / Pause / Stop / LOOP - stage transport\n"
+        "- Video sound - level (also on mixer VIDEO fader)\n"
+        "- Karaoke / Stage FX display pickers and Open/Close\n\n"
         "Video-only MP4s are supported (silent clock + frames on Stage screen)."));
 
     t.add (topic (
@@ -227,9 +255,9 @@ juce::Array<HelpTopic> buildTopics()
         "Stage FX",
         "karaoke stage output display monitor dual screen",
         "Performance menu or Stage FX Controller:\n\n"
-        "• Open Karaoke Video Output — large lyrics for singer/house\n"
-        "• Open Stage FX Video Output — stage board / video playback\n"
-        "• Move … to Next Display — cycle monitors\n\n"
+        "- Open Karaoke Video Output - large lyrics for singer/house\n"
+        "- Open Stage FX Video Output - stage board / video playback\n"
+        "- Move ... to Next Display - cycle monitors\n\n"
         "Screens do not auto-open when starting Performance; assign displays yourself."));
 
     t.add (topic (
@@ -248,10 +276,13 @@ juce::Array<HelpTopic> buildTopics()
         "Performance",
         "performance setup live stage manager nam guitar bass tone go live",
         "Performance is two modes:\n\n"
-        "• Setup — build the show: G1 / G2 / Bass NAM-style rack, save tone profiles, "
-        "assign tones to the current setlist song, buses/mixer, dry-run.\n"
-        "• Live — stage manager: START / NEXT (or foot pedal) advances the set; "
+        "- Setup - build the show: G1 / G2 / Bass NAM-style rack, save tone profiles, "
+        "name monitor mixes (whose IEM is which), assign tones to the current setlist song, "
+        "open mixer for send levels, dry-run.\n"
+        "- Live - stage manager: START / NEXT (or foot pedal) advances the set; "
         "loads stems, mix, three tone profiles, and stage media together.\n\n"
+        "In Setup, the MONITOR MIXES row lets you rename FOH and M1–M5 "
+        "(e.g. Jay, Vocals, Drums). Names stick and show on the mixer.\n\n"
         "Lyrics and tabs stay off the main performance page. Use Karaoke / Stage FX "
         "outputs for words and visuals.\n\n"
         "Tone profiles live in Documents/JamStudio/Tones/ and are referenced from the setlist."));
@@ -261,13 +292,13 @@ juce::Array<HelpTopic> buildTopics()
         "Performance set list",
         "Performance",
         "set list setlist performance next pedal foot",
-        "Performance → Edit / Start Set List builds an ordered show from .jamstudio projects.\n\n"
-        "• Add / remove / reorder songs\n"
-        "• Stem mix prefs per song (or lead-guitar+singer defaults)\n"
-        "• G1 / G2 / Bass tone profiles per song (Performance Setup rack)\n"
-        "• Save set list under Documents/JamStudio/SetLists/\n"
-        "• Start Performance → Setup first, then GO LIVE\n"
-        "• START / NEXT or foot pedal between songs\n\n"
+        "Performance -> Edit / Start Set List builds an ordered show from .jamstudio projects.\n\n"
+        "- Add / remove / reorder songs\n"
+        "- Stem mix prefs per song (or lead-guitar+singer defaults)\n"
+        "- G1 / G2 / Bass tone profiles per song (Performance Setup rack)\n"
+        "- Save set list under Documents/JamStudio/SetLists/\n"
+        "- Start Performance -> Setup first, then GO LIVE\n"
+        "- START / NEXT or foot pedal between songs\n\n"
         "MIDI Next Song / sustain pedal can trigger the next song."));
 
     t.add (topic (
@@ -275,11 +306,11 @@ juce::Array<HelpTopic> buildTopics()
         "Stage Show Builder",
         "Performance",
         "stage show builder pin video slideshow setlist",
-        "Wizard tile Stage Show, or Performance → Stage Show Builder.\n\n"
+        "Wizard tile Stage Show, or Performance -> Stage Show Builder.\n\n"
         "Pin a video or image slideshow to each set-list song:\n"
-        "• Pin video… / Pin slideshow… / Clear stage media\n"
-        "• Save packages media into <SetName>.media/ next to the .setlist file\n"
-        "• When the song plays, stage media loads and auto-plays by default\n\n"
+        "- Pin video... / Pin slideshow... / Clear stage media\n"
+        "- Save packages media into <SetName>.media/ next to the .setlist file\n"
+        "- When the song plays, stage media loads and auto-plays by default\n\n"
         "Control playback from Stage FX Controller or mixer VIDEO / linked MAIN transport."));
 
     t.add (topic (
@@ -287,9 +318,9 @@ juce::Array<HelpTopic> buildTopics()
         "Next song / foot pedal",
         "Performance",
         "next song foot pedal midi cc64 performance",
-        "Performance → Next Song / Start (Foot Pedal) advances the set.\n"
+        "Performance -> Next Song / Start (Foot Pedal) advances the set.\n"
         "Between songs the app waits for the next trigger.\n"
-        "Map MIDI Next Song in Help → MIDI Control Surface."));
+        "Map MIDI Next Song in Help -> MIDI Control Surface."));
 
     // ---------- Floating windows ----------
     t.add (topic (
@@ -299,8 +330,8 @@ juce::Array<HelpTopic> buildTopics()
         "dock sticky stick unstick attach detach floating",
         "Mixer and Stage FX Controller can stick together:\n\n"
         "Title bar near X:\n"
-        "• ><  Unstick (move independently)\n"
-        "• <>  Stick together again\n\n"
+        "- ><  Unstick (move independently)\n"
+        "- <>  Stick together again\n\n"
         "When sticky, the mixer is the parent: move either window and the pair follows.\n"
         "Defaults: sticky ON, Stage FX docked to the RIGHT, 4 px gap."));
 
@@ -309,12 +340,12 @@ juce::Array<HelpTopic> buildTopics()
         "Floating Window Dock menu settings",
         "Floating Windows",
         "dock side gap auto stick maximise menu view",
-        "View → Floating Window Dock:\n\n"
-        "• Stick / Unstick\n"
-        "• Dock side: Right, Left, Top, Bottom\n"
-        "• Gap: Tight (0), Normal (4), Wide (12)\n"
-        "• Auto-Stick When Edges Touch\n"
-        "• Unstick When Mixer Maximised\n\n"
+        "View -> Floating Window Dock:\n\n"
+        "- Stick / Unstick\n"
+        "- Dock side: Right, Left, Top, Bottom\n"
+        "- Gap: Tight (0), Normal (4), Wide (12)\n"
+        "- Auto-Stick When Edges Touch\n"
+        "- Unstick When Mixer Maximised\n\n"
         "Settings save to JamStudio app data (floating-dock.json)."));
 
     // ---------- Notation ----------
@@ -324,11 +355,11 @@ juce::Array<HelpTopic> buildTopics()
         "Notation",
         "tabs tab sheet musicxml score notation",
         "Notation menu:\n\n"
-        "• Browse Tab Library / Import MusicXML\n"
-        "• AI Tab Transcription (Basic Pitch) when tools are set up\n"
-        "• Tab View / Sheet View\n"
-        "• Full Page Tabs for printing\n"
-        "• Show Tabs Panel toggles the workspace panel\n\n"
+        "- Browse Tab Library / Import MusicXML\n"
+        "- AI Tab Transcription (Basic Pitch) when tools are set up\n"
+        "- Tab View / Sheet View\n"
+        "- Full Page Tabs for printing\n"
+        "- Show Tabs Panel toggles the workspace panel\n\n"
         "Part selector chooses which score part is active (e.g. Guitar)."));
 
     // ---------- Lyrics ----------
@@ -338,11 +369,11 @@ juce::Array<HelpTopic> buildTopics()
         "Lyrics",
         "lyrics lrc whisper karaoke synced",
         "Lyrics menu:\n\n"
-        "• Find Synced Lyrics Online\n"
-        "• Import LRC\n"
-        "• AI Vocal Transcription (Whisper)\n"
-        "• Full Page Lyrics\n"
-        "• Show Lyrics Panel\n\n"
+        "- Find Synced Lyrics Online\n"
+        "- Import LRC\n"
+        "- AI Vocal Transcription (Whisper)\n"
+        "- Full Page Lyrics\n"
+        "- Show Lyrics Panel\n\n"
         "Karaoke video output shows large current/previous/next lines synced to transport."));
 
     // ---------- Stems ----------
@@ -351,7 +382,7 @@ juce::Array<HelpTopic> buildTopics()
         "Separate stems (Demucs)",
         "Stems",
         "stems demucs separate guitar drums bass vocals",
-        "Stems → Separate Stems runs Demucs (when installed via AI Tools Setup).\n"
+        "Stems -> Separate Stems runs Demucs (when installed via AI Tools Setup).\n"
         "Produces guitar/drums/bass/vocals (and more) for independent mixer levels.\n"
         "Stem lanes under the transport show mini waveforms."));
 
@@ -362,17 +393,17 @@ juce::Array<HelpTopic> buildTopics()
         "Recording",
         "recording mode ardour studio companion handoff stems import take linux",
         "On Linux, Recording mode is a seamless Ardour companion.\n\n"
-        "Transport → Open Studio (Ardour)…  or  Recording panel → Open Studio:\n\n"
+        "Transport -> Open Studio (Ardour)...  or  Recording panel -> Open Studio:\n\n"
         "1. JamStudio exports stems + mix bounce into a session pack\n"
-        "   (Documents/JamStudio/ArdourSessions/…/interop/)\n"
+        "   (Documents/JamStudio/ArdourSessions/.../interop/)\n"
         "2. Writes jamstudio-bridge.json (sample rate, devices, inputs)\n"
         "3. Releases the audio interface so Ardour can use it\n"
         "4. Launches Ardour and opens the interop folder\n"
-        "5. In Ardour: New Session at that sample rate → Import all interop WAVs\n"
+        "5. In Ardour: New Session at that sample rate -> Import all interop WAVs\n"
         "6. Record with plugins / multi-track as usual\n"
-        "7. Export WAV → JamStudio Transport → Import Take…\n\n"
+        "7. Export WAV -> JamStudio Transport -> Import Take...\n\n"
         "Install Ardour:  sudo apt install ardour\n\n"
-        "Also available: Open External Recorder (Audacity…) for a lighter path.\n"
+        "Also available: Open External Recorder (Audacity...) for a lighter path.\n"
         "Internal Record / Stop still works inside JamStudio.\n"
         "Packs live under Documents/JamStudio/ArdourSessions/."));
 
@@ -382,7 +413,7 @@ juce::Array<HelpTopic> buildTopics()
         "MIDI control surface",
         "MIDI",
         "midi control surface mapping cc pedal next",
-        "Help → MIDI Control Surface…\n\n"
+        "Help -> MIDI Control Surface...\n\n"
         "Enable MIDI input, pick a device, map CCs/notes to:\n"
         "stem volumes, mute/solo, transport, metronome, record, next song, etc.\n\n"
         "Profiles can be saved. Foot-pedal next song is ideal for Performance mode."));
@@ -393,10 +424,10 @@ juce::Array<HelpTopic> buildTopics()
         "AI Tools Setup",
         "AI Tools",
         "ai demucs whisper basic pitch python tools",
-        "Help → AI Tools Setup… checks optional Python tools:\n\n"
-        "• Demucs — stem separation\n"
-        "• Whisper — lyrics from vocals\n"
-        "• Basic Pitch — tab/MIDI transcription\n\n"
+        "Help -> AI Tools Setup... checks optional Python tools:\n\n"
+        "- Demucs - stem separation\n"
+        "- Whisper - lyrics from vocals\n"
+        "- Basic Pitch - tab/MIDI transcription\n\n"
         "Install missing tools as guided; availability is shown in related menus."));
 
     // ---------- About ----------
@@ -407,7 +438,7 @@ juce::Array<HelpTopic> buildTopics()
         "about version jamstudio",
         "JamStudio is a guitar practice and performance workstation:\n"
         "stems, tabs, lyrics, multi-bus mixer, stage video, and live set lists.\n\n"
-        "Open Help → Instructions… anytime to search this guide."));
+        "Open Help -> Instructions... anytime to search this guide."));
 
     return t;
 }

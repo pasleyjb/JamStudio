@@ -5,7 +5,7 @@
 namespace jamstudio::ui
 {
 
-/** Searchable instructions browser (Help → Instructions…). */
+/** Searchable instructions browser (Help -> Instructions...). */
 class HelpBrowserDialog : public juce::Component,
                           private juce::TextEditor::Listener,
                           private juce::ListBoxModel

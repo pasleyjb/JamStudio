@@ -44,6 +44,16 @@ public:
     /** Peak levels 0..1 for each stereo bus after the matrix (for meters). */
     [[nodiscard]] float getBusMeterLevel (MixBus bus) const noexcept;
 
+    /**
+     * User-facing bus names (e.g. "Jay IEM", "Vocals"). Empty / default short name
+     * falls back to mixBusName / mixBusLongName. Persisted with load/saveSettings.
+     */
+    void setBusDisplayName (MixBus bus, juce::String name);
+    [[nodiscard]] juce::String getBusDisplayName (MixBus bus) const;
+    [[nodiscard]] juce::String getBusLongDisplayName (MixBus bus) const;
+    /** Label for PC listen combo: "Name (1-2)" or default hardware form. */
+    [[nodiscard]] juce::String getOutputMonitorSelectDisplayName (OutputMonitorSelect select) const;
+
     void loadSettings();
     void saveSettings() const;
 
@@ -71,6 +81,7 @@ private:
 
     std::array<float, kNumMixBuses> clickSend = defaultClickBusSends();
     std::array<float, kNumMixBuses> stageSend = defaultStageBusSends();
+    std::array<juce::String, kNumMixBuses> busDisplayNames {};
 
     std::atomic<int> monitorSelect { static_cast<int> (OutputMonitorSelect::foh) };
     std::atomic<bool> stereoFoldListen { true }; // good default for PC / virtual Scarlett
@@ -79,6 +90,7 @@ private:
     juce::AudioBuffer<float> busScratch; // always kMaxMixChannels
 
     std::array<std::atomic<float>, kNumMixBuses> busMeter {};
+    mutable juce::CriticalSection labelLock;
 };
 
 } // namespace jamstudio::audio

@@ -57,7 +57,7 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
       stageFxController (transportController),
       fullPageTabsWindow (transportController),
       fullPageLyricsWindow (transportController),
-      performanceStagePanel (liveToneEngine, toneLibrary),
+      performanceStagePanel (liveToneEngine, toneLibrary, transportController.getMultiBusMaster()),
       karaokeOutput (transportController),
       stageFxOutput (transportController)
 {
@@ -139,7 +139,7 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
         else
             setStatus ("Open a song before detecting tempo.");
     });
-    // REC / Open Studio → Ardour companion on Linux; otherwise external recorder.
+    // REC / Open Studio -> Ardour companion on Linux; otherwise external recorder.
     transportBar.setRecordCallback ([this]
     {
        #if JUCE_LINUX
@@ -149,6 +149,35 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
        #endif
     });
     transportBar.setInputLevelProvider ([this] { return audioRecorder.getInputLevel(); });
+    // Hear yourself (guitar / singing). Default: first two jacks only (less hiss than summing 8).
+    audioRecorder.setInputMonitorEnabled (true);
+    audioRecorder.setInputMonitorGain (0.45f);
+    audioRecorder.setInputMonitorChannel (jamstudio::audio::AudioRecorder::kMonitorFirstTwo);
+    transportBar.setInputMonitorCallbacks (
+        [this] { return audioRecorder.isInputMonitorEnabled(); },
+        [this] (const bool on)
+        {
+            audioRecorder.setInputMonitorEnabled (on);
+            setStatus (on ? "Input monitor ON — hear guitar or singing with the track."
+                          : "Input monitor OFF — use Scarlett Direct Monitor for headphones.");
+        },
+        [this] { return audioRecorder.getInputMonitorGain(); },
+        [this] (const float g) { audioRecorder.setInputMonitorGain (g); },
+        [this] { return audioRecorder.getInputMonitorChannel(); },
+        [this] (const int ch)
+        {
+            audioRecorder.setInputMonitorChannel (ch);
+            if (ch == -2)
+                setStatus ("Monitor: all inputs (noise-gated empty jacks).");
+            else if (ch < 0)
+                setStatus ("Monitor: In 1 + In 2 (guitar + vocal).");
+            else
+                setStatus ("Monitor: input " + juce::String (ch + 1)
+                           + " (guitar, mic, or line).");
+        });
+    if (auto* dev = audioDeviceManager.getCurrentAudioDevice())
+        transportBar.setInputMonitorChannelCount (
+            juce::jmax (1, dev->getActiveInputChannels().countNumberOfSetBits()));
 
     recordingTakesPanel.setTakeManager (&recordingTakeManager);
     recordingTakesPanel.setLoadTakeCallback ([this] (const jamstudio::audio::RecordingTakeManager::Take& take)
@@ -203,7 +232,7 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     performanceStagePanel.setSaveSongTonesCallback ([this] { saveCurrentSongTonesToSetlist(); });
     addChildComponent (performanceStagePanel);
 
-    // Live G1/G2/Bass amp paths (inputs 1–3 → FOH) — enabled only in performance.
+    // Live G1/G2/Bass amp paths (inputs 1-3 -> FOH) - enabled only in performance.
     audioDeviceManager.addAudioCallback (&liveToneEngine);
     liveToneEngine.setEnabled (false);
 
@@ -388,7 +417,7 @@ void MainComponent::resized()
 
     bounds = bounds.reduced (8);
 
-    // Performance Setup / Live: focused stage panel (NAM rack) — no lyrics/tabs column.
+    // Performance Setup / Live: focused stage panel (NAM rack) - no lyrics/tabs column.
     if (performanceStagePanel.isVisible())
     {
         // Keep a slim transport + optional waveform at the bottom for cues.
@@ -529,14 +558,22 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     if (menuName == "File")
     {
         menu.addItem (openSongCmd, "Open Song...", true, false);
+        menu.addItem (loadProjectCmd, "Open Project...", true, false);
+        menu.addItem (recentProjectsCmd, "Recent Projects...", true, false);
+        menu.addSeparator();
+        menu.addItem (newPracticeSessionCmd, "New Practice from Song...", true, false);
+        menu.addItem (welcomeWizardCmd, "Welcome Wizard...", true, false);
         menu.addSeparator();
         menu.addItem (quitCmd, "Quit", true, false);
     }
     else if (menuName == "Project")
     {
+        menu.addItem (loadProjectCmd, "Open Project...", true, false);
         menu.addItem (saveProjectCmd, "Save Project", true, false);
-        menu.addItem (loadProjectCmd, "Load Project", true, false);
-        menu.addItem (recentProjectsCmd, "Recent Projects", true, false);
+        menu.addItem (recentProjectsCmd, "Recent Projects...", true, false);
+        menu.addSeparator();
+        menu.addItem (newPracticeSessionCmd, "New Practice from Song...", true, false);
+        menu.addItem (welcomeWizardCmd, "Welcome Wizard (choose mode)...", true, false);
     }
     else if (menuName == "View")
     {
@@ -603,9 +640,9 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     {
         menu.addItem (detectTempoCmd, "Detect Tempo", true, false);
         menu.addSeparator();
-        menu.addItem (openArdourStudioCmd, "Open Studio (Ardour)…", true, false);
-        menu.addItem (openExternalRecorderCmd, "Open External Recorder (Audacity…)", true, false);
-        menu.addItem (importTakeCmd, "Import Take from File…", true, false);
+        menu.addItem (openArdourStudioCmd, "Open Studio (Ardour)...", true, false);
+        menu.addItem (openExternalRecorderCmd, "Open External Recorder (Audacity...)", true, false);
+        menu.addItem (importTakeCmd, "Import Take from File...", true, false);
         menu.addItem (recordCmd, "Internal Record / Stop", true, false);
         menu.addSeparator();
         menu.addItem (toggleCountInCmd, "4-Count Intro", true,
@@ -634,9 +671,9 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
     }
     else if (menuName == "Help")
     {
-        menu.addItem (helpInstructionsCmd, "Instructions…", true, false);
+        menu.addItem (helpInstructionsCmd, "Instructions...", true, false);
         menu.addSeparator();
-        menu.addItem (audioSettingsCmd, "Audio Interface…", true, false);
+        menu.addItem (audioSettingsCmd, "Audio Interface...", true, false);
         menu.addItem (aiToolsCmd, "AI Tools Setup...", true, false);
         menu.addItem (midiControlCmd, "MIDI Control Surface...", true, false);
         menu.addSeparator();
@@ -655,6 +692,10 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case saveProjectCmd: saveProject(); break;
         case loadProjectCmd: loadProject(); break;
         case recentProjectsCmd: showRecentProjectsMenu(); break;
+        case welcomeWizardCmd: showStartupWizard(); break;
+        case newPracticeSessionCmd:
+            handlePracticeChoice (jamstudio::ui::StartupWizard::PracticeChoice::newFromSong);
+            break;
         case quitCmd: juce::JUCEApplication::getInstance()->systemRequestedQuit(); break;
         case separateStemsCmd: separateStems(); break;
         case browseTabLibraryCmd: browseTabLibrary(); break;
@@ -764,7 +805,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
                                                     "JamStudio v0.9.6\n"
                                                     "Guitar practice workstation with stems, tabs, lyrics,\n"
                                                     "multi-bus mixer, and stage video.\n\n"
-                                                    "Help → Instructions… for a searchable guide.\n\n"
+                                                    "Help -> Instructions... for a searchable guide.\n\n"
                                                     "Designed by man, engineered and coded by Grok.");
             break;
         default: break;
@@ -793,6 +834,10 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
     if (source == &audioInterfaceManager)
     {
+        if (auto* dev = audioDeviceManager.getCurrentAudioDevice())
+            transportBar.setInputMonitorChannelCount (
+                juce::jmax (1, dev->getActiveInputChannels().countNumberOfSetBits()));
+        transportBar.syncInputMonitorUi();
         refreshAudioRoutingStatus();
         return;
     }
@@ -958,6 +1003,7 @@ void MainComponent::loadProjectFile (const juce::File& file)
 
         currentProjectFile = file;
         setStatus ("Failed to restore audio: " + error);
+        ensureWorkspaceForProjectOpen();
         if (performanceActive)
             applyPerformanceWorkspaceLayout();
         else
@@ -1001,6 +1047,7 @@ void MainComponent::loadProjectFile (const juce::File& file)
 
     rebuildStemLanes();
     rebuildMixerWindow();
+    ensureWorkspaceForProjectOpen();
     if (performanceActive)
         applyPerformanceWorkspaceLayout();
     else
@@ -1255,6 +1302,7 @@ void MainComponent::openSong()
             detectTempoFromSong (file, false);
             rebuildStemLanes();
             rebuildMixerWindow();
+            ensureWorkspaceForProjectOpen();
             revealWorkspacePanels();
             setStatus ("Loaded: " + file.getFileName()
                        + " @ " + juce::String (static_cast<int> (transportBar.getBpm()))
@@ -2042,6 +2090,39 @@ void MainComponent::hideStartupWizard()
     resized();
 }
 
+void MainComponent::showStartupWizard()
+{
+    // Leave any live performance stage so the mode tiles are usable again.
+    if (performanceActive)
+        stopPerformanceMode();
+
+    performanceBar.setVisible (false);
+    performanceStagePanel.setVisible (false);
+    startupWizard.showModePage();
+    startupWizard.setVisible (true);
+    startupWizard.toFront (false);
+    workspaceReady = false;
+    setStatus ("Welcome - choose Practice, Performance, Recording, or use File → Open Project anytime.");
+    resized();
+}
+
+void MainComponent::ensureWorkspaceForProjectOpen()
+{
+    if (startupWizard.isVisible())
+        hideStartupWizard();
+
+    if (performanceActive)
+    {
+        // Loading a practice project while a set is running exits performance stage.
+        stopPerformanceMode();
+    }
+
+    if (currentMode != jamstudio::ui::StartupWizard::Mode::recording)
+        currentMode = jamstudio::ui::StartupWizard::Mode::practice;
+
+    workspaceReady = true;
+}
+
 void MainComponent::enterWorkspaceMode (const jamstudio::ui::StartupWizard::Mode mode)
 {
     currentMode = mode;
@@ -2051,7 +2132,9 @@ void MainComponent::enterWorkspaceMode (const jamstudio::ui::StartupWizard::Mode
     switch (mode)
     {
         case jamstudio::ui::StartupWizard::Mode::practice:
-            setStatus ("Practice workspace ready. Open a song or project from the File/Project menus.");
+            audioRecorder.setInputMonitorEnabled (true);
+            transportBar.syncInputMonitorUi();
+            setStatus ("Practice workspace ready. MON is on so you hear yourself with the track.");
             break;
         case jamstudio::ui::StartupWizard::Mode::performance:
             setStatus ("Performance mode - build a set list under Performance menu.");
@@ -2080,7 +2163,7 @@ void MainComponent::enterRecordingWorkspace()
     if (jamstudio::audio::ArdourCompanion::isAvailable())
     {
         recordingTakesPanel.setPreferredRecorderName ("Ardour Studio");
-        setStatus ("Recording mode — Open Studio (Ardour) sets up stems + hands off your interface. "
+        setStatus ("Recording mode - Open Studio (Ardour) sets up stems + hands off your interface. "
                    "Import Take when you finish in Ardour.");
         return;
     }
@@ -2090,10 +2173,10 @@ void MainComponent::enterRecordingWorkspace()
     recordingTakesPanel.setPreferredRecorderName (preferred.name);
 
     if (preferred.name.isNotEmpty())
-        setStatus ("Recording mode — REC / Open " + preferred.name
+        setStatus ("Recording mode - REC / Open " + preferred.name
                    + " bounces your mix and opens it for plugins & amp sims. Import Take when done.");
     else
-        setStatus ("Recording mode — install Ardour (sudo apt install ardour) for Open Studio, "
+        setStatus ("Recording mode - install Ardour (sudo apt install ardour) for Open Studio, "
                    "or Audacity for a lighter external recorder.");
 }
 
@@ -2105,7 +2188,7 @@ void MainComponent::openArdourStudio()
         juce::MessageBoxIconType::InfoIcon,
         "Open Studio",
         "The Ardour companion currently targets Linux.\n"
-        "Use Transport → Open External Recorder on other platforms.");
+        "Use Transport -> Open External Recorder on other platforms.");
     return;
    #else
     transportController.pause();
@@ -2136,7 +2219,7 @@ void MainComponent::openArdourStudio()
         }
     }
 
-    setStatus ("Preparing Ardour Studio pack (export stems, release interface)…");
+    setStatus ("Preparing Ardour Studio pack (export stems, release interface)...");
 
     const auto result = jamstudio::audio::ArdourCompanion::openStudio (
         transportController.getStemMixer(),
@@ -2160,7 +2243,7 @@ void MainComponent::openArdourStudio()
         return;
     }
 
-    setStatus ("Ardour launched — interface handed off. Pack: " + result.sessionPackDir.getFileName()
+    setStatus ("Ardour launched - interface handed off. Pack: " + result.sessionPackDir.getFileName()
                + "  |  Import Take when finished.");
 
     juce::AlertWindow::showMessageBoxAsync (
@@ -2172,7 +2255,7 @@ void MainComponent::openArdourStudio()
 
 void MainComponent::openExternalRecorder()
 {
-    // Explicit menu: "Open External Recorder (Audacity…)" — never auto-route to Ardour
+    // Explicit menu: "Open External Recorder (Audacity...)" - never auto-route to Ardour
     // so users can still pick Audacity when they want it. Open Studio uses openArdourStudio().
 
     auto app = jamstudio::audio::ExternalRecorder::getPreferred();
@@ -2194,7 +2277,7 @@ void MainComponent::openExternalRecorder()
             juce::MessageBoxIconType::InfoIcon,
             "External recorder",
             "No Audacity (or other recorder) found.\n\n"
-            "On Linux prefer: Transport → Open Studio (Ardour)…\n"
+            "On Linux prefer: Transport -> Open Studio (Ardour)...\n"
             "  sudo apt install ardour\n\n"
             "Or install Audacity for a lighter editor.");
         return;
@@ -2213,10 +2296,10 @@ void MainComponent::openExternalRecorder()
                          .getChildFile ("Recordings")
                          .getChildFile ("backing-bounce-" + timestamp + ".wav");
 
-        setStatus ("Bouncing mix for " + app.name + "…");
+        setStatus ("Bouncing mix for " + app.name + "...");
         if (! jamstudio::audio::ExternalRecorder::bounceMixToWav (mixer, bounceFile, error))
         {
-            setStatus ("Bounce failed: " + error + " — launching " + app.name + " empty.");
+            setStatus ("Bounce failed: " + error + " - launching " + app.name + " empty.");
             bounceFile = juce::File();
         }
     }
@@ -2279,7 +2362,7 @@ void MainComponent::handleRecordingChoice (const jamstudio::ui::StartupWizard::R
     {
         hideStartupWizard();
         enterRecordingWorkspace();
-        setStatus ("Empty recording session — arm input, press REC. Open a backing track anytime from File.");
+        setStatus ("Empty recording session - arm input, press REC. Open a backing track anytime from File.");
         return;
     }
 
@@ -2302,7 +2385,7 @@ void MainComponent::handleRecordingChoice (const jamstudio::ui::StartupWizard::R
             hideStartupWizard();
             enterRecordingWorkspace();
             loadProjectFile (file);
-            setStatus ("Backing project loaded — press Play, then REC to capture your take.");
+            setStatus ("Backing project loaded - press Play, then REC to capture your take.");
         });
         return;
     }
@@ -2330,7 +2413,7 @@ void MainComponent::handleRecordingChoice (const jamstudio::ui::StartupWizard::R
         loadStemsIntoMixer (stems);
         waveformDisplay.setSourceFile (file);
         detectTempoFromSong (file, false);
-        setStatus ("Backing loaded: " + file.getFileName() + " — Play + REC to record.");
+        setStatus ("Backing loaded: " + file.getFileName() + " - Play + REC to record.");
     });
 }
 
@@ -2353,9 +2436,8 @@ void MainComponent::handlePracticeChoice (const jamstudio::ui::StartupWizard::Pr
             if (! file.existsAsFile())
                 return;
 
-            hideStartupWizard();
-            loadProjectFile (file);
             currentMode = jamstudio::ui::StartupWizard::Mode::practice;
+            loadProjectFile (file); // hides wizard + reveals workspace
         });
         return;
     }
@@ -2532,17 +2614,20 @@ void MainComponent::startPerformanceMode (jamstudio::performance::SetList list)
     toneLibrary.load();
     performanceStagePanel.refreshFromLibrary();
     liveToneEngine.setEnabled (true);
+    // Avoid doubling dry monitor + NAM paths; Performance uses the amp rack.
+    audioRecorder.setInputMonitorEnabled (false);
+    transportBar.syncInputMonitorUi();
 
     // Load song 1 immediately so mixer stems / tones populate; playback waits for START.
     loadPerformanceSong (0, false);
 
     enterPerformanceSetup();
 
-    // Do not auto-open video screens — user assigns displays from Stage FX Controller.
+    // Do not auto-open video screens - user assigns displays from Stage FX Controller.
     syncVideoOutputs();
     stageFxController.syncVideoRoutingUi();
 
-    setStatus ("Performance Setup — " + performanceSetList.name + " ("
+    setStatus ("Performance Setup - " + performanceSetList.name + " ("
                + juce::String (performanceSetList.songs.size()) + " songs). "
                + "Assign G1/G2/Bass tones, then GO LIVE when ready.");
     updateMixerPerformanceContext();
@@ -2572,8 +2657,8 @@ void MainComponent::enterPerformanceSetup()
     applyPerformanceWorkspaceLayout();
     updatePerformanceBar();
     performanceStagePanel.setPhaseMessage (
-        "Setup: edit G1/G2/Bass tones · save profiles · assign to song · open mixer for buses");
-    setStatus ("Performance Setup — craft the show. GO LIVE when the set is ready.");
+        "Setup: edit G1/G2/Bass tones - save profiles - assign to song - open mixer for buses");
+    setStatus ("Performance Setup - craft the show. GO LIVE when the set is ready.");
     resized();
 }
 
@@ -2596,9 +2681,9 @@ void MainComponent::enterPerformanceLive()
     performanceStagePanel.setWaitingForTrigger (performanceWaitingForTrigger);
     performanceStagePanel.setPhaseMessage (
         performanceWaitingForTrigger
-            ? "Live — press START / NEXT or foot pedal"
-            : "Live — show running");
-    setStatus ("On Stage Live — stage manager active. START / NEXT advances the set.");
+            ? "Live - press START / NEXT or foot pedal"
+            : "Live - show running");
+    setStatus ("On Stage Live - stage manager active. START / NEXT advances the set.");
     resized();
 }
 
@@ -2613,11 +2698,14 @@ void MainComponent::stopPerformanceMode()
     performanceBar.setVisible (false);
     performanceStagePanel.setVisible (false);
     liveToneEngine.setEnabled (false);
+    // Back to dry software monitor for Practice / free play.
+    audioRecorder.setInputMonitorEnabled (true);
+    transportBar.syncInputMonitorUi();
     // Leave video outputs as the user left them (do not force-close on stop).
     transportController.stop();
     stageFxController.syncVideoRoutingUi();
     updateMixerPerformanceContext();
-    setStatus ("Performance mode stopped.");
+    setStatus ("Performance mode stopped. Input MON is on again.");
     resized();
 }
 
@@ -2741,7 +2829,7 @@ void MainComponent::performanceTriggerNext()
             return;
         }
 
-        // After a song finishes/skips — advance to the following track.
+        // After a song finishes/skips - advance to the following track.
         if (performanceAwaitingNextSong)
         {
             const auto next = performanceSongIndex + 1;
@@ -2760,7 +2848,7 @@ void MainComponent::performanceTriggerNext()
             return;
         }
 
-        // Current song is already loaded (e.g. pre-loaded song 1) — start playback.
+        // Current song is already loaded (e.g. pre-loaded song 1) - start playback.
         transportController.setPosition (0.0);
         transportController.play();
         performanceWasPlaying = true;
@@ -2815,7 +2903,7 @@ void MainComponent::onPerformanceSongEnded()
     performanceBar.setWaitingForTrigger (true);
     performanceBar.setPhaseMessage ("Song ended - press foot pedal / NEXT for: " + nextSong.displayName);
     performanceStagePanel.setWaitingForTrigger (true);
-    performanceStagePanel.setPhaseMessage ("Song ended — press START / NEXT for: " + nextSong.displayName);
+    performanceStagePanel.setPhaseMessage ("Song ended - press START / NEXT for: " + nextSong.displayName);
     performanceStagePanel.setUpNext (nextSong.displayName);
     syncVideoOutputs();
     setStatus ("Paused between songs. Pedal to start: " + nextSong.displayName);
@@ -2849,7 +2937,7 @@ void MainComponent::loadPerformanceSong (const int index, const bool autoPlay)
     applyPerformanceTonesForCurrentSong();
     loadSongStageMedia (song);
 
-    // Performance main canvas never shows lyrics/tabs — karaoke/stage outs only.
+    // Performance main canvas never shows lyrics/tabs - karaoke/stage outs only.
     // (Still load score/lyrics data for karaoke if present in the project.)
     if (song.showTabs)
         preferLeadTabPart (song.preferredPartHint);
@@ -2874,9 +2962,9 @@ void MainComponent::loadPerformanceSong (const int index, const bool autoPlay)
         performanceWaitingForTrigger = true;
         performanceWasPlaying = false;
         performanceBar.setWaitingForTrigger (true);
-        performanceBar.setPhaseMessage ("Loaded — press START / NEXT or foot pedal");
+        performanceBar.setPhaseMessage ("Loaded - press START / NEXT or foot pedal");
         performanceStagePanel.setWaitingForTrigger (true);
-        performanceStagePanel.setPhaseMessage ("Loaded — press START / NEXT or foot pedal");
+        performanceStagePanel.setPhaseMessage ("Loaded - press START / NEXT or foot pedal");
     }
 
     syncVideoOutputs();
@@ -2913,7 +3001,7 @@ void MainComponent::saveCurrentSongTonesToSetlist()
 
     if (! juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
     {
-        setStatus ("No current song — load a track first.");
+        setStatus ("No current song - load a track first.");
         return;
     }
 
@@ -3049,7 +3137,7 @@ void MainComponent::saveCurrentMixerToSetlistTrack()
 
     if (! juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
     {
-        setStatus ("No current set track — press Next/Start to load a song, then save mix.");
+        setStatus ("No current set track - press Next/Start to load a song, then save mix.");
         return;
     }
 
@@ -3077,7 +3165,7 @@ void MainComponent::saveCurrentMixerToSetlistTrack()
 
     setStatus ("Saved mix for set track " + juce::String (performanceSongIndex + 1) + ": "
                + song.displayName + " (" + juce::String (song.stemPrefs.size())
-               + " stems) → " + file.getFileName());
+               + " stems) -> " + file.getFileName());
     updateMixerPerformanceContext();
 }
 

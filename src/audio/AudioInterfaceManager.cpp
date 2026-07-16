@@ -8,7 +8,7 @@ namespace jamstudio::audio
 
 namespace
 {
-constexpr int kDefaultMaxIn = 2;
+constexpr int kDefaultMaxIn = 8; // guitar + vocal (+ more) on multi-IO boxes
 constexpr int kDefaultMaxOut = kMaxMixChannels;
 
 juce::String makeFingerprint (const juce::Array<AudioDeviceChoice>& ins,
@@ -75,6 +75,11 @@ void AudioInterfaceSettings::load()
         if (! o->hasProperty ("preferComputerSpeakersForMonitor"))
             preferComputerSpeakersForMonitor = true;
 
+        if (o->hasProperty ("preferProAudioProfile"))
+            preferProAudioProfile = static_cast<bool> (o->getProperty ("preferProAudioProfile"));
+        else
+            preferProAudioProfile = true;
+
         deviceTypeName = o->getProperty ("deviceTypeName").toString();
         preferredInputName = o->getProperty ("preferredInputName").toString();
         preferredOutputName = o->getProperty ("preferredOutputName").toString();
@@ -84,16 +89,25 @@ void AudioInterfaceSettings::load()
         preferredBufferSize = static_cast<int> (o->getProperty ("preferredBufferSize"));
 
         // Opening huge channel counts (e.g. 18/20) often breaks PipeWire ALSA duplex
-        // into "capture only" with silent playback. Keep opens modest.
+        // into "capture only" with silent playback. Cap at 8 ins for practice.
         if (maxInputChannels <= 0 || maxInputChannels > 8)
+            maxInputChannels = kDefaultMaxIn;
+        // Upgrade old default of 2 so guitar+vocal can open together after pro-audio.
+        if (maxInputChannels < 4)
             maxInputChannels = kDefaultMaxIn;
         if (maxOutputChannels <= 0 || maxOutputChannels > kMaxMixChannels)
             maxOutputChannels = kDefaultMaxOut;
 
         // Drop sticky exclusive-hw preferences that commonly open capture-only under PW.
+        // PipeWire already owns the Scarlett; ALSA "Direct hardware" then gets silence
+        // or fights the session. Prefer Pulse/PipeWire Mic1 / multi-in nodes instead.
         if (preferredOutputName.containsIgnoreCase ("Direct hardware")
             || preferredOutputName.containsIgnoreCase ("hw:"))
             preferredOutputName = {};
+        if (preferredInputName.containsIgnoreCase ("Direct hardware")
+            || preferredInputName.containsIgnoreCase ("without any conversions")
+            || preferredInputName.containsIgnoreCase ("hw:"))
+            preferredInputName = {};
     }
 }
 
@@ -102,6 +116,7 @@ void AudioInterfaceSettings::save() const
     auto* o = new juce::DynamicObject();
     o->setProperty ("mode", audioRoutingModeToString (mode));
     o->setProperty ("preferComputerSpeakersForMonitor", preferComputerSpeakersForMonitor);
+    o->setProperty ("preferProAudioProfile", preferProAudioProfile);
     o->setProperty ("deviceTypeName", deviceTypeName);
     o->setProperty ("preferredInputName", preferredInputName);
     o->setProperty ("preferredOutputName", preferredOutputName);
@@ -130,9 +145,12 @@ AudioInterfaceManager::~AudioInterfaceManager()
 
 void AudioInterfaceManager::initialiseAtStartup()
 {
+    if (settings.preferProAudioProfile)
+        ensureProAudioProfiles();
     scanHardware();
     rescanAndApply();
-    startTimer (2000); // hot-plug poll (USB interfaces)
+    // Light name-only poll; full probe is expensive and was freezing the UI while playing.
+    startTimer (8000);
 }
 
 void AudioInterfaceManager::scanHardware()
@@ -147,24 +165,118 @@ void AudioInterfaceManager::timerCallback()
     if (suppressRescan)
         return;
 
-    scanHardware();
-    const auto inv = buildInventory();
-    if (inv.fingerprint != lastFingerprint)
+    // Cheap fingerprint: device *names* only (no createDevice probes).
+    juce::String lightFp;
+    for (auto* type : deviceManager.getAvailableDeviceTypes())
     {
-        lastFingerprint = inv.fingerprint;
-        if (settings.mode != AudioRoutingMode::manual)
-            rescanAndApply();
-        else
-            sendChangeMessage();
+        if (type == nullptr)
+            continue;
+        type->scanForDevices();
+        for (const auto& n : type->getDeviceNames (true))
+            lightFp << "I:" << type->getTypeName() << "|" << n << ";";
+        for (const auto& n : type->getDeviceNames (false))
+            lightFp << "O:" << type->getTypeName() << "|" << n << ";";
     }
+
+    if (lightFp == lastFingerprint)
+        return;
+
+    // Names changed (USB plug) — full inventory + re-apply routing.
+    lastFingerprint = lightFp;
+    if (settings.mode != AudioRoutingMode::manual)
+        rescanAndApply();
+    else
+        sendChangeMessage();
 }
 
 void AudioInterfaceManager::rescanAndApply()
 {
+    juce::String proNote;
+    if (settings.preferProAudioProfile)
+        proNote = ensureProAudioProfiles();
+
     scanHardware();
     lastError = applySettings (settings);
-    lastFingerprint = buildInventory().fingerprint;
+    lastInfo = proNote;
+    // Keep fingerprint as name-list so the light timer does not thrash.
+    {
+        juce::String lightFp;
+        for (auto* type : deviceManager.getAvailableDeviceTypes())
+        {
+            if (type == nullptr)
+                continue;
+            for (const auto& n : type->getDeviceNames (true))
+                lightFp << "I:" << type->getTypeName() << "|" << n << ";";
+            for (const auto& n : type->getDeviceNames (false))
+                lightFp << "O:" << type->getTypeName() << "|" << n << ";";
+        }
+        lastFingerprint = lightFp;
+    }
     sendChangeMessage();
+}
+
+juce::String AudioInterfaceManager::ensureProAudioProfiles()
+{
+   #if JUCE_LINUX
+    // PipeWire HiFi/UCM splits Scarlett into Mic1, Mic2, … (one mono device each).
+    // pro-audio exposes one multi-channel source (e.g. 18 in) so guitar+vocal work together.
+    // Requires pactl (PulseAudio / PipeWire compatibility layer).
+    if (! juce::File ("/usr/bin/pactl").existsAsFile()
+        && ! juce::File ("/bin/pactl").existsAsFile())
+        return {};
+
+    juce::ChildProcess listProc;
+    if (! listProc.start ("pactl list cards short"))
+        return {};
+
+    const auto listing = listProc.readAllProcessOutput();
+    juce::StringArray changed;
+
+    for (const auto& line : juce::StringArray::fromLines (listing))
+    {
+        const auto parts = juce::StringArray::fromTokens (line, "\t ", "");
+        if (parts.size() < 2)
+            continue;
+
+        const auto cardId = parts[1].trim();
+        const auto lower = cardId.toLowerCase() + " " + line.toLowerCase();
+        const bool multiIo = lower.contains ("scarlett") || lower.contains ("focusrite")
+                             || lower.contains ("18i20") || lower.contains ("motu")
+                             || lower.contains ("rme") || lower.contains ("presonus")
+                             || lower.contains ("audient") || lower.contains ("behringer")
+                             || lower.contains ("komplete") || lower.contains ("ur22")
+                             || lower.contains ("ur44") || lower.contains ("babyface");
+        if (! multiIo || cardId.isEmpty())
+            continue;
+
+        juce::ChildProcess setProc;
+        // Ignore failure if profile name differs; pro-audio is standard on PipeWire.
+        if (setProc.start ("pactl set-card-profile " + cardId + " pro-audio"))
+        {
+            setProc.waitForProcessToFinish (3000);
+            if (setProc.getExitCode() == 0)
+                changed.add (cardId.fromLastOccurrenceOf (".", false, false).isNotEmpty()
+                                 ? cardId.fromLastOccurrenceOf (".", false, false)
+                                 : cardId);
+            else
+            {
+                // Some distros use slightly different profile ids
+                juce::ChildProcess alt;
+                if (alt.start ("pactl set-card-profile " + cardId + " Pro Audio"))
+                    alt.waitForProcessToFinish (3000);
+            }
+        }
+    }
+
+    if (changed.isEmpty())
+        return {};
+
+    // Give WirePlumber a moment to rebuild nodes before JUCE scans.
+    juce::Thread::sleep (350);
+    return "Pro Audio multi-in enabled (" + changed.joinIntoString (", ") + ")";
+   #else
+    return {};
+   #endif
 }
 
 void AudioInterfaceManager::setSettings (const AudioInterfaceSettings& newSettings, const bool applyNow)
@@ -246,11 +358,17 @@ juce::String AudioInterfaceManager::applySettings (const AudioInterfaceSettings&
                 wantOut = juce::jmin (wantOut, juce::jmax (1, bestOut.maxOutputChannels));
             }
 
-            // If input and output are different physical devices, keep type of the output
-            // when backends require it — ALSA supports mixed IDs under one type.
+            // Prefer same backend for split routing (Pulse in + Pulse out is most
+            // reliable under PipeWire; ALSA exclusive Scarlett + PC speakers often
+            // yields silent guitar while "system mic"/default works).
             if (bestIn.typeName.isNotEmpty() && bestOut.typeName.isNotEmpty()
                 && bestIn.typeName == bestOut.typeName)
                 typeName = bestIn.typeName;
+            else if (bestIn.typeName.isNotEmpty()
+                     && (bestIn.typeName.containsIgnoreCase ("pulse")
+                         || bestIn.typeName.containsIgnoreCase ("pipewire")
+                         || bestIn.typeName.containsIgnoreCase ("jack")))
+                typeName = bestIn.typeName; // keep capture backend
             else if (bestOut.typeName.isNotEmpty())
                 typeName = bestOut.typeName;
             else if (bestIn.typeName.isNotEmpty())
@@ -258,7 +376,13 @@ juce::String AudioInterfaceManager::applySettings (const AudioInterfaceSettings&
 
             // Stereo fold for PC / virtual listen path.
             wantOut = juce::jmin (wantOut, 2);
-            wantIn = juce::jmin (wantIn, 2);
+            // Open as many inputs as the multi-IO box offers (cap 8) so MON can
+            // hear guitar + vocal together. Mono-only devices stay at 1.
+            if (bestIn.maxInputChannels >= 2)
+                wantIn = juce::jmin (8, juce::jmax (2, juce::jmin (settings.maxInputChannels,
+                                                                   bestIn.maxInputChannels)));
+            else
+                wantIn = 1;
 
             // Prefer system default for speakers — exclusive "Direct hardware" often
             // fails duplex under PipeWire and leaves JamStudio with capture only.
@@ -271,7 +395,12 @@ juce::String AudioInterfaceManager::applySettings (const AudioInterfaceSettings&
                         || n.contains ("pulse") || n.contains ("pipewire sound"))
                     {
                         outName = d.name;
-                        typeName = d.typeName.isNotEmpty() ? d.typeName : typeName;
+                        // If we forced default output, stay on that device type when possible.
+                        if (d.typeName.isNotEmpty()
+                            && (typeName.isEmpty() || typeName == d.typeName
+                                || d.typeName.containsIgnoreCase ("pulse")
+                                || d.typeName.containsIgnoreCase ("alsa")))
+                            typeName = d.typeName;
                         break;
                     }
                 }
@@ -356,9 +485,14 @@ AudioDeviceChoice AudioInterfaceManager::pickBestInput (const DeviceInventory& i
             continue;
 
         auto score = d.score;
-        if (settings.preferredInputName.isNotEmpty() && d.name == settings.preferredInputName)
+        // Sticky names only count in Manual mode (plug-and-play must re-pick Scarlett).
+        if (settings.mode == AudioRoutingMode::manual
+            && settings.preferredInputName.isNotEmpty()
+            && d.name == settings.preferredInputName)
             score += 500;
-        if (settings.deviceTypeName.isNotEmpty() && d.typeName == settings.deviceTypeName)
+        if (settings.mode == AudioRoutingMode::manual
+            && settings.deviceTypeName.isNotEmpty()
+            && d.typeName == settings.deviceTypeName)
             score += 20;
 
         if (score > bestScore)
@@ -618,6 +752,12 @@ AudioRoutingSnapshot AudioInterfaceManager::getSnapshot() const
     if (s.sampleRate > 0.0)
         s.summary += "  @ " + juce::String (s.sampleRate / 1000.0, 1) + " kHz";
 
+    if (s.activeInputChannels >= 2)
+        s.summary += "  |  multi-in OK (In1 guitar, In2 vocal, … or MON All)";
+
+    if (lastInfo.isNotEmpty())
+        s.summary += "  [" + lastInfo + "]";
+
     if (s.error.isNotEmpty())
         s.summary += "  [warn: " + s.error + "]";
 
@@ -643,7 +783,10 @@ int AudioInterfaceManager::scoreAsCaptureInterface (const juce::String& name,
     };
     for (auto* b : brands)
         if (n.contains (b))
+        {
             score += 140;
+            break;
+        }
 
     if (n.contains ("usb") || n.contains ("interface") || n.contains ("audio box"))
         score += 40;
@@ -654,13 +797,48 @@ int AudioInterfaceManager::scoreAsCaptureInterface (const juce::String& name,
     if (maxIn > maxOut)
         score += 25;
 
-    // Deprioritise monitors / HDMI / loopback as capture sources.
+    // Exclusive ALSA "Direct hardware" often loses to PipeWire (silent capture).
+    if (n.contains ("direct hardware") || n.contains ("without any conversions")
+        || n.contains ("hw:"))
+        score -= 200;
+
+    // PipeWire "pro-audio" multi-channel node (all jacks in one device).
+    if (n.contains ("pro-input") || n.contains ("pro audio") || n.contains ("pro-audio"))
+        score += 220;
+    if (n.contains ("direct2") || (n.contains ("direct") && maxIn >= 4 && ! n.contains ("hardware")))
+        score += 120;
+
+    // Strongly prefer multi-channel capture so guitar + vocal open together.
+    // Mono Mic1/Mic2 HiFi ports are last-resort (one jack at a time).
+    if (maxIn >= 8)
+        score += 180;
+    else if (maxIn >= 4)
+        score += 120;
+    else if (maxIn >= 2)
+        score += 40;
+    else if (isMonoSplitInterfacePort (name))
+        score -= 160; // HiFi split mono jacks — causes "one device at a time"
+
+    if (n.contains ("spdif") || n.contains ("adat") || n.contains ("optical"))
+        score -= 80;
+
+    // Deprioritise monitors / HDMI / loopback / built-in laptop mics as capture.
     if (n.contains ("hdmi") || n.contains ("display") || n.contains ("loopback")
         || n.contains ("monitor of") || n.contains ("null"))
         score -= 250;
 
-    if (n.contains ("default") || n.contains ("pulse"))
-        score -= 15; // fine fallback, not preferred over real interfaces
+    if (n.contains ("built-in") || n.contains ("built in") || n.contains ("internal")
+        || n.contains ("pch") || n.contains ("alc") || n.contains ("realtek")
+        || n.contains ("laptop") || n.contains ("webcam"))
+        score -= 120;
+
+    // Default/Pulse is OK when it points at Scarlett Mic1, but not over a named interface.
+    if (n.contains ("default") || n == "pulse" || n.contains ("pipewire sound"))
+        score -= 10;
+
+    // JACK with no graph / 1-ch stub is a common false pick — never auto-select.
+    if (n.contains ("jack audio") || n == "jack" || n.startsWith ("jack "))
+        score -= 400;
 
     return score;
 }
@@ -724,6 +902,24 @@ bool AudioInterfaceManager::looksLikeMultiIoInterface (const juce::String& name,
         return true;
 
     return n.contains ("interface") || (n.contains ("usb") && (maxIn >= 2 || maxOut >= 4));
+}
+
+bool AudioInterfaceManager::isMonoSplitInterfacePort (const juce::String& name)
+{
+    auto n = name.toLowerCase();
+    // PipeWire HiFi UCM: separate mono sources per jack
+    if (n.contains ("mic1") || n.contains ("mic2") || n.contains ("mic 1") || n.contains ("mic 2"))
+        return true;
+    if ((n.contains ("line") || n.contains ("mic"))
+        && (n.contains ("scarlett") || n.contains ("focusrite") || n.contains ("18i20"))
+        && ! n.contains ("pro-") && ! n.contains ("direct2"))
+    {
+        // Mono Line8…Line13 style ports
+        for (int i = 1; i <= 16; ++i)
+            if (n.contains ("line" + juce::String (i)) || n.contains ("line " + juce::String (i)))
+                return true;
+    }
+    return false;
 }
 
 } // namespace jamstudio::audio

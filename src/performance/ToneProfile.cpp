@@ -287,9 +287,9 @@ void ToneLibrary::ensureDirectories (const bool seedExampleModels) const
         readme.replaceWithText (
             "JamStudio amp models (.nam)\n"
             "===========================\n\n"
-            "guitar/   — models for Guitar 1 and Guitar 2 (G1 / G2)\n"
-            "bass/     — models for Bass\n"
-            "shared/   — models usable by any path\n\n"
+            "guitar/   - models for Guitar 1 and Guitar 2 (G1 / G2)\n"
+            "bass/     - models for Bass\n"
+            "shared/   - models usable by any path\n\n"
             "Import from Performance Setup (Load .nam), or copy .nam files here.\n"
             "Download free models from https://www.tone3000.com\n\n"
             "Cab IRs (optional) go in ../CabIRs/\n"

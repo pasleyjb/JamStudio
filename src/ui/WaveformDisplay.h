@@ -14,6 +14,7 @@ public:
     WaveformDisplay (juce::AudioFormatManager& formatManager,
                      juce::AudioThumbnailCache& cache,
                      jamstudio::audio::TransportController& transport);
+    ~WaveformDisplay() override;
 
     void setSourceFile (const juce::File& file);
     void clear();
@@ -25,9 +26,16 @@ public:
     void timerCallback() override;
 
 private:
+    void invalidateWaveCache();
+    void rebuildWaveCacheIfNeeded();
+    [[nodiscard]] juce::Rectangle<int> waveBounds() const;
+    [[nodiscard]] int playheadX() const;
+
     jamstudio::audio::TransportController& transportController;
     juce::AudioThumbnail thumbnail;
-    juce::Rectangle<int> cursorArea;
+    juce::Image waveCache;
+    int lastPlayheadX = -1;
+    bool waveCacheDirty = true;
 };
 
 } // namespace jamstudio::ui

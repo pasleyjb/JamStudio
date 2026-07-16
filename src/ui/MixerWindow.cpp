@@ -7,7 +7,7 @@
 namespace jamstudio::ui
 {
 
-/** Permanent mixer strip for stage media — transport + VIDEO sound fader. */
+/** Permanent mixer strip for stage media - transport + VIDEO sound fader. */
 class VideoSoundStrip : public juce::Component,
                         private juce::Timer
 {
@@ -153,7 +153,7 @@ private:
 };
 
 
-/** Masters for FOH + Mon1–5 + per-bus click knobs + PC listen. */
+/** Masters for FOH + Mon1-5 + per-bus click knobs + PC listen. */
 class BusMasterStrip : public juce::Component,
                        private juce::Timer
 {
@@ -187,7 +187,6 @@ public:
             auto& clk = clickKnobs[static_cast<size_t> (b)];
             auto& clkLab = clickLabels[static_cast<size_t> (b)];
 
-            lab.setText (jamstudio::audio::mixBusName (bus), juce::dontSendNotification);
             lab.setJustificationType (juce::Justification::centred);
             lab.setFont (juce::FontOptions (9.0f, juce::Font::bold));
             lab.setColour (juce::Label::textColourId, accent);
@@ -211,7 +210,6 @@ public:
             clk.setColour (juce::Slider::rotarySliderFillColourId, accent);
             clk.setColour (juce::Slider::rotarySliderOutlineColourId, accent.withAlpha (0.4f));
             clk.setColour (juce::Slider::thumbColourId, juce::Colours::white);
-            clk.setTooltip ("Click volume → " + jamstudio::audio::mixBusLongName (bus));
             clk.setPopupDisplayEnabled (true, true, this);
             clk.setTextValueSuffix (" %");
             clk.setNumDecimalPlacesToDisplay (0);
@@ -226,8 +224,6 @@ public:
             s.setValue (transportController.getStemMixer().getBusMaster (bus), juce::dontSendNotification);
             s.setSliderSnapsToMousePosition (true);
             s.setColour (juce::Slider::thumbColourId, accent);
-            s.setTooltip (jamstudio::audio::mixBusLongName (bus) + " master · outs "
-                          + jamstudio::audio::mixBusHardwareOuts (bus));
             s.onValueChange = [this, bus, &s]
             {
                 transportController.getStemMixer().setBusMaster (
@@ -235,8 +231,9 @@ public:
             };
             addAndMakeVisible (s);
         }
+        refreshBusLabels();
 
-        routeHint.setText ("1-2 FOH · 3-4 M1 · 5-6 M2 · 7-8 M3 · 9-10 M4 · 11-12 M5",
+        routeHint.setText ("1-2 FOH - 3-4 M1 - 5-6 M2 - 7-8 M3 - 9-10 M4 - 11-12 M5",
                            juce::dontSendNotification);
         routeHint.setJustificationType (juce::Justification::centred);
         routeHint.setFont (juce::FontOptions (8.0f));
@@ -249,11 +246,7 @@ public:
         listenLabel.setColour (juce::Label::textColourId, JamStudioTheme::getColours().accent);
         addAndMakeVisible (listenLabel);
 
-        for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
-            listenBox.addItem (jamstudio::audio::outputMonitorSelectName (
-                                   static_cast<jamstudio::audio::OutputMonitorSelect> (b)),
-                               b + 1);
-        listenBox.addItem ("Sum all buses", jamstudio::audio::kNumMixBuses + 1);
+        rebuildListenBox();
         listenBox.setTooltip ("Which bus is fed to PC speakers / virtual interface fold-down");
         {
             const auto sel = transportController.getMultiBusMaster().getOutputMonitorSelect();
@@ -274,7 +267,7 @@ public:
 
         foldToggle.setButtonText ("Fold to PC stereo");
         foldToggle.setTooltip ("On: only the selected bus reaches speakers (laptop / virtual). "
-                               "Off: full FOH+M1–M5 matrix when the device has enough outs.");
+                               "Off: full FOH+M1-M5 matrix when the device has enough outs.");
         foldToggle.setToggleState (transportController.getMultiBusMaster().isStereoFoldListen(),
                                    juce::dontSendNotification);
         foldToggle.onClick = [this]
@@ -284,7 +277,7 @@ public:
         };
         addAndMakeVisible (foldToggle);
 
-        startTimerHz (24);
+        startTimerHz (12);
     }
 
     void syncFromMixer()
@@ -300,9 +293,42 @@ public:
                                                           juce::dontSendNotification);
         }
 
-        const auto sel = mb.getOutputMonitorSelect();
-        listenBox.setSelectedId (static_cast<int> (sel) + 1, juce::dontSendNotification);
+        refreshBusLabels();
+        rebuildListenBox();
         foldToggle.setToggleState (mb.isStereoFoldListen(), juce::dontSendNotification);
+    }
+
+    void refreshBusLabels()
+    {
+        auto& mb = transportController.getMultiBusMaster();
+        for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+        {
+            const auto bus = static_cast<jamstudio::audio::MixBus> (b);
+            const auto name = mb.getBusDisplayName (bus);
+            const auto longName = mb.getBusLongDisplayName (bus);
+            busLabels[static_cast<size_t> (b)].setText (name, juce::dontSendNotification);
+            busLabels[static_cast<size_t> (b)].setTooltip (longName + " — outs "
+                                                           + jamstudio::audio::mixBusHardwareOuts (bus));
+            clickKnobs[static_cast<size_t> (b)].setTooltip ("Click volume -> " + longName);
+            busSliders[static_cast<size_t> (b)].setTooltip (
+                longName + " master - outs " + jamstudio::audio::mixBusHardwareOuts (bus));
+        }
+    }
+
+    void rebuildListenBox()
+    {
+        auto& mb = transportController.getMultiBusMaster();
+        const auto keep = listenBox.getSelectedId();
+        listenBox.clear (juce::dontSendNotification);
+        for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+            listenBox.addItem (mb.getOutputMonitorSelectDisplayName (
+                                   static_cast<jamstudio::audio::OutputMonitorSelect> (b)),
+                               b + 1);
+        listenBox.addItem ("Sum all buses", jamstudio::audio::kNumMixBuses + 1);
+        const auto sel = static_cast<int> (mb.getOutputMonitorSelect()) + 1;
+        listenBox.setSelectedId (keep > 0 ? keep : sel, juce::dontSendNotification);
+        if (listenBox.getSelectedId() <= 0)
+            listenBox.setSelectedId (sel, juce::dontSendNotification);
     }
 
     void paint (juce::Graphics& g) override
@@ -356,7 +382,7 @@ public:
         // Column layout: bus name | clk label | larger rotary pot | master fader
         const auto labH = 12;
         const auto clkLabH = 11;
-        // Bigger pots: ~36–52 px depending on strip height / column width
+        // Bigger pots: ~36-52 px depending on strip height / column width
         const auto colW = juce::jmax (1, a.getWidth() / jamstudio::audio::kNumMixBuses);
         const auto knobH = juce::jlimit (36, 52, juce::jmin (colW - 2, a.getHeight() / 4));
         const auto w = colW;
@@ -496,7 +522,7 @@ public:
         addAndMakeVisible (videoStrip);
         addAndMakeVisible (busStrip);
 
-        startTimerHz (20);
+        startTimerHz (10);
     }
 
     void rebuild (jamstudio::audio::StemMixer& mixer, MixerChannelStrip::StemChangedCallback onChanged)
@@ -508,7 +534,8 @@ public:
         {
             if (mixer.getStem (i) != nullptr)
             {
-                auto strip = std::make_unique<MixerChannelStrip> (i, mixer, onChanged);
+                auto strip = std::make_unique<MixerChannelStrip> (
+                    i, mixer, transportController.getMultiBusMaster(), onChanged);
                 stripContainer.addAndMakeVisible (strip.get());
                 strips.add (std::move (strip));
             }
@@ -555,7 +582,7 @@ public:
         if (! active)
             setTrackLabel.setText ("No set loaded", juce::dontSendNotification);
         else if (songIndex < 0)
-            setTrackLabel.setText ("Set ready — start a song to save mix", juce::dontSendNotification);
+            setTrackLabel.setText ("Set ready - start a song to save mix", juce::dontSendNotification);
         else
             setTrackLabel.setText ("Set track " + juce::String (songIndex + 1) + "/"
                                        + juce::String (songCount) + ": " + songName,
@@ -614,7 +641,7 @@ public:
 
         const auto area = viewport.getLocalBounds();
         const int count = juce::jmax (1, strips.size());
-        // Wider strips for FOH + Mon 1–5 send columns.
+        // Wider strips for FOH + Mon 1-5 send columns.
         const int minStripW = 132;
         const auto stripWidth = juce::jmax (minStripW, area.getWidth() / count);
         stripContainer.setBounds (0, 0, stripWidth * count, area.getHeight());
@@ -729,7 +756,7 @@ MixerWindow::MixerWindow (jamstudio::audio::TransportController& transport)
         if (dockDetach)
             dockDetach();
     };
-    // ResizableWindow shadows Component& overload — pass pointers.
+    // ResizableWindow shadows Component& overload - pass pointers.
     addAndMakeVisible (&attachButton);
     addAndMakeVisible (&detachButton);
     setDockStickyState (true);
@@ -812,7 +839,7 @@ juce::Rectangle<int> MixerWindow::getMaximiseBounds() const
 
 void MixerWindow::maximiseButtonPressed()
 {
-    // Manual max/restore — setFullScreen on non-native DocumentWindow is unreliable on Linux.
+    // Manual max/restore - setFullScreen on non-native DocumentWindow is unreliable on Linux.
     if (maximised)
     {
         maximised = false;

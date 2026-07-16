@@ -36,6 +36,19 @@ void MultiBusMaster::loadSettings()
             o->getProperty ("monitorSelect").toString()));
         if (o->hasProperty ("stereoFoldListen"))
             setStereoFoldListen (static_cast<bool> (o->getProperty ("stereoFoldListen")));
+
+        if (auto* names = o->getProperty ("busNames").getArray())
+        {
+            const juce::ScopedLock sl (labelLock);
+            for (int b = 0; b < kNumMixBuses && b < names->size(); ++b)
+            {
+                const auto n = names->getUnchecked (b).toString().trim();
+                busDisplayNames[static_cast<size_t> (b)] =
+                    (n.isEmpty() || n == mixBusName (static_cast<MixBus> (b)))
+                        ? juce::String()
+                        : n;
+            }
+        }
     }
 }
 
@@ -44,9 +57,84 @@ void MultiBusMaster::saveSettings() const
     auto* o = new juce::DynamicObject();
     o->setProperty ("monitorSelect", outputMonitorSelectToString (getOutputMonitorSelect()));
     o->setProperty ("stereoFoldListen", isStereoFoldListen());
+
+    juce::Array<juce::var> names;
+    {
+        const juce::ScopedLock sl (labelLock);
+        for (int b = 0; b < kNumMixBuses; ++b)
+        {
+            const auto& custom = busDisplayNames[static_cast<size_t> (b)];
+            names.add (custom.isNotEmpty() ? custom : mixBusName (static_cast<MixBus> (b)));
+        }
+    }
+    o->setProperty ("busNames", juce::var (names));
+
     const auto file = monitorSettingsFile();
     file.getParentDirectory().createDirectory();
     file.replaceWithText (juce::JSON::toString (juce::var (o), true));
+}
+
+void MultiBusMaster::setBusDisplayName (const MixBus bus, juce::String name)
+{
+    const auto i = static_cast<int> (bus);
+    if (! juce::isPositiveAndBelow (i, kNumMixBuses))
+        return;
+
+    name = name.trim();
+    // Treat default short names as "no custom label"
+    if (name.equalsIgnoreCase (mixBusName (bus))
+        || name.equalsIgnoreCase (mixBusLongName (bus)))
+        name = {};
+
+    {
+        const juce::ScopedLock sl (labelLock);
+        busDisplayNames[static_cast<size_t> (i)] = std::move (name);
+    }
+    saveSettings();
+}
+
+juce::String MultiBusMaster::getBusDisplayName (const MixBus bus) const
+{
+    const auto i = static_cast<int> (bus);
+    if (! juce::isPositiveAndBelow (i, kNumMixBuses))
+        return "Bus";
+
+    {
+        const juce::ScopedLock sl (labelLock);
+        const auto& custom = busDisplayNames[static_cast<size_t> (i)];
+        if (custom.isNotEmpty())
+            return custom;
+    }
+    return mixBusName (bus);
+}
+
+juce::String MultiBusMaster::getBusLongDisplayName (const MixBus bus) const
+{
+    const auto i = static_cast<int> (bus);
+    if (! juce::isPositiveAndBelow (i, kNumMixBuses))
+        return "Bus";
+
+    juce::String custom;
+    {
+        const juce::ScopedLock sl (labelLock);
+        custom = busDisplayNames[static_cast<size_t> (i)];
+    }
+
+    if (custom.isEmpty())
+        return mixBusLongName (bus);
+
+    // e.g. "Jay IEM (Monitor / IEM 1)" so routing role stays obvious
+    return custom + " (" + mixBusLongName (bus) + ")";
+}
+
+juce::String MultiBusMaster::getOutputMonitorSelectDisplayName (const OutputMonitorSelect s) const
+{
+    if (s == OutputMonitorSelect::sumAll)
+        return "Sum all buses";
+    if (s == OutputMonitorSelect::foh)
+        return getBusDisplayName (MixBus::foh) + " (" + mixBusHardwareOuts (MixBus::foh) + ")";
+    const auto bus = static_cast<MixBus> (static_cast<int> (s));
+    return getBusDisplayName (bus) + " (" + mixBusHardwareOuts (bus) + ")";
 }
 
 void MultiBusMaster::setClickBusSend (const MixBus bus, const float gain) noexcept

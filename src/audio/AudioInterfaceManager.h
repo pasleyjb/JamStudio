@@ -39,10 +39,16 @@ struct AudioInterfaceSettings
     AudioRoutingMode mode = AudioRoutingMode::plugAndPlay;
     /** When true (default), multi-input USB interfaces feed capture while speakers monitor. */
     bool preferComputerSpeakersForMonitor = true;
+    /**
+     * Linux/PipeWire: switch Focusrite/Scarlett-class cards to the "pro-audio" profile
+     * so all inputs appear as one multi-channel device (guitar + vocal together).
+     * HiFi profile splits each jack into a separate mono "Mic1" source (one-at-a-time).
+     */
+    bool preferProAudioProfile = true;
     juce::String deviceTypeName;       // empty = pick best available type
     juce::String preferredInputName;   // empty = auto / none
     juce::String preferredOutputName;  // empty = auto / none
-    int maxInputChannels = 2;          // channels to open (matched down to hardware)
+    int maxInputChannels = 8;          // multi-in practice (guitar+vocal); matched to hardware
     int maxOutputChannels = 6;         // FOH+Mon A+Mon B; matched down to hardware
     double preferredSampleRate = 0.0;  // 0 = device default
     int preferredBufferSize = 0;       // 0 = device default
@@ -109,6 +115,12 @@ public:
     /** Refresh ALSA/WASAPI device lists (USB plug events). */
     void scanHardware();
 
+    /**
+     * Linux: set pro-audio profile on multi-IO USB cards so capture is multi-channel.
+     * Returns a short status note (empty if nothing changed / not Linux).
+     */
+    juce::String ensureProAudioProfiles();
+
 private:
     void timerCallback() override;
 
@@ -133,11 +145,13 @@ private:
     static int scoreAsCaptureInterface (const juce::String& name, int maxIn, int maxOut);
     static int scoreAsComputerMonitor (const juce::String& name, int maxOut);
     static bool looksLikeMultiIoInterface (const juce::String& name, int maxIn, int maxOut);
+    static bool isMonoSplitInterfacePort (const juce::String& name);
 
     juce::AudioDeviceManager& deviceManager;
     AudioInterfaceSettings settings;
     juce::String lastFingerprint;
     juce::String lastError;
+    juce::String lastInfo; // non-error status (e.g. pro-audio switched on)
     bool suppressRescan = false;
 };
 

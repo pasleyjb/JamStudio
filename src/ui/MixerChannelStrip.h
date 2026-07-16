@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../audio/MixBus.h"
+#include "../audio/MultiBusMaster.h"
 #include "../audio/StemMixer.h"
 #include "IndicatorButton.h"
 
@@ -10,8 +11,8 @@ namespace jamstudio::ui
 {
 
 /**
- * Vertical DAW channel: M/S, FOH + Mon 1–5 sends, peak meter.
- * FOH = house PA; M1–M5 = band / IEM mixes (independent levels).
+ * Vertical DAW channel: M/S, FOH + Mon 1-5 sends, peak meter.
+ * FOH = house PA; M1-M5 = band / IEM mixes (independent levels).
  */
 class MixerChannelStrip : public juce::Component,
                           private juce::Timer
@@ -21,11 +22,13 @@ public:
 
     MixerChannelStrip (int stemIndex,
                        jamstudio::audio::StemMixer& mixer,
+                       jamstudio::audio::MultiBusMaster& multiBusMaster,
                        StemChangedCallback onChanged);
 
     void paint (juce::Graphics& g) override;
     void resized() override;
     void syncFromTrack (const jamstudio::audio::StemTrack& track);
+    void refreshBusLabels();
 
 private:
     void notifyChanged();
@@ -37,6 +40,7 @@ private:
 
     int index = 0;
     jamstudio::audio::StemMixer& stemMixer;
+    jamstudio::audio::MultiBusMaster& multiBus;
     jamstudio::audio::StemType type = jamstudio::audio::StemType::unknown;
     juce::Label nameLabel;
     IndicatorButton muteButton { "mute", "M" };

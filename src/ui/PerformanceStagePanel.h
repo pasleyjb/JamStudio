@@ -1,10 +1,12 @@
 #pragma once
 
 #include "../audio/LiveToneEngine.h"
+#include "../audio/MultiBusMaster.h"
 #include "../performance/SetListData.h"
 #include "../performance/ToneProfile.h"
 
 #include <JuceHeader.h>
+#include <array>
 #include <functional>
 
 namespace jamstudio::ui
@@ -14,7 +16,7 @@ namespace jamstudio::ui
 enum class PerformanceStageMode
 {
     setup, // build tones, assign profiles, dry-run
-    live   // stage manager — automate the set
+    live   // stage manager - automate the set
 };
 
 /**
@@ -33,7 +35,8 @@ public:
     using BackToSetupCallback = std::function<void()>;
 
     PerformanceStagePanel (jamstudio::audio::LiveToneEngine& engine,
-                           jamstudio::performance::ToneLibrary& library);
+                           jamstudio::performance::ToneLibrary& library,
+                           jamstudio::audio::MultiBusMaster& multiBusMaster);
 
     void setStageMode (PerformanceStageMode mode);
     [[nodiscard]] PerformanceStageMode getStageMode() const noexcept { return stageMode; }
@@ -43,6 +46,9 @@ public:
     void setSaveSongTonesCallback (SaveSongTonesCallback cb) { onSaveSongTones = std::move (cb); }
     void setGoLiveCallback (GoLiveCallback cb) { onGoLive = std::move (cb); }
     void setBackToSetupCallback (BackToSetupCallback cb) { onBackToSetup = std::move (cb); }
+
+    /** Refresh bus name editors from MultiBusMaster (e.g. after external rename). */
+    void refreshBusLabels();
 
     void setSetListInfo (const juce::String& setName,
                          int songIndex,
@@ -59,7 +65,7 @@ public:
     void selectProfileInCombo (jamstudio::performance::LiveInstrumentRole role,
                                const juce::String& profileId);
 
-    /** Read knobs → ToneProfile for a path (includes name/id from current selection). */
+    /** Read knobs -> ToneProfile for a path (includes name/id from current selection). */
     [[nodiscard]] jamstudio::performance::ToneProfile capturePathProfile (
         jamstudio::performance::LiveInstrumentRole role) const;
 
@@ -123,24 +129,33 @@ private:
 
     void timerCallback() override;
     void updateModeChrome();
+    void commitBusLabel (int busIndex);
+    void applyBusLabelEditorsVisibility();
 
     jamstudio::audio::LiveToneEngine& engine;
     jamstudio::performance::ToneLibrary& library;
+    jamstudio::audio::MultiBusMaster& multiBus;
     PerformanceStageMode stageMode = PerformanceStageMode::setup;
 
     juce::Label modeBadge;
     juce::TextButton setupModeButton { "SETUP" };
     juce::TextButton liveModeButton { "LIVE" };
-    juce::TextButton goLiveButton { "GO LIVE →" };
-    juce::TextButton backSetupButton { "← SETUP" };
+    juce::TextButton goLiveButton { "GO LIVE ->" };
+    juce::TextButton backSetupButton { "<- SETUP" };
     juce::TextButton triggerButton { "START / NEXT" };
-    juce::TextButton saveSongTonesButton { "Save tones → song" };
+    juce::TextButton saveSongTonesButton { "Save tones -> song" };
 
     juce::Label setLabel;
     juce::Label songLabel;
     juce::Label phaseLabel;
     juce::Label upNextLabel;
     juce::Label hintLabel;
+
+    /** Setup-only: name FOH + mon mixes so you know whose IEM is which. */
+    juce::Label busSectionTitle;
+    juce::Label busSectionHint;
+    std::array<juce::Label, jamstudio::audio::kNumMixBuses> busNameEditors;
+    std::array<juce::Label, jamstudio::audio::kNumMixBuses> busHwLabels;
 
     std::unique_ptr<NamPathPanel> pathPanels[jamstudio::performance::kNumLiveTonePaths];
 

@@ -14,7 +14,7 @@ HelpBrowserDialog::HelpBrowserDialog()
     searchLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
     addAndMakeVisible (searchLabel);
 
-    searchBox.setTextToShowWhenEmpty ("Search functions… e.g. mixer, stage, dock, stems",
+    searchBox.setTextToShowWhenEmpty ("Search functions... e.g. mixer, stage, dock, stems",
                                       JamStudioTheme::getColours().textSecondary);
     searchBox.addListener (this);
     searchBox.setFont (juce::FontOptions (15.0f));
@@ -146,7 +146,7 @@ void HelpBrowserDialog::showSelectedTopic()
         return;
 
     const auto& t = filtered.getReference (row);
-    detailTitle.setText (t.title + "  ·  " + t.category, juce::dontSendNotification);
+    detailTitle.setText (t.title + "  -  " + t.category, juce::dontSendNotification);
     detailBody.setText (t.body);
     detailBody.moveCaretToTop (false);
 }

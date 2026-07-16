@@ -18,14 +18,14 @@ PerformanceStagePanel::NamPathPanel::NamPathPanel (
 {
     const auto accent = jamstudio::performance::liveInstrumentRoleColour (role);
 
-    titleLabel.setText (jamstudio::performance::liveInstrumentRoleName (role) + "  ·  NAM",
+    titleLabel.setText (jamstudio::performance::liveInstrumentRoleName (role) + "  -  NAM",
                         juce::dontSendNotification);
     titleLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
     titleLabel.setColour (juce::Label::textColourId, accent);
     titleLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (titleLabel);
 
-    profileBox.setTextWhenNothingSelected ("Profile…");
+    profileBox.setTextWhenNothingSelected ("Profile...");
     profileBox.onChange = [this]
     {
         const auto id = profileBox.getText();
@@ -471,9 +471,11 @@ void PerformanceStagePanel::NamPathPanel::resized()
 // =============================================================================
 
 PerformanceStagePanel::PerformanceStagePanel (jamstudio::audio::LiveToneEngine& eng,
-                                              jamstudio::performance::ToneLibrary& lib)
+                                              jamstudio::performance::ToneLibrary& lib,
+                                              jamstudio::audio::MultiBusMaster& multiBusMaster)
     : engine (eng),
-      library (lib)
+      library (lib),
+      multiBus (multiBusMaster)
 {
     modeBadge.setFont (juce::FontOptions (12.0f, juce::Font::bold));
     modeBadge.setJustificationType (juce::Justification::centred);
@@ -552,6 +554,51 @@ PerformanceStagePanel::PerformanceStagePanel (jamstudio::audio::LiveToneEngine& 
     for (auto* l : { &setLabel, &songLabel, &phaseLabel, &upNextLabel, &hintLabel })
         addAndMakeVisible (*l);
 
+    busSectionTitle.setText ("MONITOR MIXES", juce::dontSendNotification);
+    busSectionTitle.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    busSectionTitle.setColour (juce::Label::textColourId, JamStudioTheme::getColours().accent);
+    busSectionTitle.setJustificationType (juce::Justification::centredLeft);
+    addAndMakeVisible (busSectionTitle);
+
+    busSectionHint.setText ("Click a name to edit — label whose IEM / monitor is which (saved for the session)",
+                            juce::dontSendNotification);
+    busSectionHint.setFont (juce::FontOptions (10.0f));
+    busSectionHint.setColour (juce::Label::textColourId, JamStudioTheme::getColours().textSecondary);
+    busSectionHint.setJustificationType (juce::Justification::centredLeft);
+    addAndMakeVisible (busSectionHint);
+
+    for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+    {
+        const auto bus = static_cast<jamstudio::audio::MixBus> (b);
+        const auto accent = jamstudio::audio::mixBusColour (bus);
+        auto& ed = busNameEditors[static_cast<size_t> (b)];
+        auto& hw = busHwLabels[static_cast<size_t> (b)];
+
+        ed.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        ed.setJustificationType (juce::Justification::centred);
+        ed.setColour (juce::Label::textColourId, accent);
+        ed.setColour (juce::Label::backgroundColourId,
+                      JamStudioTheme::getColours().panelBackground.brighter (0.06f));
+        ed.setColour (juce::Label::outlineColourId, accent.withAlpha (0.55f));
+        ed.setColour (juce::Label::textWhenEditingColourId, juce::Colours::white);
+        ed.setColour (juce::Label::backgroundWhenEditingColourId, juce::Colour (0xff1a1a22));
+        ed.setEditable (true, true, false);
+        ed.setTooltip (jamstudio::audio::mixBusLongName (bus)
+                       + " — outs " + jamstudio::audio::mixBusHardwareOuts (bus)
+                       + ". Type a person / instrument name (e.g. Jay, Vocals).");
+        // Commit when the user finishes editing (not on every keystroke).
+        ed.onEditorHide = [this, b] { commitBusLabel (b); };
+        addAndMakeVisible (ed);
+
+        hw.setText ("outs " + jamstudio::audio::mixBusHardwareOuts (bus),
+                    juce::dontSendNotification);
+        hw.setFont (juce::FontOptions (9.0f));
+        hw.setJustificationType (juce::Justification::centred);
+        hw.setColour (juce::Label::textColourId, accent.withAlpha (0.8f));
+        addAndMakeVisible (hw);
+    }
+    refreshBusLabels();
+
     for (int i = 0; i < jamstudio::performance::kNumLiveTonePaths; ++i)
     {
         const auto role = static_cast<jamstudio::performance::LiveInstrumentRole> (i);
@@ -578,7 +625,7 @@ void PerformanceStagePanel::setStageMode (const PerformanceStageMode mode)
 void PerformanceStagePanel::updateModeChrome()
 {
     const bool setup = stageMode == PerformanceStageMode::setup;
-    modeBadge.setText (setup ? "PERFORMANCE SETUP" : "ON STAGE · LIVE", juce::dontSendNotification);
+    modeBadge.setText (setup ? "PERFORMANCE SETUP" : "ON STAGE - LIVE", juce::dontSendNotification);
     modeBadge.setColour (juce::Label::textColourId,
                          setup ? JamStudioTheme::getColours().accent
                                : juce::Colour (0xff44dd77));
@@ -594,17 +641,57 @@ void PerformanceStagePanel::updateModeChrome()
     backSetupButton.setVisible (! setup);
     saveSongTonesButton.setVisible (setup);
     triggerButton.setVisible (true);
+    applyBusLabelEditorsVisibility();
 
     hintLabel.setText (setup
-                           ? "Craft G1 / G2 / Bass tones, assign profiles to the song, open mixer for buses. "
-                             "Lyrics & tabs stay off this page — use Karaoke / Stage FX for words."
+                           ? "Craft G1 / G2 / Bass tones, name monitor mixes (whose IEM is which), "
+                             "assign profiles to the song. Open Mixer for send levels. "
+                             "Lyrics & tabs stay off this page - use Karaoke / Stage FX for words."
                            : "Stage manager: START / NEXT loads the next cue (stems, mix, tones, media). "
-                             "Keep eyes on the set — tweak tones only if needed.",
+                             "Keep eyes on the set - tweak tones only if needed.",
                        juce::dontSendNotification);
 
     for (auto& panel : pathPanels)
         if (panel)
             panel->setCompact (! setup);
+}
+
+void PerformanceStagePanel::applyBusLabelEditorsVisibility()
+{
+    const bool setup = stageMode == PerformanceStageMode::setup;
+    busSectionTitle.setVisible (setup);
+    busSectionHint.setVisible (setup);
+    for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+    {
+        busNameEditors[static_cast<size_t> (b)].setVisible (setup);
+        busHwLabels[static_cast<size_t> (b)].setVisible (setup);
+    }
+}
+
+void PerformanceStagePanel::refreshBusLabels()
+{
+    for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+    {
+        const auto bus = static_cast<jamstudio::audio::MixBus> (b);
+        busNameEditors[static_cast<size_t> (b)].setText (multiBus.getBusDisplayName (bus),
+                                                         juce::dontSendNotification);
+    }
+}
+
+void PerformanceStagePanel::commitBusLabel (const int busIndex)
+{
+    if (! juce::isPositiveAndBelow (busIndex, jamstudio::audio::kNumMixBuses))
+        return;
+
+    const auto bus = static_cast<jamstudio::audio::MixBus> (busIndex);
+    auto name = busNameEditors[static_cast<size_t> (busIndex)].getText().trim();
+    if (name.isEmpty())
+        name = jamstudio::audio::mixBusName (bus);
+
+    multiBus.setBusDisplayName (bus, name);
+    // Normalize display (empty custom → default short name)
+    busNameEditors[static_cast<size_t> (busIndex)].setText (multiBus.getBusDisplayName (bus),
+                                                            juce::dontSendNotification);
 }
 
 void PerformanceStagePanel::setSetListInfo (const juce::String& setName,
@@ -617,10 +704,10 @@ void PerformanceStagePanel::setSetListInfo (const juce::String& setName,
     if (songCount <= 0)
         songLabel.setText ("No songs in set list", juce::dontSendNotification);
     else if (songIndex < 0)
-        songLabel.setText ("Ready — load / start song 1", juce::dontSendNotification);
+        songLabel.setText ("Ready - load / start song 1", juce::dontSendNotification);
     else
         songLabel.setText (juce::String (songIndex + 1) + " / " + juce::String (songCount)
-                           + "  —  " + songTitle,
+                           + "  -  " + songTitle,
                            juce::dontSendNotification);
 }
 
@@ -737,8 +824,33 @@ void PerformanceStagePanel::resized()
         upNextLabel.setBounds (info);
 
     bounds.removeFromTop (4);
-    hintLabel.setBounds (bounds.removeFromTop (32));
+    hintLabel.setBounds (bounds.removeFromTop (stageMode == PerformanceStageMode::setup ? 28 : 32));
     bounds.removeFromTop (4);
+
+    // Setup: editable bus names so you know whose monitor is whose
+    if (stageMode == PerformanceStageMode::setup)
+    {
+        auto busRow = bounds.removeFromTop (58);
+        busSectionTitle.setBounds (busRow.removeFromTop (16));
+        busSectionHint.setBounds (busRow.removeFromTop (14));
+        busRow.removeFromTop (2);
+
+        const int gap = 4;
+        const int colW = juce::jmax (1, (busRow.getWidth() - gap * (jamstudio::audio::kNumMixBuses - 1))
+                                            / jamstudio::audio::kNumMixBuses);
+        for (int b = 0; b < jamstudio::audio::kNumMixBuses; ++b)
+        {
+            auto col = (b + 1 < jamstudio::audio::kNumMixBuses)
+                           ? busRow.removeFromLeft (colW)
+                           : busRow;
+            if (b + 1 < jamstudio::audio::kNumMixBuses)
+                busRow.removeFromLeft (gap);
+
+            busNameEditors[static_cast<size_t> (b)].setBounds (col.removeFromTop (22));
+            busHwLabels[static_cast<size_t> (b)].setBounds (col);
+        }
+        bounds.removeFromTop (6);
+    }
 
     // Three NAM path columns
     const int gap = 6;

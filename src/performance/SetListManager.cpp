@@ -69,7 +69,7 @@ juce::String packageFileIntoMedia (const juce::File& source,
     auto dest = mediaDir.getChildFile (safeSong + "_" + juce::String (index).paddedLeft ('0', 2)
                                        + "_" + source.getFileName());
 
-    // Already inside this media folder — keep relative name.
+    // Already inside this media folder - keep relative name.
     if (source.isAChildOf (mediaDir))
         return source.getRelativePathFrom (mediaDir.getParentDirectory());
 

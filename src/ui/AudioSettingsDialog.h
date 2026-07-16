@@ -38,6 +38,9 @@ private:
     juce::ToggleButton preferComputerToggle {
         "When a multi-input interface is connected, monitor on computer speakers (not the interface)"
     };
+    juce::ToggleButton preferProAudioToggle {
+        "Multi-input Pro Audio (Linux/Scarlett): all jacks in one device — guitar + vocal together"
+    };
 
     juce::Label inputLabel { {}, "Input device" };
     juce::ComboBox inputBox;

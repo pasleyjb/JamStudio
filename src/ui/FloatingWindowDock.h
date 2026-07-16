@@ -68,7 +68,7 @@ public:
     /** Call after either window is shown so sticky layout can run. */
     void onWindowVisibilityChanged();
 
-    /** Mixer maximised — honour detachOnMaximise. */
+    /** Mixer maximised - honour detachOnMaximise. */
     void onMixerMaximised();
 
     void refreshWindowDockButtons();

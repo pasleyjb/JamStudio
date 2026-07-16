@@ -68,6 +68,8 @@ private:
         saveProjectCmd,
         loadProjectCmd,
         recentProjectsCmd,
+        welcomeWizardCmd,
+        newPracticeSessionCmd,
         quitCmd,
         separateStemsCmd,
         browseTabLibraryCmd,
@@ -179,6 +181,10 @@ private:
 
     void setupStartupWizard();
     void hideStartupWizard();
+    /** Re-show the welcome wizard (mode picker) from menus while the app is running. */
+    void showStartupWizard();
+    /** Ensure project/song opens leave the wizard and enter a usable workspace. */
+    void ensureWorkspaceForProjectOpen();
     void enterWorkspaceMode (jamstudio::ui::StartupWizard::Mode mode);
     void handlePracticeChoice (jamstudio::ui::StartupWizard::PracticeChoice choice);
     void handleRecordingChoice (jamstudio::ui::StartupWizard::RecordingChoice choice);
@@ -265,7 +271,7 @@ private:
     int performanceSongIndex = -1;
     bool performanceActive = false;
     bool performanceWaitingForTrigger = false;
-    /** True only after a song finishes/skips — NEXT advances to the following track.
+    /** True only after a song finishes/skips - NEXT advances to the following track.
         False when the current song is pre-loaded and waiting for first play. */
     bool performanceAwaitingNextSong = false;
     bool performanceWasPlaying = false;

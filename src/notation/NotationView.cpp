@@ -10,7 +10,7 @@ namespace jamstudio::notation
 NotationView::NotationView (jamstudio::audio::TransportController& transport)
     : transportController (transport)
 {
-    startTimerHz (30);
+    startTimerHz (15);
 }
 
 void NotationView::setScore (const Score& newScore)

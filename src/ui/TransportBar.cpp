@@ -129,7 +129,57 @@ TransportBar::TransportBar (jamstudio::audio::TransportController& transport)
     inputLabel.setColour (juce::Label::textColourId, juce::Colour (0xffff5566));
     addAndMakeVisible (inputLabel);
 
-    startTimerHz (30);
+    inputMonitorButton.setClickingTogglesState (true);
+    inputMonitorButton.setIndicatorColour (juce::Colour (0xff44cc88));
+    inputMonitorButton.setTooltip (
+        "Input monitor — hear yourself (guitar / singing mic) mixed with the stems.\n"
+        "ON by default. Turn OFF if you get feedback with open mics + speakers.\n"
+        "Use the channel box: In 1 = first jack, All = guitar + vocal together.\n"
+        "Scarlett Direct Monitor is still useful for zero-latency headphones.");
+    inputMonitorButton.onClick = [this]
+    {
+        if (inputMonitorSetEnabled)
+            inputMonitorSetEnabled (inputMonitorButton.getToggleState());
+        inputMonitorButton.setIndicatorActive (inputMonitorButton.getToggleState());
+        const bool on = inputMonitorButton.getToggleState();
+        inputMonitorGainSlider.setEnabled (on);
+        inputMonitorChannelBox.setEnabled (on);
+    };
+    addAndMakeVisible (inputMonitorButton);
+
+    inputMonitorChannelBox.setTooltip (
+        "Which input to hear:\n"
+        "In 1 / In 2 = one jack\n"
+        "1+2 = guitar + vocal only (recommended — quieter)\n"
+        "All gated = every jack, empty ones muted by noise gate");
+    inputMonitorChannelBox.onChange = [this]
+    {
+        if (! inputMonitorSetChannel)
+            return;
+        const auto id = inputMonitorChannelBox.getSelectedId();
+        // id 1..N = channel 0..N-1; 100 = first two; 101 = all gated
+        if (id == 100)
+            inputMonitorSetChannel (-1); // first two
+        else if (id == 101)
+            inputMonitorSetChannel (-2); // all gated
+        else if (id >= 1)
+            inputMonitorSetChannel (id - 1);
+    };
+    addAndMakeVisible (inputMonitorChannelBox);
+    setInputMonitorChannelCount (2);
+
+    inputMonitorGainSlider.setRange (0.0, 1.25, 0.01);
+    inputMonitorGainSlider.setValue (0.45, juce::dontSendNotification);
+    inputMonitorGainSlider.setTooltip ("How loud you (guitar / vocal) are in the monitor mix. "
+                                       "Lower this if you hear hiss.");
+    inputMonitorGainSlider.onValueChange = [this]
+    {
+        if (inputMonitorSetGain)
+            inputMonitorSetGain (static_cast<float> (inputMonitorGainSlider.getValue()));
+    };
+    addAndMakeVisible (inputMonitorGainSlider);
+
+    startTimerHz (15);
 }
 
 void TransportBar::setDetectTempoCallback (DetectTempoCallback callback)
@@ -145,6 +195,60 @@ void TransportBar::setRecordCallback (RecordCallback callback)
 void TransportBar::setInputLevelProvider (std::function<float()> provider)
 {
     inputLevelProvider = std::move (provider);
+}
+
+void TransportBar::setInputMonitorCallbacks (std::function<bool()> isEnabled,
+                                             std::function<void (bool)> setEnabled,
+                                             std::function<float()> getGain,
+                                             std::function<void (float)> setGain,
+                                             std::function<int()> getChannel,
+                                             std::function<void (int)> setChannel)
+{
+    inputMonitorIsEnabled = std::move (isEnabled);
+    inputMonitorSetEnabled = std::move (setEnabled);
+    inputMonitorGetGain = std::move (getGain);
+    inputMonitorSetGain = std::move (setGain);
+    inputMonitorGetChannel = std::move (getChannel);
+    inputMonitorSetChannel = std::move (setChannel);
+    syncInputMonitorUi();
+}
+
+void TransportBar::setInputMonitorChannelCount (const int numOpenInputs)
+{
+    inputMonitorChannelCount = juce::jlimit (1, 16, juce::jmax (1, numOpenInputs));
+    const auto keep = inputMonitorChannelBox.getSelectedId();
+    inputMonitorChannelBox.clear (juce::dontSendNotification);
+    for (int i = 0; i < inputMonitorChannelCount; ++i)
+        inputMonitorChannelBox.addItem ("In " + juce::String (i + 1), i + 1);
+    inputMonitorChannelBox.addItem ("1+2", 100);
+    if (inputMonitorChannelCount > 2)
+        inputMonitorChannelBox.addItem ("All gated", 101);
+    if (keep > 0)
+        inputMonitorChannelBox.setSelectedId (keep, juce::dontSendNotification);
+    else
+        inputMonitorChannelBox.setSelectedId (100, juce::dontSendNotification); // default 1+2
+}
+
+void TransportBar::syncInputMonitorUi()
+{
+    const bool on = inputMonitorIsEnabled ? inputMonitorIsEnabled() : true;
+    const float gain = inputMonitorGetGain ? inputMonitorGetGain() : 0.45f;
+    inputMonitorButton.setToggleState (on, juce::dontSendNotification);
+    inputMonitorButton.setIndicatorActive (on);
+    inputMonitorGainSlider.setValue (gain, juce::dontSendNotification);
+    inputMonitorGainSlider.setEnabled (on);
+    inputMonitorChannelBox.setEnabled (on);
+
+    if (inputMonitorGetChannel)
+    {
+        const int ch = inputMonitorGetChannel();
+        if (ch == -2)
+            inputMonitorChannelBox.setSelectedId (101, juce::dontSendNotification);
+        else if (ch < 0)
+            inputMonitorChannelBox.setSelectedId (100, juce::dontSendNotification);
+        else
+            inputMonitorChannelBox.setSelectedId (ch + 1, juce::dontSendNotification);
+    }
 }
 
 void TransportBar::setRecordingActive (const bool recording)
@@ -193,8 +297,12 @@ void TransportBar::resized()
     recordButton.setBounds (bounds.removeFromLeft (56).reduced (1));
     bounds.removeFromLeft (6);
     inputLabel.setBounds (bounds.removeFromLeft (22));
-    inputMeterBounds = bounds.removeFromLeft (56).reduced (0, 10);
-    bounds.removeFromLeft (8);
+    inputMeterBounds = bounds.removeFromLeft (40).reduced (0, 10);
+    bounds.removeFromLeft (2);
+    inputMonitorButton.setBounds (bounds.removeFromLeft (40).reduced (1));
+    inputMonitorChannelBox.setBounds (bounds.removeFromLeft (58).reduced (1));
+    inputMonitorGainSlider.setBounds (bounds.removeFromLeft (48).reduced (1, 8));
+    bounds.removeFromLeft (6);
 
     detectTempoButton.setBounds (bounds.removeFromRight (58).reduced (1));
     bpmSlider.setBounds (bounds.removeFromRight (100).reduced (1));
@@ -213,14 +321,16 @@ void TransportBar::timerCallback()
     updateMetronomeIndicator();
     updateCountInIndicator();
     updateTransportIndicators();
-    updateRecordIndicator();
+    // Record indicator only changes on start/stop — skip every tick.
 
     if (inputLevelProvider)
         setInputLevel (inputLevelProvider());
 
     const auto position = transportController.getPosition();
     const auto length = transportController.getLengthInSeconds();
-    positionLabel.setText (formatTime (position) + " / " + formatTime (length), juce::dontSendNotification);
+    const auto text = formatTime (position) + " / " + formatTime (length);
+    if (positionLabel.getText() != text)
+        positionLabel.setText (text, juce::dontSendNotification);
 }
 
 void TransportBar::updateTransportIndicators()
