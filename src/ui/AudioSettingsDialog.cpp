@@ -14,7 +14,7 @@ void AudioSettingsDialog::show (juce::Component* parent, jamstudio::audio::Audio
     opts.dialogTitle = "Audio Interface";
     opts.dialogBackgroundColour = JamStudioTheme::getColours().windowBackground;
     opts.escapeKeyTriggersCloseButton = true;
-    opts.useNativeTitleBar = true;
+    opts.useNativeTitleBar = false;
     opts.resizable = true;
     opts.componentToCentreAround = parent;
     opts.launchAsync();
@@ -30,10 +30,10 @@ AudioSettingsDialog::AudioSettingsDialog (jamstudio::audio::AudioInterfaceManage
     addAndMakeVisible (titleLabel);
 
     introLabel.setText (
-        "Plug-and-play: JamStudio detects multi-input interfaces (Scarlett, etc.) for capture "
-        "and can monitor on your PC speakers — ideal when nothing is plugged into the interface outs.\n"
-        "Same device: use the interface for both in and out (stage multi-bus FOH / Mon A / Mon B).\n"
-        "Manual: pick exact devices below.",
+        "Pick a speaker or headphone output for each mix. FOH is the house mix. "
+        "Mon A and Mon B are separate monitor mixes. Off sends that mix nowhere.\n"
+        "The links open while the song is playing or counting in, and drop about a second "
+        "after stop so an idle headphone jack does not stay open.",
         juce::dontSendNotification);
     introLabel.setJustificationType (juce::Justification::topLeft);
     addAndMakeVisible (introLabel);
@@ -47,6 +47,14 @@ AudioSettingsDialog::AudioSettingsDialog (jamstudio::audio::AudioInterfaceManage
     preferComputerToggle.setToggleState (manager.getSettings().preferComputerSpeakersForMonitor,
                                          juce::dontSendNotification);
     addAndMakeVisible (preferComputerToggle);
+
+    destinationsHeading.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+    addAndMakeVisible (destinationsHeading);
+    for (auto* box : { &fohBox, &monABox, &monBBox })
+        addAndMakeVisible (*box);
+    addAndMakeVisible (fohLabel);
+    addAndMakeVisible (monALabel);
+    addAndMakeVisible (monBLabel);
 
     addAndMakeVisible (inputLabel);
     addAndMakeVisible (inputBox);
@@ -116,8 +124,54 @@ AudioSettingsDialog::AudioSettingsDialog (jamstudio::audio::AudioInterfaceManage
     manager.addChangeListener (this);
     refreshDeviceLists();
     refreshStatus();
-    setSize (640, 560);
+    setSize (720, 760);
     startTimerHz (2);
+}
+
+void AudioSettingsDialog::fillBusBox (juce::ComboBox& box,
+                                      juce::StringArray& names,
+                                      const juce::String& selectedSink)
+{
+    box.clear (juce::dontSendNotification);
+    names.clear();
+    box.addItem ("(Off)", 1);
+
+    auto saw = selectedSink.isEmpty();
+    auto id = 2;
+    for (const auto& sink : manager.listPlaybackSinks())
+    {
+        names.add (sink.name);
+        const auto label = sink.description.isNotEmpty() ? sink.description : sink.name;
+        box.addItem (label, id);
+        if (sink.name == selectedSink)
+            saw = true;
+        ++id;
+    }
+
+    if (! saw)
+    {
+        names.add (selectedSink);
+        box.addItem ("Unavailable: " + selectedSink, id);
+    }
+
+    auto selectedId = 1;
+    if (selectedSink.isNotEmpty())
+    {
+        const auto index = names.indexOf (selectedSink);
+        if (index >= 0)
+            selectedId = index + 2;
+    }
+    box.setSelectedId (selectedId, juce::dontSendNotification);
+}
+
+juce::String AudioSettingsDialog::sinkFromBox (const juce::ComboBox& box,
+                                               const juce::StringArray& names) const
+{
+    const auto id = box.getSelectedId();
+    if (id <= 1)
+        return {};
+    const auto index = id - 2;
+    return juce::isPositiveAndBelow (index, names.size()) ? names[index] : juce::String();
 }
 
 AudioSettingsDialog::~AudioSettingsDialog()
@@ -136,8 +190,21 @@ void AudioSettingsDialog::resized()
     auto r = getLocalBounds().reduced (16);
     titleLabel.setBounds (r.removeFromTop (28));
     r.removeFromTop (6);
-    introLabel.setBounds (r.removeFromTop (78));
-    r.removeFromTop (10);
+    introLabel.setBounds (r.removeFromTop (72));
+    r.removeFromTop (8);
+
+    destinationsHeading.setBounds (r.removeFromTop (22));
+    auto placeBus = [&r] (juce::Label& label, juce::ComboBox& box)
+    {
+        auto row = r.removeFromTop (28);
+        label.setBounds (row.removeFromLeft (110));
+        box.setBounds (row);
+        r.removeFromTop (6);
+    };
+    placeBus (fohLabel, fohBox);
+    placeBus (monALabel, monABox);
+    placeBus (monBLabel, monBBox);
+    r.removeFromTop (6);
 
     auto modeRow = r.removeFromTop (28);
     modeLabel.setBounds (modeRow.removeFromLeft (110));
@@ -164,7 +231,7 @@ void AudioSettingsDialog::resized()
     r.removeFromTop (12);
 
     statusHeading.setBounds (r.removeFromTop (22));
-    statusLabel.setBounds (r.removeFromTop (48));
+    statusLabel.setBounds (r.removeFromTop (72));
     r.removeFromTop (8);
     jackNoteLabel.setBounds (r.removeFromTop (64));
 
@@ -228,6 +295,10 @@ void AudioSettingsDialog::refreshDeviceLists()
 
     inputBox.setSelectedId (inSel, juce::dontSendNotification);
     outputBox.setSelectedId (outSel, juce::dontSendNotification);
+
+    fillBusBox (fohBox, fohSinkNames, settings.fohSink);
+    fillBusBox (monABox, monASinkNames, settings.monitorASink);
+    fillBusBox (monBBox, monBSinkNames, settings.monitorBSink);
 }
 
 void AudioSettingsDialog::refreshStatus()
@@ -249,6 +320,10 @@ void AudioSettingsDialog::applyFromUi()
     s.preferComputerSpeakersForMonitor = preferComputerToggle.getToggleState();
     s.maxInputChannels = juce::jmax (1, maxInBox.getSelectedId());
     s.maxOutputChannels = juce::jmax (2, maxOutBox.getSelectedId());
+    s.busOutputsSpecified = true;
+    s.fohSink = sinkFromBox (fohBox, fohSinkNames);
+    s.monitorASink = sinkFromBox (monABox, monASinkNames);
+    s.monitorBSink = sinkFromBox (monBBox, monBSinkNames);
 
     if (s.mode == jamstudio::audio::AudioRoutingMode::manual)
     {

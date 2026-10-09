@@ -108,8 +108,21 @@ void TransportController::play()
     beginPlayback();
 }
 
+void TransportController::setBeforePlayback (std::function<bool()> callback)
+{
+    beforePlayback = std::move (callback);
+}
+
 void TransportController::beginPlayback()
 {
+    const auto hook = beforePlayback;
+
+    if (hook != nullptr && ! hook())
+    {
+        sendChangeMessage();
+        return;
+    }
+
     stemMixer.play();
     syncStageMediaPlay();
     sendChangeMessage();

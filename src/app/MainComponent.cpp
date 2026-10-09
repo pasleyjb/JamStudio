@@ -138,6 +138,7 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     });
     // REC prefers external DAW (Audacity etc.) for plugins / amp sims.
     transportBar.setRecordCallback ([this] { openExternalRecorder(); });
+    transportBar.setStartTakeCallback ([this] { startSyncedTake(); });
     transportBar.setInputLevelProvider ([this] { return audioRecorder.getInputLevel(); });
 
     recordingTakesPanel.setTakeManager (&recordingTakeManager);
@@ -224,11 +225,50 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
         }
     });
 
+    const auto textColour = jamstudio::ui::JamStudioTheme::getColours().text;
+    outputStripLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    outputStripLabel.setJustificationType (juce::Justification::centredLeft);
+    outputStripLabel.setColour (juce::Label::textColourId, textColour);
+    addAndMakeVisible (outputStripLabel);
+
+    for (auto* label : { &fohOutLabel, &monAOutLabel, &monBOutLabel })
+    {
+        label->setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        label->setJustificationType (juce::Justification::centredRight);
+        label->setColour (juce::Label::textColourId, textColour);
+        addAndMakeVisible (*label);
+    }
+
+    for (auto* box : { &fohOutBox, &monAOutBox, &monBOutBox })
+    {
+        box->setTextWhenNothingSelected ("(Off)");
+        addAndMakeVisible (*box);
+    }
+
+    fohOutBox.onChange = [this] { commitOutputSelectors(); };
+    monAOutBox.onChange = [this] { commitOutputSelectors(); };
+    monBOutBox.onChange = [this] { commitOutputSelectors(); };
+
+    refreshOutputsButton.onClick = [this] { refreshOutputSelectors(); };
+    addAndMakeVisible (refreshOutputsButton);
+
+    startTakeButton.setIndicatorColour (juce::Colour (0xffff3344));
+    startTakeButton.setTooltip ("Start Audacity recording and play stems and lyrics together, from the top");
+    startTakeButton.onClick = [this] { startSyncedTake(); };
+    addAndMakeVisible (startTakeButton);
+    refreshOutputSelectors();
+
+    ensureLyricsServer();
+    startTimer (500);
+
     setupStartupWizard();
 }
 
 MainComponent::~MainComponent()
 {
+    stopSyncedTake();
+    stopTimer();
+    lyricServer.kill();
     floatingDock.shutdown();
     fileChooser.reset();
     if (practiceSetupPipeline != nullptr)
@@ -334,11 +374,13 @@ void MainComponent::resized()
 {
     if (startupWizard.isVisible())
     {
-        // Free-floating wizard covers the main area; status bar still peeks at the bottom.
+        // Output picks stay above the wizard. Status bar still peeks at the bottom.
         auto all = getLocalBounds();
         auto statusBar = all.removeFromBottom (30);
         layoutStatusBar (statusBar);
+        layoutOutputSelectors (all.removeFromTop (40));
         startupWizard.setBounds (all);
+        bringOutputSelectorsToFront();
         return;
     }
 
@@ -347,6 +389,7 @@ void MainComponent::resized()
     // Status border bar pinned to the very bottom of the workspace.
     auto statusBar = bounds.removeFromBottom (30);
     layoutStatusBar (statusBar);
+    layoutOutputSelectors (bounds.removeFromTop (40));
 
     bounds = bounds.reduced (8);
 
@@ -545,11 +588,17 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
         menu.addSeparator();
         menu.addItem (openFullPageLyricsCmd, "Open Full Page Lyrics (Printable)...", true, false);
         menu.addItem (toggleLyricsPanelCmd, "Show Lyrics Panel", true, lyricsPanelVisible);
+        menu.addSeparator();
+        menu.addItem (openLyricServerCmd, "Lyric Server (Dell) — Open", true, ! lyricPageClosed);
+        menu.addItem (closeLyricServerCmd, "Lyric Server (Dell) — Close", true, false);
     }
     else if (menuName == "Transport")
     {
         menu.addItem (detectTempoCmd, "Detect Tempo", true, false);
         menu.addSeparator();
+        menu.addItem (startSyncedTakeCmd,
+                      syncedTake || syncedTakeArmed ? "Stop Audacity + Playback" : "Start Audacity Recording + Play",
+                      true, false);
         menu.addItem (openExternalRecorderCmd, "Open External Recorder (Audacity…)", true, false);
         menu.addItem (importTakeCmd, "Import Take from File…", true, false);
         menu.addItem (recordCmd, "Internal Record / Stop", true, false);
@@ -620,6 +669,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
             break;
         case recordCmd: toggleRecording(); break;
         case openExternalRecorderCmd: openExternalRecorder(); break;
+        case startSyncedTakeCmd: startSyncedTake(); break;
         case importTakeCmd: importTakeFromFile(); break;
         case aiToolsCmd: showAiToolsSetup(); break;
         case midiControlCmd: showMidiControlSetup(); break;
@@ -687,6 +737,8 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case openStageShowBuilderCmd: openSetListEditor (true); break;
         case performanceNextSongCmd: performanceTriggerNext(); break;
         case stopPerformanceCmd: stopPerformanceMode(); break;
+        case openLyricServerCmd: openLyricServer(); break;
+        case closeLyricServerCmd: closeLyricServer(); break;
         case openKaraokeOutputCmd: openKaraokeOutput(); break;
         case openStageFxOutputCmd: openStageFxOutput(); break;
         case cycleKaraokeDisplayCmd: cycleKaraokeDisplay(); break;
@@ -730,6 +782,8 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
     if (source == &audioInterfaceManager)
     {
         refreshAudioRoutingStatus();
+        if (! updatingOutputSelectors)
+            refreshOutputSelectors();
         return;
     }
 
@@ -737,6 +791,15 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
     {
         rebuildStemLanes();
         rebuildMixerWindow();
+    }
+
+    if (source == &transportController || source == &transportController.getStemMixer())
+    {
+        const auto rolling = transportController.isPlaying() || transportController.isCountingIn();
+        audioInterfaceManager.setMixOutputsHeld (rolling);
+
+        if ((syncedTake || syncedTakeArmed) && ! rolling)
+            stopSyncedTake();
     }
 
     if (source == &transportController && performanceActive)
@@ -1493,6 +1556,110 @@ void MainComponent::showAudioSettings()
     jamstudio::ui::AudioSettingsDialog::show (this, audioInterfaceManager);
 }
 
+void MainComponent::layoutOutputSelectors (juce::Rectangle<int> area)
+{
+    area = area.reduced (8, 6);
+    outputStripLabel.setBounds (area.removeFromLeft (72));
+    refreshOutputsButton.setBounds (area.removeFromRight (88));
+    area.removeFromRight (6);
+    startTakeButton.setBounds (area.removeFromRight (78).reduced (0, 1));
+    area.removeFromRight (8);
+
+    const auto slot = area.getWidth() / 3;
+    auto place = [&area, slot] (juce::Label& label, juce::ComboBox& box)
+    {
+        auto row = area.removeFromLeft (slot);
+        label.setBounds (row.removeFromLeft (52));
+        row.removeFromLeft (4);
+        box.setBounds (row.reduced (0, 1));
+    };
+    place (fohOutLabel, fohOutBox);
+    place (monAOutLabel, monAOutBox);
+    place (monBOutLabel, monBOutBox);
+}
+
+void MainComponent::bringOutputSelectorsToFront()
+{
+    for (auto* widget : { static_cast<juce::Component*> (&outputStripLabel),
+                          static_cast<juce::Component*> (&fohOutLabel),
+                          static_cast<juce::Component*> (&fohOutBox),
+                          static_cast<juce::Component*> (&monAOutLabel),
+                          static_cast<juce::Component*> (&monAOutBox),
+                          static_cast<juce::Component*> (&monBOutLabel),
+                          static_cast<juce::Component*> (&monBOutBox),
+                          static_cast<juce::Component*> (&refreshOutputsButton),
+                          static_cast<juce::Component*> (&startTakeButton) })
+        widget->toFront (false);
+}
+
+void MainComponent::refreshOutputSelectors()
+{
+    if (updatingOutputSelectors)
+        return;
+
+    const auto sinks = audioInterfaceManager.listPlaybackSinks();
+    const auto settings = audioInterfaceManager.getSettings();
+
+    juce::ScopedValueSetter<bool> guard (updatingOutputSelectors, true);
+
+    const auto fill = [&sinks] (juce::ComboBox& box, juce::StringArray& names, const juce::String& selected)
+    {
+        box.clear (juce::dontSendNotification);
+        names.clear();
+        box.addItem ("(Off)", 1);
+
+        auto saw = selected.isEmpty();
+        auto id = 2;
+        for (const auto& sink : sinks)
+        {
+            names.add (sink.name);
+            box.addItem (sink.description.isNotEmpty() ? sink.description : sink.name, id);
+            if (sink.name == selected)
+                saw = true;
+            ++id;
+        }
+
+        if (! saw)
+        {
+            names.add (selected);
+            box.addItem ("Unavailable: " + selected, id);
+        }
+
+        auto selectedId = 1;
+        if (selected.isNotEmpty())
+        {
+            const auto index = names.indexOf (selected);
+            if (index >= 0)
+                selectedId = index + 2;
+        }
+        box.setSelectedId (selectedId, juce::dontSendNotification);
+    };
+
+    fill (fohOutBox, fohOutNames, settings.fohSink);
+    fill (monAOutBox, monAOutNames, settings.monitorASink);
+    fill (monBOutBox, monBOutNames, settings.monitorBSink);
+}
+
+void MainComponent::commitOutputSelectors()
+{
+    if (updatingOutputSelectors)
+        return;
+
+    const auto chosen = [] (const juce::ComboBox& box, const juce::StringArray& names)
+    {
+        const auto id = box.getSelectedId();
+        if (id <= 1)
+            return juce::String();
+        const auto index = id - 2;
+        return juce::isPositiveAndBelow (index, names.size()) ? names[index] : juce::String();
+    };
+
+    juce::ScopedValueSetter<bool> guard (updatingOutputSelectors, true);
+    audioInterfaceManager.setBusDestinations (chosen (fohOutBox, fohOutNames),
+                                              chosen (monAOutBox, monAOutNames),
+                                              chosen (monBOutBox, monBOutNames));
+}
+
 void MainComponent::refreshAudioRoutingStatus()
 {
     setStatus (audioInterfaceManager.getStatusSummary());
@@ -2016,6 +2183,112 @@ void MainComponent::enterRecordingWorkspace()
         setStatus ("Recording mode — install Audacity (or Reaper/Ardour), then Open External Recorder. Import Take when finished.");
 }
 
+void MainComponent::setStartButtonRecording (const bool recording)
+{
+    transportBar.setSyncedTakeActive (recording);
+    startTakeButton.setButtonText (recording ? "Stop" : "Start");
+    startTakeButton.setIndicatorActive (recording, false);
+}
+
+void MainComponent::stopSyncedTake()
+{
+    ++syncedTakeGeneration;
+    transportController.setBeforePlayback (nullptr);
+
+    const auto wasRecording = syncedTake;
+    const auto wasArmed = syncedTakeArmed;
+    syncedTake = false;
+    syncedTakeArmed = false;
+    setStartButtonRecording (false);
+
+    if (transportController.isPlaying() || transportController.isCountingIn())
+        transportController.stop();
+
+    if (wasRecording)
+    {
+        const auto stopped = audacityRemote.stop();
+        setStatus (stopped.ok ? "Stopped. The take is in Audacity."
+                              : "Jam Studio stopped. Audacity may still be recording.");
+    }
+    else if (wasArmed)
+    {
+        setStatus ("Start cancelled.");
+    }
+}
+
+void MainComponent::startSyncedTake()
+{
+    if (syncedTake || syncedTakeArmed)
+    {
+        stopSyncedTake();
+        return;
+    }
+
+    if (transportController.getStemMixer().getNumStems() <= 0)
+    {
+        setStatus ("Load a song with stems, then press Start.");
+        return;
+    }
+
+    if (transportController.isPlaying() || transportController.isCountingIn())
+        transportController.stop();
+
+    transportController.setPosition (0.0);
+
+    const auto ready = audacityRemote.prepareTake();
+
+    if (! ready.ok)
+    {
+        setStatus (ready.error);
+        return;
+    }
+
+    lyricPageClosed = false;
+    juce::File ("/tmp/jamstudio-karaoke.closed").deleteFile();
+    juce::File ("/tmp/jamstudio-karaoke.open").replaceWithText ("1\n");
+    publishLyricPage();
+    ensureLyricsServer();
+
+    const auto generation = ++syncedTakeGeneration;
+    syncedTakeArmed = true;
+    setStartButtonRecording (true);
+
+    transportController.setBeforePlayback ([this, generation, overdubOff = ready.turnedOverdubOff]
+    {
+        if (generation != syncedTakeGeneration)
+            return false;
+
+        transportController.setBeforePlayback (nullptr);
+        const auto started = audacityRemote.startRecording();
+
+        if (! started.ok)
+        {
+            syncedTakeArmed = false;
+            setStartButtonRecording (false);
+            setStatus (started.error.isNotEmpty() ? started.error
+                                                   : "Audacity did not start recording.");
+            return false;
+        }
+
+        syncedTake = true;
+        syncedTakeArmed = false;
+        setStartButtonRecording (true);
+        setStatus ("Recording in Audacity. Stems and lyrics are playing from the top."
+                   + juce::String (overdubOff ? " Audacity is not playing its own tracks." : ""));
+        return true;
+    });
+
+    transportController.play();
+
+    if (! transportController.isPlaying() && ! transportController.isCountingIn() && syncedTakeArmed)
+    {
+        transportController.setBeforePlayback (nullptr);
+        syncedTakeArmed = false;
+        setStartButtonRecording (false);
+        setStatus ("Playback did not start. Press Start again.");
+    }
+}
+
 void MainComponent::openExternalRecorder()
 {
     auto app = jamstudio::audio::ExternalRecorder::getPreferred();
@@ -2389,6 +2662,136 @@ void MainComponent::stopPerformanceMode()
     updateMixerPerformanceContext();
     setStatus ("Performance mode stopped.");
     resized();
+}
+
+void MainComponent::timerCallback()
+{
+    const bool playing = transportController.isPlaying();
+    const auto body = juce::String (playing ? "1 " : "0 ")
+                    + juce::String (transportController.getPosition(), 3) + " "
+                    + juce::String (juce::Time::currentTimeMillis() / 1000.0, 3)
+                    + "\n";
+    const auto temp = juce::File ("/tmp/jamstudio-playhead.tmp");
+    if (temp.replaceWithText (body))
+        temp.moveFileTo (juce::File ("/tmp/jamstudio-playhead"));
+
+    if (! lyricPageClosed)
+        publishLyricPage();
+}
+
+juce::String MainComponent::outputSongTitle() const
+{
+    juce::String title = currentSongFile.existsAsFile()
+                             ? currentSongFile.getFileNameWithoutExtension()
+                             : currentLyrics.getTitle();
+
+    if (juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
+        title = performanceSetList.songs.getReference (performanceSongIndex).displayName;
+
+    return title;
+}
+
+juce::String MainComponent::studioEthernetAddress()
+{
+    juce::ChildProcess ip;
+
+    if (ip.start (juce::StringArray { "ip", "-4", "-o", "addr", "show", "enp1s0" },
+                  juce::ChildProcess::wantStdOut))
+    {
+        if (! ip.waitForProcessToFinish (500))
+            ip.kill();
+
+        const auto inet = ip.readAllProcessOutput().fromFirstOccurrenceOf ("inet ", false, false);
+        const auto addr = inet.upToFirstOccurrenceOf ("/", false, false).trim();
+
+        if (addr.isNotEmpty() && addr.containsOnly ("0123456789."))
+            return addr;
+    }
+
+    return "10.42.0.1";
+}
+
+void MainComponent::publishLyricPage()
+{
+    // No song loaded yet: leave the server's built-in lyric file in place.
+    if (currentLyrics.getNumLines() <= 0 && outputSongTitle().isEmpty())
+    {
+        juce::File ("/tmp/jamstudio-lyrics.json").deleteFile();
+        lastLyricJson.clear();
+        return;
+    }
+
+    auto payload = currentLyrics.toVar();
+
+    if (auto* obj = payload.getDynamicObject())
+        obj->setProperty ("title", outputSongTitle());
+
+    const auto json = juce::JSON::toString (payload);
+
+    if (json == lastLyricJson)
+        return;
+
+    const auto temp = juce::File ("/tmp/jamstudio-lyrics.json.tmp");
+
+    if (temp.replaceWithText (json) && temp.moveFileTo (juce::File ("/tmp/jamstudio-lyrics.json")))
+        lastLyricJson = json;
+}
+
+bool MainComponent::ensureLyricsServer()
+{
+    const auto listening = []
+    {
+        juce::StreamingSocket probe;
+        return probe.connect ("127.0.0.1", 8765, 200);
+    };
+
+    if (listening())
+        return true;
+
+    if (! lyricServer.isRunning())
+    {
+        const auto script = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                                .getChildFile (".local/share/jamstudio-lyrics/serve.py");
+
+        if (! script.existsAsFile())
+            return false;
+
+        if (! lyricServer.start (juce::StringArray { "python3", script.getFullPathName() }))
+            return false;
+    }
+
+    for (int i = 0; i < 20; ++i)
+    {
+        if (listening())
+            return true;
+
+        juce::Thread::sleep (50);
+    }
+
+    return false;
+}
+
+void MainComponent::openLyricServer()
+{
+    lyricPageClosed = false;
+    juce::File ("/tmp/jamstudio-karaoke.closed").deleteFile();
+    juce::File ("/tmp/jamstudio-karaoke.open").replaceWithText ("1\n");
+    publishLyricPage();
+
+    const auto address = studioEthernetAddress();
+
+    if (ensureLyricsServer())
+        setStatus ("Lyric server on. Open http://" + address + ":8765 on the Dell.");
+    else
+        setStatus ("Lyric page did not start. Open http://" + address + ":8765 once the page is up.");
+}
+
+void MainComponent::closeLyricServer()
+{
+    lyricPageClosed = true;
+    juce::File ("/tmp/jamstudio-karaoke.open").deleteFile();
+    juce::File ("/tmp/jamstudio-karaoke.closed").replaceWithText ("1\n");
+    setStatus ("Lyric page closed. The server stays up on port 8765.");
 }
 
 void MainComponent::openKaraokeOutput()

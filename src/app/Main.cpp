@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "../audio/AudioInterfaceManager.h"
 #include "../ui/BrandAssets.h"
 #include "../ui/JamStudioLookAndFeel.h"
 
@@ -51,6 +52,9 @@ public:
 
             splash = std::make_unique<juce::SplashScreen> ("JamStudio", displayImg, true);
         }
+
+        // The mix-bus ALSA device has to exist before the first device scan.
+        jamstudio::audio::AudioInterfaceManager::installBusPlaybackDevice();
 
         // Open a modest default first; MainComponent's AudioInterfaceManager
         // immediately applies plug-and-play routing (Scarlett in + PC out, etc.).

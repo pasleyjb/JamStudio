@@ -49,6 +49,86 @@ AudioDeviceChoice probeDevice (juce::AudioIODeviceType& type,
         c.maxOutputChannels = 2;
     return c;
 }
+
+constexpr const char* kPactl = "/usr/bin/pactl";
+constexpr const char* kBusSink = "jamstudio_buses";
+constexpr const char* kBusDeviceName = "JamStudio Mix Buses";
+constexpr const char* kAsoundBegin = "# --- jamstudio buses begin ---";
+constexpr const char* kAsoundEnd = "# --- jamstudio buses end ---";
+
+juce::String runPactl (const juce::StringArray& args)
+{
+    juce::ChildProcess proc;
+    if (! proc.start (args, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
+        return {};
+
+    if (! proc.waitForProcessToFinish (2000))
+        proc.kill();
+
+    return proc.readAllProcessOutput();
+}
+
+void ensureBusSink()
+{
+    const auto sinks = runPactl ({ kPactl, "list", "short", "sinks" });
+    if (sinks.contains (kBusSink))
+        return;
+
+    runPactl ({ kPactl, "load-module", "module-null-sink",
+                "sink_name=" + juce::String (kBusSink),
+                "rate=48000",
+                "channels=6",
+                "channel_map=front-left,front-right,rear-left,rear-right,front-center,lfe",
+                "sink_properties=device.description=JamStudio-Buses" });
+}
+
+void ensureBusRemap (const juce::String& modules,
+                     const char* sourceName,
+                     const char* masterMap,
+                     const char* description)
+{
+    if (modules.contains ("source_name=" + juce::String (sourceName)))
+        return;
+
+    runPactl ({ kPactl, "load-module", "module-remap-source",
+                "source_name=" + juce::String (sourceName),
+                "master=" + juce::String (kBusSink) + ".monitor",
+                "master_channel_map=" + juce::String (masterMap),
+                "channel_map=front-left,front-right",
+                "source_properties=device.description=" + juce::String (description) });
+}
+
+void writeBusAsoundrc()
+{
+    const auto file = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                          .getChildFile (".asoundrc");
+    auto text = file.existsAsFile() ? file.loadFileAsString() : juce::String();
+    const juce::String block =
+        juce::String (kAsoundBegin) + "\n"
+        "pcm.jamstudio_buses {\n"
+        "    type pulse\n"
+        "    device \"jamstudio_buses\"\n"
+        "    hint {\n"
+        "        show on\n"
+        "        description \"JamStudio Mix Buses\"\n"
+        "    }\n"
+        "}\n"
+        + juce::String (kAsoundEnd) + "\n";
+
+    const auto begin = text.indexOf (kAsoundBegin);
+    const auto end = text.indexOf (kAsoundEnd);
+    if (begin >= 0 && end > begin)
+        text = text.substring (0, begin) + block + text.substring (end + juce::String (kAsoundEnd).length());
+    else if (text.isNotEmpty())
+        text = text.trimEnd() + "\n\n" + block;
+    else
+        text = block;
+
+    if (! text.endsWithChar ('\n'))
+        text << '\n';
+
+    file.replaceWithText (text);
+}
 } // namespace
 
 //==============================================================================
@@ -83,6 +163,14 @@ void AudioInterfaceSettings::load()
         preferredSampleRate = static_cast<double> (o->getProperty ("preferredSampleRate"));
         preferredBufferSize = static_cast<int> (o->getProperty ("preferredBufferSize"));
 
+        if (o->hasProperty ("fohSink") || o->hasProperty ("monitorASink") || o->hasProperty ("monitorBSink"))
+        {
+            busOutputsSpecified = true;
+            fohSink = o->getProperty ("fohSink").toString();
+            monitorASink = o->getProperty ("monitorASink").toString();
+            monitorBSink = o->getProperty ("monitorBSink").toString();
+        }
+
         if (maxInputChannels <= 0) maxInputChannels = kDefaultMaxIn;
         if (maxOutputChannels <= 0) maxOutputChannels = kDefaultMaxOut;
     }
@@ -100,6 +188,9 @@ void AudioInterfaceSettings::save() const
     o->setProperty ("maxOutputChannels", maxOutputChannels);
     o->setProperty ("preferredSampleRate", preferredSampleRate);
     o->setProperty ("preferredBufferSize", preferredBufferSize);
+    o->setProperty ("fohSink", fohSink);
+    o->setProperty ("monitorASink", monitorASink);
+    o->setProperty ("monitorBSink", monitorBSink);
 
     const auto file = settingsFile();
     file.getParentDirectory().createDirectory();
@@ -116,14 +207,29 @@ AudioInterfaceManager::AudioInterfaceManager (juce::AudioDeviceManager& dm)
 AudioInterfaceManager::~AudioInterfaceManager()
 {
     stopTimer();
+    outputsHeld = false;
+    syncBusLoopbacks();
     settings.save();
+}
+
+void AudioInterfaceManager::installBusPlaybackDevice()
+{
+    writeBusAsoundrc();
+    ensureBusSink();
 }
 
 void AudioInterfaceManager::initialiseAtStartup()
 {
+    installBusPlaybackDevice();
+    ensureBusGraph();
+    outputsHeld = false;
+    syncBusLoopbacks();
+    assignDefaultBusOutputsIfNeeded();
     scanHardware();
     rescanAndApply();
-    startTimer (2000); // hot-plug poll (USB interfaces)
+    // Hot-plug rescans stay off. Re-opening every ALSA device on a timer races
+    // PipeWire and can take the audio thread down. Rescan stays on the dialog button.
+    startTimerHz (4);
 }
 
 void AudioInterfaceManager::scanHardware()
@@ -135,19 +241,12 @@ void AudioInterfaceManager::scanHardware()
 
 void AudioInterfaceManager::timerCallback()
 {
-    if (suppressRescan)
+    if (outputsHeld || ! loopbacksOpen)
         return;
 
-    scanHardware();
-    const auto inv = buildInventory();
-    if (inv.fingerprint != lastFingerprint)
-    {
-        lastFingerprint = inv.fingerprint;
-        if (settings.mode != AudioRoutingMode::manual)
-            rescanAndApply();
-        else
-            sendChangeMessage();
-    }
+    // Drop headphone/speaker links about a second after transport stops.
+    if (++silenceTicks >= 4)
+        syncBusLoopbacks();
 }
 
 void AudioInterfaceManager::rescanAndApply()
@@ -169,7 +268,10 @@ void AudioInterfaceManager::setSettings (const AudioInterfaceSettings& newSettin
 juce::String AudioInterfaceManager::applySettings (const AudioInterfaceSettings& newSettings)
 {
     settings = newSettings;
+    if (anyBusDestination() && settings.preferredSampleRate < 40000.0)
+        settings.preferredSampleRate = 48000.0;
     settings.save();
+    rememberBusStatus();
 
     const auto inv = buildInventory();
     lastFingerprint = inv.fingerprint;
@@ -258,10 +360,33 @@ juce::String AudioInterfaceManager::applySettings (const AudioInterfaceSettings&
         }
     }
 
+    if (anyBusDestination())
+    {
+        // The mix is rendered as 6 channels on the virtual bus, then each
+        // stereo pair is linked to the sink chosen for that bus.
+        installBusPlaybackDevice();
+        ensureBusGraph();
+        typeName = "ALSA";
+        outName = kBusDeviceName;
+        wantOut = kMaxMixChannels;
+        for (const auto& d : inv.outputs)
+        {
+            if (d.name.containsIgnoreCase (kBusDeviceName))
+            {
+                outName = d.name;
+                if (d.typeName.isNotEmpty())
+                    typeName = d.typeName;
+                break;
+            }
+        }
+    }
+
     if (typeName.isEmpty() && deviceManager.getAvailableDeviceTypes().size() > 0)
         typeName = deviceManager.getAvailableDeviceTypes().getUnchecked (0)->getTypeName();
 
-    return applyChoice (typeName, inName, outName, wantIn, wantOut);
+    const auto err = applyChoice (typeName, inName, outName, wantIn, wantOut);
+    syncBusLoopbacks();
+    return err;
 }
 
 AudioInterfaceManager::DeviceInventory AudioInterfaceManager::buildInventory() const
@@ -522,6 +647,9 @@ AudioRoutingSnapshot AudioInterfaceManager::getSnapshot() const
     if (s.sampleRate > 0.0)
         s.summary += "  @ " + juce::String (s.sampleRate / 1000.0, 1) + " kHz";
 
+    if (busStatusText.isNotEmpty())
+        s.summary += "\n" + busStatusText;
+
     if (s.error.isNotEmpty())
         s.summary += "  [warn: " + s.error + "]";
 
@@ -566,6 +694,9 @@ int AudioInterfaceManager::scoreAsCaptureInterface (const juce::String& name,
     if (n.contains ("default") || n.contains ("pulse"))
         score -= 15; // fine fallback, not preferred over real interfaces
 
+    if (n.contains ("jamstudio"))
+        score -= 400;
+
     return score;
 }
 
@@ -585,6 +716,9 @@ int AudioInterfaceManager::scoreAsComputerMonitor (const juce::String& name, con
 
     if (n.contains ("hdmi") || n.contains ("displayport") || n.contains ("display"))
         score -= 40;
+
+    if (n.contains ("jamstudio"))
+        score -= 400;
 
     // Multi-IO boxes are poor default *monitors* when the user has no speakers on them.
     if (looksLikeMultiIoInterface (name, 0, maxOut) || maxOut >= 8)
@@ -620,6 +754,189 @@ bool AudioInterfaceManager::looksLikeMultiIoInterface (const juce::String& name,
         return true;
 
     return n.contains ("interface") || (n.contains ("usb") && (maxIn >= 2 || maxOut >= 4));
+}
+
+bool AudioInterfaceManager::anyBusDestination() const noexcept
+{
+    return settings.fohSink.isNotEmpty()
+        || settings.monitorASink.isNotEmpty()
+        || settings.monitorBSink.isNotEmpty();
+}
+
+void AudioInterfaceManager::setBusDestinations (const juce::String& foh,
+                                                const juce::String& monitorA,
+                                                const juce::String& monitorB)
+{
+    settings.fohSink = foh;
+    settings.monitorASink = monitorA;
+    settings.monitorBSink = monitorB;
+    settings.busOutputsSpecified = true;
+    settings.save();
+    rememberBusStatus();
+
+    const auto outputName = getSnapshot().outputName;
+    if (anyBusDestination() && outputName.containsIgnoreCase (kBusDeviceName))
+        syncBusLoopbacks();
+    else
+        lastError = applySettings (settings);
+
+    sendChangeMessage();
+}
+
+void AudioInterfaceManager::setMixOutputsHeld (const bool held)
+{
+    if (held == outputsHeld)
+        return;
+
+    outputsHeld = held;
+    silenceTicks = 0;
+    if (held)
+        syncBusLoopbacks();
+}
+
+juce::Array<PlaybackSink> AudioInterfaceManager::listPlaybackSinks() const
+{
+    juce::Array<PlaybackSink> sinks;
+    const auto text = runPactl ({ kPactl, "list", "sinks" });
+    PlaybackSink current;
+
+    for (const auto& raw : juce::StringArray::fromLines (text))
+    {
+        const auto line = raw.trim();
+        if (line.startsWith ("Name:"))
+        {
+            current.name = line.fromFirstOccurrenceOf (":", false, false).trim();
+        }
+        else if (line.startsWith ("Description:"))
+        {
+            current.description = line.fromFirstOccurrenceOf (":", false, false).trim();
+            if (current.name.isNotEmpty()
+                && ! current.name.startsWith (kBusSink)
+                && ! current.name.startsWith ("jamstudio_bus_"))
+                sinks.add (current);
+            current = {};
+        }
+    }
+
+    return sinks;
+}
+
+void AudioInterfaceManager::assignDefaultBusOutputsIfNeeded()
+{
+    if (settings.busOutputsSpecified)
+        return;
+
+    const auto sinks = listPlaybackSinks();
+    const auto pick = [&sinks] (const auto pred)
+    {
+        for (const auto& sink : sinks)
+            if (pred (sink))
+                return sink.name;
+        return juce::String();
+    };
+
+    settings.fohSink = pick ([] (const PlaybackSink& sink)
+    {
+        return sink.description.containsIgnoreCase ("Built-in")
+            && sink.description.containsIgnoreCase ("Analog");
+    });
+    settings.monitorASink = pick ([] (const PlaybackSink& sink)
+    {
+        return sink.description.containsIgnoreCase ("Displaylink");
+    });
+    settings.monitorBSink.clear();
+    settings.busOutputsSpecified = true;
+    settings.save();
+}
+
+void AudioInterfaceManager::rememberBusStatus()
+{
+    if (! settings.busOutputsSpecified && ! anyBusDestination())
+    {
+        busStatusText.clear();
+        return;
+    }
+
+    const auto sinks = listPlaybackSinks();
+    const auto label = [&sinks] (const juce::String& name)
+    {
+        if (name.isEmpty())
+            return juce::String ("Off");
+        for (const auto& sink : sinks)
+            if (sink.name == name)
+                return sink.description;
+        return name;
+    };
+
+    busStatusText = "FOH → " + label (settings.fohSink)
+                    + "    Mon A → " + label (settings.monitorASink)
+                    + "    Mon B → " + label (settings.monitorBSink);
+}
+
+void AudioInterfaceManager::ensureBusGraph()
+{
+    ensureBusSink();
+    const auto modules = runPactl ({ kPactl, "list", "short", "modules" });
+    ensureBusRemap (modules, "jamstudio_bus_foh", "front-left,front-right", "JamStudio-FOH");
+    ensureBusRemap (modules, "jamstudio_bus_mona", "rear-left,rear-right", "JamStudio-MonA");
+    ensureBusRemap (modules, "jamstudio_bus_monb", "front-center,lfe", "JamStudio-MonB");
+}
+
+void AudioInterfaceManager::syncBusLoopbacks()
+{
+    const struct Link
+    {
+        const char* source;
+        const juce::String* sink;
+    } links[] = {
+        { "jamstudio_bus_foh", &settings.fohSink },
+        { "jamstudio_bus_mona", &settings.monitorASink },
+        { "jamstudio_bus_monb", &settings.monitorBSink }
+    };
+
+    auto modules = runPactl ({ kPactl, "list", "short", "modules" });
+    bool anyOpen = false;
+
+    for (const auto& link : links)
+    {
+        const auto sourceArg = "source=" + juce::String (link.source);
+        const auto want = outputsHeld && link.sink->isNotEmpty();
+        const auto sinkArg = "sink=" + *link.sink;
+        auto kept = false;
+
+        for (const auto& line : juce::StringArray::fromLines (modules))
+        {
+            if (! line.contains ("module-loopback") || ! line.contains (sourceArg))
+                continue;
+
+            if (want && line.contains (sinkArg))
+            {
+                kept = true;
+                anyOpen = true;
+                continue;
+            }
+
+            const auto id = line.upToFirstOccurrenceOf ("\t", false, false).trim();
+            if (id.isNotEmpty())
+                runPactl ({ kPactl, "unload-module", id });
+        }
+
+        if (want && ! kept)
+        {
+            runPactl ({ kPactl, "load-module", "module-loopback",
+                        sourceArg,
+                        sinkArg,
+                        "channels=2",
+                        "source_dont_move=true",
+                        "sink_dont_move=true",
+                        "latency_msec=40" });
+            anyOpen = true;
+        }
+    }
+
+    loopbacksOpen = anyOpen;
+    if (! loopbacksOpen)
+        silenceTicks = 0;
 }
 
 } // namespace jamstudio::audio

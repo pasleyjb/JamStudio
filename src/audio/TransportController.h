@@ -35,6 +35,10 @@ public:
     void togglePlayPause();
     [[nodiscard]] bool isPlaying() const noexcept;
 
+    /** Message-thread hook run once playback is actually about to start (after a count-in).
+        Return false to cancel. Cleared by the caller when it should only fire once. */
+    void setBeforePlayback (std::function<bool()> callback);
+
     void skipForward (double seconds = 5.0);
     void skipBack (double seconds = 5.0);
 
@@ -74,6 +78,7 @@ private:
     std::atomic<bool> pendingPlaybackAfterCountIn { false };
     std::atomic<int> countInBeats { 4 };
     std::atomic<uint32_t> countInEpoch { 0 };
+    std::function<bool()> beforePlayback;
 };
 
 } // namespace jamstudio::audio

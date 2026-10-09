@@ -127,6 +127,9 @@ juce::Array<HelpTopic> buildTopics()
         "Audio",
         "audio interface scarlett focusrite asound alsa wasapi device input output monitor speakers plug hotplug",
         "Help → Audio Interface… configures how JamStudio uses your hardware.\n\n"
+        "Where each mix goes: FOH, Mon A, and Mon B each have their own output. "
+        "Pick any speaker or headphone device, or Off. Links are up while the song "
+        "is playing or counting in, and drop about a second after stop.\n\n"
         "• Plug and play (default) — multi-input USB interfaces (Scarlett 18i20, etc.) "
         "are preferred for capture. Monitor audio goes to computer speakers when "
         "“monitor on computer speakers” is on — useful when nothing is plugged into "
@@ -337,6 +340,9 @@ juce::Array<HelpTopic> buildTopics()
         "Recording mode (external DAW)",
         "Recording",
         "recording mode audacity reaper external plugin amp sim import take",
+        "Start (transport) rewinds to the top, starts Audacity recording, and plays the stems and lyrics together.\n"
+        "Press Start again, or Stop, to end the take. The recording stays in Audacity.\n"
+        "Audacity overdub is turned off for that take so the backing comes from Jam Studio.\n\n"
         "JamStudio prefers an external recorder for takes so you can use amp sims and plugins.\n\n"
         "Wizard → Recording:\n"
         "• Open Project / Open Backing / Empty Session\n\n"

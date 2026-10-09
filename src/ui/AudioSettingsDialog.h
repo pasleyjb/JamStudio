@@ -39,6 +39,14 @@ private:
         "When a multi-input interface is connected, monitor on computer speakers (not the interface)"
     };
 
+    juce::Label destinationsHeading { {}, "Where each mix goes" };
+    juce::Label fohLabel { {}, "FOH (house)" };
+    juce::ComboBox fohBox;
+    juce::Label monALabel { {}, "Mon A" };
+    juce::ComboBox monABox;
+    juce::Label monBLabel { {}, "Mon B" };
+    juce::ComboBox monBBox;
+
     juce::Label inputLabel { {}, "Input device" };
     juce::ComboBox inputBox;
     juce::Label outputLabel { {}, "Output device" };
@@ -59,6 +67,12 @@ private:
 
     juce::StringArray inputNames;
     juce::StringArray outputNames;
+    juce::StringArray fohSinkNames;
+    juce::StringArray monASinkNames;
+    juce::StringArray monBSinkNames;
+
+    void fillBusBox (juce::ComboBox& box, juce::StringArray& names, const juce::String& selectedSink);
+    [[nodiscard]] juce::String sinkFromBox (const juce::ComboBox& box, const juce::StringArray& names) const;
 };
 
 } // namespace jamstudio::ui

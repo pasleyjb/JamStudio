@@ -188,7 +188,7 @@ public:
         setup (monASlider, monALabel, jamstudio::audio::MixBus::monitorA);
         setup (monBSlider, monBLabel, jamstudio::audio::MixBus::monitorB);
 
-        routeHint.setText ("Out 1-2 FOH\\n3-4 Mon A\\n5-6 Mon B\\nClick->Mon",
+        routeHint.setText ("FOH, Mon A, and Mon B\ngo to the outputs you pick\nin Audio Interface",
                            juce::dontSendNotification);
         routeHint.setJustificationType (juce::Justification::centredTop);
         routeHint.setFont (juce::FontOptions (9.0f));
