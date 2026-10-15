@@ -26,6 +26,20 @@ MainWindow::MainWindow (juce::AudioDeviceManager& deviceManager)
     setResizable (true, true);
     centreWithSize (getWidth(), getHeight());
     setVisible (true);
+    toFront (true);
+
+    // Native title bars on this desktop often leave isActiveWindow() false,
+    // which disables the menu bar and makes every menu click do nothing.
+    if (auto* menu = getMenuBarComponent())
+        menu->setEnabled (true);
+}
+
+void MainWindow::activeWindowStatusChanged()
+{
+    DocumentWindow::activeWindowStatusChanged();
+
+    if (auto* menu = getMenuBarComponent())
+        menu->setEnabled (true);
 }
 
 MainWindow::~MainWindow()

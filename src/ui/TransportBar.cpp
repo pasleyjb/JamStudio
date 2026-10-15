@@ -64,6 +64,15 @@ TransportBar::TransportBar (jamstudio::audio::TransportController& transport)
     };
     addAndMakeVisible (recordButton);
 
+    startTakeButton.setIndicatorColour (juce::Colour (0xffff3344));
+    startTakeButton.setTooltip ("Record armed tracks and play from the top, on the same clock. The click is not recorded.");
+    startTakeButton.onClick = [this]
+    {
+        if (startTakeCallback != nullptr)
+            startTakeCallback();
+    };
+    addAndMakeVisible (startTakeButton);
+
     positionSlider.setRange (0.0, 1.0, 0.001);
     positionSlider.onValueChange = [this]
     {
@@ -141,6 +150,18 @@ void TransportBar::setRecordCallback (RecordCallback callback)
     recordCallback = std::move (callback);
 }
 
+void TransportBar::setStartTakeCallback (StartTakeCallback callback)
+{
+    startTakeCallback = std::move (callback);
+}
+
+void TransportBar::setSyncedTakeActive (const bool active)
+{
+    syncedTakeActive = active;
+    startTakeButton.setButtonText (active ? "Stop" : "Start");
+    startTakeButton.setIndicatorActive (active, false);
+}
+
 void TransportBar::setInputLevelProvider (std::function<float()> provider)
 {
     inputLevelProvider = std::move (provider);
@@ -190,6 +211,8 @@ void TransportBar::resized()
     skipForwardButton.setBounds (bounds.removeFromLeft (deckSize).reduced (1));
     bounds.removeFromLeft (6);
     recordButton.setBounds (bounds.removeFromLeft (56).reduced (1));
+    bounds.removeFromLeft (4);
+    startTakeButton.setBounds (bounds.removeFromLeft (72).reduced (1));
     bounds.removeFromLeft (6);
     inputLabel.setBounds (bounds.removeFromLeft (22));
     inputMeterBounds = bounds.removeFromLeft (56).reduced (0, 10);

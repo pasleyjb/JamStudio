@@ -27,6 +27,15 @@ public:
     void setType (StemType newType) noexcept { type = newType; }
     void setMuted (bool shouldMute) noexcept { muted = shouldMute; }
     void setSolo (bool shouldSolo) noexcept { solo = shouldSolo; }
+    void setRecordArmed (bool armed) noexcept { recordArmed.store (armed, std::memory_order_relaxed); }
+    [[nodiscard]] bool isRecordArmed() const noexcept { return recordArmed.load (std::memory_order_relaxed); }
+
+    /** Song time of file sample 0. A punch-in recorded at 90 s plays back at 90 s. */
+    void setStartOffsetSeconds (double seconds) noexcept;
+    [[nodiscard]] double getStartOffsetSeconds() const noexcept
+    {
+        return startOffsetSeconds.load (std::memory_order_relaxed);
+    }
 
     /** FOH / channel fader (legacy name). Same as bus send for FOH. */
     void setVolume (float newVolume) noexcept { setBusSend (MixBus::foh, newVolume); }
@@ -43,14 +52,16 @@ public:
     void tickMeterPeakHold (float deltaSeconds) noexcept;
 
     /**
-     * Resample dry stem into `temp` (stereo-ish), applying mute/solo only.
-     * Returns false if silent / not loaded. Caller applies bus gains.
+     * Resample dry stem into `temp` (stereo). Returns false if silent or not loaded.
+     * `ignoreAudibility` still prints a muted, soloed-out, or zero-send stem.
+     * File sample 0 is song time `startOffsetSeconds`.
      */
     bool readDryResampled (juce::AudioBuffer<float>& temp,
                            double startSeconds,
                            int numOutputSamples,
                            double deviceSampleRate,
-                           bool anySoloActive) const;
+                           bool anySoloActive,
+                           bool ignoreAudibility = false) const;
 
     void updateMeterFromDry (const juce::AudioBuffer<float>& dry, float displayGain) const noexcept;
 
@@ -64,6 +75,8 @@ private:
     std::array<float, kNumMixBuses> busSends { 0.8f, 0.7f, 0.0f }; // FOH, MonA, MonB
     bool muted = false;
     bool solo = false;
+    std::atomic<bool> recordArmed { false };
+    std::atomic<double> startOffsetSeconds { 0.0 };
 
     mutable std::atomic<float> meterLevel { 0.0f };
     mutable std::atomic<float> meterPeakHold { 0.0f };

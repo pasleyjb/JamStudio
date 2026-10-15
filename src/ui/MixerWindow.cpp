@@ -188,7 +188,7 @@ public:
         setup (monASlider, monALabel, jamstudio::audio::MixBus::monitorA);
         setup (monBSlider, monBLabel, jamstudio::audio::MixBus::monitorB);
 
-        routeHint.setText ("Out 1-2 FOH\\n3-4 Mon A\\n5-6 Mon B\\nClick->Mon",
+        routeHint.setText ("FOH, Mon A, and Mon B\ngo to the outputs you pick\nin Audio Interface",
                            juce::dontSendNotification);
         routeHint.setJustificationType (juce::Justification::centredTop);
         routeHint.setFont (juce::FontOptions (9.0f));
@@ -276,6 +276,137 @@ private:
     juce::ToggleButton clickFoh, clickMon;
 };
 
+/** Mic or instrument. Mon A is the cue the player hears. */
+class LiveInputStrip : public juce::Component,
+                       private juce::Timer
+{
+public:
+    LiveInputStrip (jamstudio::audio::LiveInputs& inputs, const int channel,
+                    const juce::String& name, const juce::Colour accent)
+        : liveInputs (inputs),
+          index (channel),
+          accentColour (accent)
+    {
+        nameLabel.setText (name, juce::dontSendNotification);
+        nameLabel.setJustificationType (juce::Justification::centred);
+        nameLabel.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        addAndMakeVisible (nameLabel);
+
+        muteButton.setClickingTogglesState (true);
+        muteButton.setIndicatorColour (JamStudioTheme::getColours().indicatorMute);
+        muteButton.setTooltip ("Mute this input in every mix");
+        muteButton.onClick = [this]
+        {
+            liveInputs.setMuted (index, muteButton.getToggleState());
+            muteButton.setIndicatorActive (muteButton.getToggleState());
+        };
+        addAndMakeVisible (muteButton);
+
+        auto setup = [this] (juce::Slider& slider, juce::Label& label, jamstudio::audio::MixBus bus,
+                             const juce::String& tip)
+        {
+            label.setText (bus == jamstudio::audio::MixBus::foh ? "FOH"
+                           : bus == jamstudio::audio::MixBus::monitorA ? "A" : "B",
+                           juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            label.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+            label.setColour (juce::Label::textColourId, jamstudio::audio::mixBusColour (bus));
+            addAndMakeVisible (label);
+
+            slider.setRange (0.0, 1.0, 0.01);
+            slider.setValue (liveInputs.getSend (index, bus), juce::dontSendNotification);
+            slider.setSliderSnapsToMousePosition (true);
+            slider.setPopupDisplayEnabled (true, true, this);
+            slider.setColour (juce::Slider::thumbColourId, jamstudio::audio::mixBusColour (bus));
+            slider.setColour (juce::Slider::trackColourId, jamstudio::audio::mixBusColour (bus).withAlpha (0.35f));
+            slider.setTooltip (tip);
+            slider.onValueChange = [this, bus, &slider]
+            {
+                liveInputs.setSend (index, bus, static_cast<float> (slider.getValue()));
+                if (bus == jamstudio::audio::MixBus::monitorA)
+                    levelLabel.setText (juce::String (static_cast<int> (slider.getValue() * 100)),
+                                        juce::dontSendNotification);
+            };
+            addAndMakeVisible (slider);
+        };
+
+        setup (fohSlider, fohLabel, jamstudio::audio::MixBus::foh,
+               "Front of house. Leave down to keep this input out of the PA");
+        setup (monASlider, monALabel, jamstudio::audio::MixBus::monitorA,
+               "Monitor A. This is what the player hears");
+        setup (monBSlider, monBLabel, jamstudio::audio::MixBus::monitorB,
+               "Monitor B");
+
+        levelLabel.setJustificationType (juce::Justification::centred);
+        levelLabel.setFont (juce::FontOptions (10.0f));
+        levelLabel.setText (juce::String (static_cast<int> (liveInputs.getSend (index, jamstudio::audio::MixBus::monitorA) * 100)),
+                            juce::dontSendNotification);
+        addAndMakeVisible (levelLabel);
+
+        startTimerHz (30);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto colours = JamStudioTheme::getColours();
+        auto bounds = getLocalBounds().toFloat().reduced (1.0f);
+        g.setColour (colours.panelBackground.brighter (0.04f));
+        g.fillRoundedRectangle (bounds, 6.0f);
+        g.setColour (colours.border);
+        g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
+        g.setColour (accentColour);
+        g.fillRoundedRectangle (bounds.removeFromTop (4.0f).reduced (4.0f, 0.0f), 2.0f);
+
+        auto meter = meterBounds.toFloat();
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillRoundedRectangle (meter, 2.0f);
+        const auto level = juce::jlimit (0.0f, 1.0f, liveInputs.getMeter (index));
+        const auto fillH = meter.getHeight() * level;
+        g.setColour (level > 0.9f ? juce::Colours::red : accentColour);
+        g.fillRect (meter.getX(), meter.getBottom() - fillH, meter.getWidth(), fillH);
+    }
+
+    void resized() override
+    {
+        auto bounds = getLocalBounds().reduced (3, 4);
+        nameLabel.setBounds (bounds.removeFromTop (18));
+        bounds.removeFromTop (2);
+        muteButton.setBounds (bounds.removeFromTop (24).withSizeKeepingCentre (36, 22));
+        bounds.removeFromTop (2);
+        levelLabel.setBounds (bounds.removeFromBottom (16));
+        meterBounds = bounds.removeFromRight (10).reduced (1, 2);
+        bounds.removeFromRight (2);
+
+        const auto colW = bounds.getWidth() / 3;
+        auto fohCol = bounds.removeFromLeft (colW);
+        auto monACol = bounds.removeFromLeft (colW);
+        fohLabel.setBounds (fohCol.removeFromTop (14));
+        fohSlider.setBounds (fohCol.reduced (1, 1));
+        monALabel.setBounds (monACol.removeFromTop (14));
+        monASlider.setBounds (monACol.reduced (1, 1));
+        monBLabel.setBounds (bounds.removeFromTop (14));
+        monBSlider.setBounds (bounds.reduced (1, 1));
+    }
+
+private:
+    void timerCallback() override
+    {
+        repaint (meterBounds.expanded (1));
+    }
+
+    jamstudio::audio::LiveInputs& liveInputs;
+    int index = 0;
+    juce::Colour accentColour;
+    juce::Label nameLabel;
+    IndicatorButton muteButton { "liveMute", "M" };
+    juce::Label fohLabel, monALabel, monBLabel;
+    juce::Slider fohSlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
+    juce::Slider monASlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
+    juce::Slider monBSlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
+    juce::Label levelLabel;
+    juce::Rectangle<int> meterBounds;
+};
+
 class MixerWindow::Content : public juce::Component,
                              private juce::Timer
 {
@@ -283,7 +414,9 @@ public:
     explicit Content (jamstudio::audio::TransportController& transport)
         : transportController (transport),
           videoStrip (transport.getStageMedia()),
-          busStrip (transport)
+          busStrip (transport),
+          micStrip (transport.getLiveInputs(), 0, "MIC", juce::Colour (0xffff3355)),
+          instStrip (transport.getLiveInputs(), 1, "INST", juce::Colour (0xff33ccaa))
     {
         // Main transport: setlist stems + stage video (linked).
         skipBackButton.onClick = [this]
@@ -372,6 +505,8 @@ public:
 
         addAndMakeVisible (videoStrip);
         addAndMakeVisible (busStrip);
+        addAndMakeVisible (micStrip);
+        addAndMakeVisible (instStrip);
 
         startTimerHz (20);
     }
@@ -485,6 +620,12 @@ public:
         busStrip.setBounds (bounds.removeFromRight (busW));
         bounds.removeFromRight (6);
 
+        const auto liveW = juce::jlimit (96, 120, bounds.getWidth() / 7);
+        micStrip.setBounds (bounds.removeFromLeft (liveW));
+        bounds.removeFromLeft (4);
+        instStrip.setBounds (bounds.removeFromLeft (liveW));
+        bounds.removeFromLeft (6);
+
         emptyLabel.setBounds (bounds);
         viewport.setBounds (bounds);
 
@@ -564,6 +705,8 @@ private:
     juce::Label emptyLabel;
     VideoSoundStrip videoStrip;
     BusMasterStrip busStrip;
+    LiveInputStrip micStrip;
+    LiveInputStrip instStrip;
 };
 
 MixerWindow::MixerWindow (jamstudio::audio::TransportController& transport)

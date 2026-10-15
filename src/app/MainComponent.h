@@ -43,7 +43,8 @@ namespace jamstudio::app
 
 class MainComponent : public juce::Component,
                       public juce::ChangeListener,
-                      public juce::DarkModeSettingListener
+                      public juce::DarkModeSettingListener,
+                      private juce::Timer
 {
 public:
     explicit MainComponent (juce::AudioDeviceManager& deviceManager);
@@ -53,6 +54,7 @@ public:
     void resized() override;
     void changeListenerCallback (juce::ChangeBroadcaster* source) override;
     void darkModeSettingChanged() override;
+    void timerCallback() override;
 
     [[nodiscard]] juce::StringArray buildMenuBarNames();
     [[nodiscard]] juce::PopupMenu buildMenuForIndex (int topLevelMenuIndex, const juce::String& menuName);
@@ -79,6 +81,7 @@ private:
         aiLyricsCmd,
         recordCmd,
         openExternalRecorderCmd,
+        startSyncedTakeCmd,
         importTakeCmd,
         detectTempoCmd,
         toggleCountInCmd,
@@ -110,7 +113,9 @@ private:
         openKaraokeOutputCmd,
         openStageFxOutputCmd,
         cycleKaraokeDisplayCmd,
-        cycleStageFxDisplayCmd
+        cycleStageFxDisplayCmd,
+        openLyricServerCmd,
+        closeLyricServerCmd
     };
 
     void openSong();
@@ -139,10 +144,20 @@ private:
     void transcribeTab();
     void toggleRecording();
     void openExternalRecorder();
+    void startSyncedTake();
+    void stopSyncedTake();
+    void setStartButtonRecording (bool recording);
+    void publishLyricFollow();
+    [[nodiscard]] bool anyTakeSourceArmed();
+    [[nodiscard]] std::vector<jamstudio::audio::TakeTrackRequest> currentTakeRequests();
+    [[nodiscard]] juce::File createTakeFolder() const;
+    void loadSyncedTake (const jamstudio::audio::TakeResult& result);
     void importTakeFromFile();
     [[nodiscard]] juce::File findStemFileForType (jamstudio::audio::StemType preferredType);
     [[nodiscard]] juce::File findMelodicStemFile();
-    void loadRecordingAsStem (const juce::File& recordingFile, const juce::String& displayName);
+    void loadRecordingAsStem (const juce::File& recordingFile,
+                              const juce::String& displayName,
+                              double startOffsetSeconds = 0.0);
     void loadStemsIntoMixer (const juce::Array<juce::File>& stemFiles);
     void rebuildStemLanes();
     void rebuildMixerWindow();
@@ -151,6 +166,10 @@ private:
     void showAiToolsSetup();
     void showMidiControlSetup();
     void showAudioSettings();
+    void refreshOutputSelectors();
+    void commitOutputSelectors();
+    void layoutOutputSelectors (juce::Rectangle<int> area);
+    void bringOutputSelectorsToFront();
     void refreshMixerUiFromMidi();
     void refreshAudioRoutingStatus();
     void detectTempoFromSong (const juce::File& audioFile, bool announceResult);
@@ -197,6 +216,13 @@ private:
     void preferLeadTabPart (const juce::String& partHint);
     void openKaraokeOutput();
     void openStageFxOutput();
+    /** Lyric page on port 8765 for the Dell. Starts the server if it is down. */
+    bool ensureLyricsServer();
+    void publishLyricPage();
+    void openLyricServer();
+    void closeLyricServer();
+    [[nodiscard]] juce::String outputSongTitle() const;
+    [[nodiscard]] static juce::String studioEthernetAddress();
     void cycleKaraokeDisplay();
     void cycleStageFxDisplay();
     void syncVideoOutputs();
@@ -225,6 +251,22 @@ private:
     juce::TextButton statusCancelButton { "Cancel" };
     /** Kept for code compatibility - never shown (status bar carries messages). */
     jamstudio::ui::SeparationProgressBar separationProgress;
+    juce::Label outputStripLabel { {}, "Outputs" };
+    juce::Label fohOutLabel { {}, "FOH" };
+    juce::ComboBox fohOutBox;
+    juce::Label monAOutLabel { {}, "Mon A" };
+    juce::ComboBox monAOutBox;
+    juce::Label monBOutLabel { {}, "Mon B" };
+    juce::ComboBox monBOutBox;
+    juce::TextButton refreshOutputsButton { "Refresh" };
+    jamstudio::ui::IndicatorButton micArmButton { "micArm", "Mic" };
+    jamstudio::ui::IndicatorButton instArmButton { "instArm", "Inst" };
+    jamstudio::ui::IndicatorButton startTakeButton { "startTake", "Start" };
+    juce::StringArray fohOutNames;
+    juce::StringArray monAOutNames;
+    juce::StringArray monBOutNames;
+    bool updatingOutputSelectors = false;
+
     juce::Label lyricsSectionLabel { {}, "LYRICS" };
     juce::Label notationSectionLabel { {}, "TABS / NOTATION" };
     juce::Label stemsSectionLabel { {}, "STEMS" };
@@ -253,6 +295,12 @@ private:
     bool performanceWasPlaying = false;
     int karaokeDisplayIndex = 0;
     int stageFxDisplayIndex = 1;
+    bool syncedTake = false;
+    bool syncedTakeArmed = false;
+    uint32_t syncedTakeGeneration = 0;
+    juce::ChildProcess lyricServer;
+    juce::String lastLyricJson;
+    bool lyricPageClosed = false;
 
     juce::File currentSongFile;
     juce::File currentScoreFile;
@@ -260,8 +308,8 @@ private:
     juce::File currentProjectFile;
     std::unique_ptr<juce::FileChooser> fileChooser;
 
-    bool lyricsPanelVisible = true;
-    bool notationPanelVisible = true;
+    bool lyricsPanelVisible = false;
+    bool notationPanelVisible = false;
     /** Stem lanes with mini-waveforms under the transport (mixer still available). */
     bool stemsPanelVisible = true;
     bool workspaceReady = false;

@@ -1,6 +1,6 @@
 #include "MainWindow.h"
 
-#include "../platform/HostEnvironment.h"
+#include "../audio/AudioInterfaceManager.h"
 #include "../ui/BrandAssets.h"
 #include "../ui/JamStudioLookAndFeel.h"
 
@@ -55,9 +55,12 @@ public:
             splash = std::make_unique<juce::SplashScreen> ("JamStudio", displayImg, true);
         }
 
-        // Output only until AudioInterfaceManager picks a real input.
-        // Opening the default mic and speakers together on macOS howls.
-        audioDeviceManager.initialiseWithDefaultDevices (0, 2);
+        // The mix-bus ALSA device has to exist before the first device scan.
+        jamstudio::audio::AudioInterfaceManager::installBusPlaybackDevice();
+
+        // Open a modest default first; MainComponent's AudioInterfaceManager
+        // immediately applies plug-and-play routing (Scarlett in + PC out, etc.).
+        audioDeviceManager.initialiseWithDefaultDevices (2, 2);
 
         mainWindow = std::make_unique<MainWindow> (audioDeviceManager);
 

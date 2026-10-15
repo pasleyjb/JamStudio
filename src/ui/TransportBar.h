@@ -14,11 +14,14 @@ class TransportBar : public juce::Component,
 public:
     using DetectTempoCallback = std::function<void()>;
     using RecordCallback = std::function<void()>;
+    using StartTakeCallback = std::function<void()>;
 
     explicit TransportBar (jamstudio::audio::TransportController& transport);
 
     void setDetectTempoCallback (DetectTempoCallback callback);
     void setRecordCallback (RecordCallback callback);
+    void setStartTakeCallback (StartTakeCallback callback);
+    void setSyncedTakeActive (bool active);
     void setInputLevelProvider (std::function<float()> provider);
     void setRecordingActive (bool recording);
     void setInputLevel (float level01);
@@ -46,6 +49,7 @@ private:
     jamstudio::audio::TransportController& transportController;
     DetectTempoCallback detectTempoCallback;
     RecordCallback recordCallback;
+    StartTakeCallback startTakeCallback;
     std::function<float()> inputLevelProvider;
 
     TapeDeckButton skipBackButton { "skipBack", TapeDeckButton::Icon::skipBack };
@@ -54,6 +58,7 @@ private:
     TapeDeckButton stopButton { "stop", TapeDeckButton::Icon::stop };
     TapeDeckButton skipForwardButton { "skipForward", TapeDeckButton::Icon::skipForward };
     IndicatorButton recordButton { "record", "REC" };
+    IndicatorButton startTakeButton { "startTake", "Start" };
     juce::Slider positionSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxLeft };
     juce::Label positionLabel;
     juce::Label masterLabel { {}, "Master" };
@@ -67,6 +72,7 @@ private:
     juce::Rectangle<int> inputMeterBounds;
     float inputLevel = 0.0f;
     bool recordingActive = false;
+    bool syncedTakeActive = false;
 };
 
 } // namespace jamstudio::ui

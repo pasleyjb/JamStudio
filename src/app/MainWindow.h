@@ -16,6 +16,7 @@ public:
     ~MainWindow() override;
 
     void closeButtonPressed() override;
+    void activeWindowStatusChanged() override;
 
 private:
     std::unique_ptr<AppMenuBar> menuBarModel;

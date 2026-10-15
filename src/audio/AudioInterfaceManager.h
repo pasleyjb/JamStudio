@@ -2,6 +2,9 @@
 
 #include <JuceHeader.h>
 
+#include <array>
+#include <memory>
+
 namespace jamstudio::audio
 {
 
@@ -47,6 +50,13 @@ struct AudioInterfaceSettings
     double preferredSampleRate = 0.0;  // 0 = device default
     int preferredBufferSize = 0;       // 0 = device default
 
+    /** PipeWire sink names for FOH / Mon A / Mon B. Empty sends that mix nowhere. */
+    juce::String fohSink;
+    juce::String monitorASink;
+    juce::String monitorBSink;
+    /** False until the user (or first-run defaults) has stored the three sinks. */
+    bool busOutputsSpecified = false;
+
     [[nodiscard]] static juce::File settingsFile();
     void load();
     void save() const;
@@ -59,6 +69,13 @@ struct AudioDeviceChoice
     int maxInputChannels = 0;
     int maxOutputChannels = 0;
     int score = 0;
+};
+
+/** One hardware playback sink the user can send a mix to. */
+struct PlaybackSink
+{
+    juce::String name;
+    juce::String description;
 };
 
 struct AudioRoutingSnapshot
@@ -92,6 +109,10 @@ public:
     explicit AudioInterfaceManager (juce::AudioDeviceManager& deviceManager);
     ~AudioInterfaceManager() override;
 
+    /** Write the 6-channel ALSA bus and make sure its PipeWire sink exists.
+        Call this before the first ALSA device scan. */
+    static void installBusPlaybackDevice();
+
     void initialiseAtStartup();
     void rescanAndApply();
     [[nodiscard]] juce::String applySettings (const AudioInterfaceSettings& settings);
@@ -104,9 +125,20 @@ public:
 
     [[nodiscard]] juce::Array<AudioDeviceChoice> listInputDevices() const;
     [[nodiscard]] juce::Array<AudioDeviceChoice> listOutputDevices() const;
+    [[nodiscard]] juce::Array<PlaybackSink> listPlaybackSinks() const;
     [[nodiscard]] juce::StringArray listDeviceTypeNames() const;
 
-    /** Refresh device lists (USB plug events). */
+    /** Keep FOH / Mon A / Mon B connected while transport is playing or counting in.
+        Silence releases the links so an idle headphone jack does not stay open. */
+    void setMixOutputsHeld (bool held);
+
+    /** Point FOH / Mon A / Mon B at playback sinks. Empty means Off.
+        Reopens the device only if the mix bus is not already the output. */
+    void setBusDestinations (const juce::String& foh,
+                             const juce::String& monitorA,
+                             const juce::String& monitorB);
+
+    /** Refresh ALSA/WASAPI device lists (USB plug events). */
     void scanHardware();
 
 private:
@@ -134,11 +166,33 @@ private:
     static int scoreAsComputerMonitor (const juce::String& name, int maxOut);
     static bool looksLikeMultiIoInterface (const juce::String& name, int maxIn, int maxOut);
 
+    [[nodiscard]] bool anyBusDestination() const noexcept;
+    void assignDefaultBusOutputsIfNeeded();
+    void ensureBusGraph();
+    void syncBusLoopbacks();
+    void rememberBusStatus();
+    void stopBusCopy (int index);
+    void startBusCopy (int index, const juce::String& source, const juce::String& sink);
+
+    struct BusCopy
+    {
+        juce::String source;
+        juce::String sink;
+        int pid = 0;
+        std::unique_ptr<juce::ChildProcess> process;
+    };
+
+    std::array<BusCopy, 3> busCopies;
+
     juce::AudioDeviceManager& deviceManager;
     AudioInterfaceSettings settings;
     juce::String lastFingerprint;
     juce::String lastError;
+    juce::String busStatusText;
     bool suppressRescan = false;
+    bool outputsHeld = false;
+    bool loopbacksOpen = false;
+    int silenceTicks = 0;
 };
 
 } // namespace jamstudio::audio

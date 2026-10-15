@@ -144,6 +144,9 @@ juce::Array<HelpTopic> buildTopics()
         "Audio",
         "audio interface scarlett focusrite asound alsa wasapi device input output monitor speakers plug hotplug",
         "Help → Audio Interface… configures how JamStudio uses your hardware.\n\n"
+        "Where each mix goes: FOH, Mon A, and Mon B each have their own output. "
+        "Pick any speaker or headphone device, or Off. Links are up while the song "
+        "is playing or counting in, and drop about a second after stop.\n\n"
         "• Plug and play (default) — multi-input USB interfaces (Scarlett 18i20, etc.) "
         "are preferred for capture. Monitor audio goes to computer speakers when "
         "“monitor on computer speakers” is on — useful when nothing is plugged into "
@@ -360,24 +363,25 @@ juce::Array<HelpTopic> buildTopics()
         "Recording mode (external DAW)",
         "Recording",
         "recording mode audacity reaper external plugin amp sim import take",
-        "JamStudio prefers an external recorder for takes so you can use amp sims and plugins.\n\n"
+        "Start rewinds to the top and records inside Jam Studio on the same clock as the stems and lyrics.\n"
+        "Mic (Fast Track input 1) is armed by default. Inst is input 2. R on a stem prints that stem.\n"
+        "The click is not recorded. A 4-count, when it is on, happens before recording starts.\n"
+        "Press Start again, or Stop, to end the take. Mic and Inst load back onto the song at the position they were recorded.\n"
+        "The mixer has Mic and Inst strips. Mon A is up so the player hears themselves on the monitor. FOH stays down until you want that input in the house.\n"
+        "Printed stems stay in the take folder and are not loaded again, so the mix does not double.\n"
+        "Takes are folders under Documents/JamStudio/Recordings/take-YYYYMMDD-HHMMSS/.\n\n"
+        "EXT still bounces the mix into an external recorder when you want amp sims and plugins.\n\n"
         "Wizard → Recording:\n"
         "• Open Project / Open Backing / Empty Session\n\n"
         "Then:\n"
-        "1. Press EXT on the transport bar, or the Recording panel button "
-        "(Open Audacity, or Open plus the name of the preferred app)\n"
-        "2. If stems are loaded, JamStudio bounces the FOH mix to a WAV under "
-        "Documents/JamStudio/Recordings/ and opens the recorder\n"
-        "3. Audacity, Reaper, Ardour, Qtractor, and Ocenaudio receive that WAV. "
-        "Logic Pro and GarageBand open without the file; import the WAV yourself\n"
-        "4. Record with effects or amp sims in that app\n"
-        "5. Export audio from the DAW\n"
-        "6. Import Take... on the panel, or Transport → Import Take from File…, "
-        "loads it into the mixer. Load to Mixer reloads a take already in the list\n\n"
-        "Audacity is preferred when it is installed. Also detected: Reaper, Ardour, "
-        "Qtractor, Ocenaudio, and on macOS Logic Pro and GarageBand.\n\n"
-        "Transport → Internal Record / Stop records inside JamStudio instead. "
-        "Those takes are also stored under Documents/JamStudio/Recordings/."));
+        "1. Press EXT (or Open Audacity in the Recording panel)\n"
+        "2. JamStudio bounces the current mix to a WAV and launches Audacity/Reaper/Ardour\n"
+        "3. Record with effects/amp sims in that app\n"
+        "4. Export Audio as WAV from the external DAW\n"
+        "5. Import Take… (panel or Transport menu) to bring it back into the mixer\n\n"
+        "Detected apps: Audacity (preferred), Reaper, Ardour, Qtractor, Ocenaudio, etc.\n\n"
+        "Fallback: Transport → Internal Record / Stop still records inside JamStudio.\n"
+        "Takes live under Documents/JamStudio/Recordings/."));
 
     // ---------- MIDI ----------
     t.add (topic (

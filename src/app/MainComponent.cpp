@@ -138,6 +138,7 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     });
     // REC prefers external DAW (Audacity etc.) for plugins / amp sims.
     transportBar.setRecordCallback ([this] { openExternalRecorder(); });
+    transportBar.setStartTakeCallback ([this] { startSyncedTake(); });
     transportBar.setInputLevelProvider ([this] { return audioRecorder.getInputLevel(); });
 
     recordingTakesPanel.setTakeManager (&recordingTakeManager);
@@ -224,11 +225,80 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
         }
     });
 
+    const auto textColour = jamstudio::ui::JamStudioTheme::getColours().text;
+    outputStripLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    outputStripLabel.setJustificationType (juce::Justification::centredLeft);
+    outputStripLabel.setColour (juce::Label::textColourId, textColour);
+    addAndMakeVisible (outputStripLabel);
+
+    for (auto* label : { &fohOutLabel, &monAOutLabel, &monBOutLabel })
+    {
+        label->setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        label->setJustificationType (juce::Justification::centredRight);
+        label->setColour (juce::Label::textColourId, textColour);
+        addAndMakeVisible (*label);
+    }
+
+    for (auto* box : { &fohOutBox, &monAOutBox, &monBOutBox })
+    {
+        box->setTextWhenNothingSelected ("(Off)");
+        addAndMakeVisible (*box);
+    }
+
+    fohOutBox.onChange = [this] { commitOutputSelectors(); };
+    monAOutBox.onChange = [this] { commitOutputSelectors(); };
+    monBOutBox.onChange = [this] { commitOutputSelectors(); };
+
+    refreshOutputsButton.onClick = [this] { refreshOutputSelectors(); };
+    addAndMakeVisible (refreshOutputsButton);
+
+    auto setupArmButton = [] (jamstudio::ui::IndicatorButton& button, const bool armed, const juce::String& tip)
+    {
+        button.setClickingTogglesState (true);
+        button.setToggleState (armed, juce::dontSendNotification);
+        button.setIndicatorColour (juce::Colour (0xffff3344));
+        button.setIndicatorActive (armed);
+        button.setTooltip (tip);
+        button.onClick = [&button] { button.setIndicatorActive (button.getToggleState()); };
+    };
+    setupArmButton (micArmButton, true, "Arm Fast Track input 1 (mic) for the next take");
+    setupArmButton (instArmButton, false, "Arm Fast Track input 2 (instrument) for the next take");
+    addAndMakeVisible (micArmButton);
+    addAndMakeVisible (instArmButton);
+
+    startTakeButton.setIndicatorColour (juce::Colour (0xffff3344));
+    startTakeButton.setTooltip ("Record armed tracks and play from the top, on the same clock. The click is not recorded.");
+    startTakeButton.onClick = [this] { startSyncedTake(); };
+    addAndMakeVisible (startTakeButton);
+    refreshOutputSelectors();
+
+    ensureLyricsServer();
+    startTimer (500);
+
     setupStartupWizard();
+
+    const auto autoplay = juce::SystemStats::getEnvironmentVariable ("JAMSTUDIO_AUTOPLAY", {});
+    if (autoplay.isNotEmpty())
+    {
+        juce::Component::SafePointer<MainComponent> safe (this);
+        juce::Timer::callAfterDelay (1500, [safe, autoplay]
+        {
+            if (safe == nullptr)
+                return;
+
+            safe->loadProjectFile (juce::File (autoplay));
+            safe->transportController.setCountInEnabled (false);
+            safe->transportController.setPosition (24.0);
+            safe->transportController.play();
+        });
+    }
 }
 
 MainComponent::~MainComponent()
 {
+    stopSyncedTake();
+    stopTimer();
+    lyricServer.kill();
     floatingDock.shutdown();
     fileChooser.reset();
     if (practiceSetupPipeline != nullptr)
@@ -276,9 +346,9 @@ void MainComponent::applyPanelVisibility()
 
 void MainComponent::revealWorkspacePanels()
 {
-    // Lyrics + large tabs + stem waveform lanes (mixer is extra detail).
-    lyricsPanelVisible = true;
-    notationPanelVisible = true;
+    // Main screen is the stem lanes and the transport. Lyrics and tabs stay off it.
+    lyricsPanelVisible = false;
+    notationPanelVisible = false;
     stemsPanelVisible = true;
     applyPanelVisibility();
     mixerWindow.showMixer (true);
@@ -334,11 +404,13 @@ void MainComponent::resized()
 {
     if (startupWizard.isVisible())
     {
-        // Free-floating wizard covers the main area; status bar still peeks at the bottom.
+        // Output picks stay above the wizard. Status bar still peeks at the bottom.
         auto all = getLocalBounds();
         auto statusBar = all.removeFromBottom (30);
         layoutStatusBar (statusBar);
+        layoutOutputSelectors (all.removeFromTop (40));
         startupWizard.setBounds (all);
+        bringOutputSelectorsToFront();
         return;
     }
 
@@ -347,6 +419,7 @@ void MainComponent::resized()
     // Status border bar pinned to the very bottom of the workspace.
     auto statusBar = bounds.removeFromBottom (30);
     layoutStatusBar (statusBar);
+    layoutOutputSelectors (bounds.removeFromTop (40));
 
     bounds = bounds.reduced (8);
 
@@ -367,48 +440,25 @@ void MainComponent::resized()
         recordingTakesPanel.setBounds (takesArea);
     }
 
-    // Bottom dock: overview waveform -> transport -> stem lanes with mini-waves
-    const int stemLaneCount = stemContainer.getNumChildComponents();
-    const int stemLaneHeight = 52;
-    const int stemsBlockHeight = stemsPanelVisible
-        ? (18 + juce::jlimit (64, 260, juce::jmax (1, stemLaneCount) * stemLaneHeight + 8))
-        : 0;
-    const int waveHeight = 72;
+    // Transport stays on screen. Stem lanes share whatever is left above it.
+    const int waveHeight = 64;
     const int transportHeight = 48;
-    const int bottomStackHeight = waveHeight + 4 + transportHeight
-                                  + (stemsPanelVisible ? 8 + stemsBlockHeight : 0);
-
-    auto bottom = bounds.removeFromBottom (bottomStackHeight);
-
-    waveformDisplay.setBounds (bottom.removeFromTop (waveHeight));
-    bottom.removeFromTop (4);
-    transportBar.setBounds (bottom.removeFromTop (transportHeight));
+    auto transportArea = bounds.removeFromBottom (waveHeight + 4 + transportHeight);
+    waveformDisplay.setBounds (transportArea.removeFromTop (waveHeight));
+    transportArea.removeFromTop (4);
+    transportBar.setBounds (transportArea);
 
     if (stemsPanelVisible)
-    {
-        bottom.removeFromTop (8);
-        auto stemsArea = bottom;
-        stemsSectionLabel.setBounds (stemsArea.removeFromTop (16));
-        stemViewport.setBounds (stemsArea);
-        layoutStemLanes();
-    }
+        bounds.removeFromBottom (6);
 
-    // Count visible upper panels so we can favour tabs when both are open.
-    const int upperPanels = (lyricsPanelVisible ? 1 : 0) + (notationPanelVisible ? 1 : 0);
-
-    // Compact karaoke strip (2-3 lines) - not a huge scrolling list.
-    if (lyricsPanelVisible)
+    if (lyricsPanelVisible && bounds.getHeight() > 80)
     {
-        const int lyricsHeight = upperPanels == 1
-            ? juce::jlimit (120, 220, bounds.getHeight() / 3)
-            : juce::jlimit (100, 140, 120);
         lyricsSectionLabel.setBounds (bounds.removeFromTop (16));
-        lyricsView.setBounds (bounds.removeFromTop (lyricsHeight));
-        bounds.removeFromTop (6);
+        lyricsView.setBounds (bounds.removeFromTop (juce::jmin (100, bounds.getHeight() / 5)));
+        bounds.removeFromTop (4);
     }
 
-    // Tabs take all remaining space (primary practice surface).
-    if (notationPanelVisible)
+    if (notationPanelVisible && bounds.getHeight() > 80)
     {
         notationSectionLabel.setBounds (bounds.removeFromTop (16));
 
@@ -416,19 +466,26 @@ void MainComponent::resized()
         {
             notationHeaderBar.setVisible (true);
             notationHeaderBar.setBounds (bounds.removeFromTop (28));
-            bounds.removeFromTop (2);
         }
         else
         {
             notationHeaderBar.setVisible (false);
         }
 
+        auto notationArea = bounds.removeFromTop (juce::jmin (140, bounds.getHeight() / 4));
         notationViewport.setVisible (true);
-        notationViewport.setBounds (bounds);
-        // Scale frets/measures to the actual panel size (not a fixed 160px strip).
+        notationViewport.setBounds (notationArea);
         notationView.setStripViewportHeight (notationViewport.getHeight());
         notationView.setSize (juce::jmax (notationViewport.getWidth(), notationView.getContentWidth()),
                               juce::jmax (notationViewport.getHeight(), notationView.getContentHeight()));
+        bounds.removeFromTop (4);
+    }
+
+    if (stemsPanelVisible)
+    {
+        stemsSectionLabel.setBounds (bounds.removeFromTop (16));
+        stemViewport.setBounds (bounds);
+        layoutStemLanes();
     }
 }
 
@@ -447,18 +504,22 @@ void MainComponent::layoutStatusBar (juce::Rectangle<int> statusBar)
 
 void MainComponent::layoutStemLanes()
 {
-    constexpr int laneHeight = 52;
+    const int count = juce::jmax (1, stemContainer.getNumChildComponents());
+    const int viewH = juce::jmax (1, stemViewport.getHeight());
+    // Share the viewport so every lane is on screen. A very long list can still scroll.
+    const int laneHeight = juce::jmax (28, viewH / count);
     const auto containerWidth = juce::jmax (stemViewport.getMaximumVisibleWidth(), stemViewport.getWidth());
-    stemContainer.setSize (containerWidth, juce::jmax (1, stemContainer.getNumChildComponents()) * laneHeight + 4);
+    stemContainer.setSize (containerWidth, count * laneHeight);
+    stemViewport.setScrollBarsShown (count * laneHeight > viewH + 1, false);
 
-    auto stripBounds = stemContainer.getLocalBounds().reduced (2);
-    int y = stripBounds.getY();
+    const auto width = stemContainer.getWidth();
+    int y = 0;
 
     for (int i = 0; i < stemContainer.getNumChildComponents(); ++i)
     {
         if (auto* lane = stemContainer.getChildComponent (i))
         {
-            lane->setBounds (stripBounds.getX(), y, stripBounds.getWidth(), laneHeight - 2);
+            lane->setBounds (0, y, width, laneHeight);
             y += laneHeight;
         }
     }
@@ -545,11 +606,17 @@ juce::PopupMenu MainComponent::buildMenuForIndex (const int topLevelMenuIndex, c
         menu.addSeparator();
         menu.addItem (openFullPageLyricsCmd, "Open Full Page Lyrics (Printable)...", true, false);
         menu.addItem (toggleLyricsPanelCmd, "Show Lyrics Panel", true, lyricsPanelVisible);
+        menu.addSeparator();
+        menu.addItem (openLyricServerCmd, "Lyric Server (Dell) — Open", true, ! lyricPageClosed);
+        menu.addItem (closeLyricServerCmd, "Lyric Server (Dell) — Close", true, false);
     }
     else if (menuName == "Transport")
     {
         menu.addItem (detectTempoCmd, "Detect Tempo", true, false);
         menu.addSeparator();
+        menu.addItem (startSyncedTakeCmd,
+                      syncedTake || syncedTakeArmed ? "Stop Take + Playback" : "Start Take + Play",
+                      true, false);
         menu.addItem (openExternalRecorderCmd, "Open External Recorder (Audacity…)", true, false);
         menu.addItem (importTakeCmd, "Import Take from File…", true, false);
         menu.addItem (recordCmd, "Internal Record / Stop", true, false);
@@ -620,6 +687,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
             break;
         case recordCmd: toggleRecording(); break;
         case openExternalRecorderCmd: openExternalRecorder(); break;
+        case startSyncedTakeCmd: startSyncedTake(); break;
         case importTakeCmd: importTakeFromFile(); break;
         case aiToolsCmd: showAiToolsSetup(); break;
         case midiControlCmd: showMidiControlSetup(); break;
@@ -687,6 +755,8 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case openStageShowBuilderCmd: openSetListEditor (true); break;
         case performanceNextSongCmd: performanceTriggerNext(); break;
         case stopPerformanceCmd: stopPerformanceMode(); break;
+        case openLyricServerCmd: openLyricServer(); break;
+        case closeLyricServerCmd: closeLyricServer(); break;
         case openKaraokeOutputCmd: openKaraokeOutput(); break;
         case openStageFxOutputCmd: openStageFxOutput(); break;
         case cycleKaraokeDisplayCmd: cycleKaraokeDisplay(); break;
@@ -730,6 +800,8 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
     if (source == &audioInterfaceManager)
     {
         refreshAudioRoutingStatus();
+        if (! updatingOutputSelectors)
+            refreshOutputSelectors();
         return;
     }
 
@@ -737,6 +809,15 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
     {
         rebuildStemLanes();
         rebuildMixerWindow();
+    }
+
+    if (source == &transportController || source == &transportController.getStemMixer())
+    {
+        const auto rolling = transportController.isPlaying() || transportController.isCountingIn();
+        audioInterfaceManager.setMixOutputsHeld (rolling);
+
+        if ((syncedTake || syncedTakeArmed) && ! rolling)
+            stopSyncedTake();
     }
 
     if (source == &transportController && performanceActive)
@@ -825,6 +906,9 @@ void MainComponent::saveProject()
                     mixer.setStemMuted (i, s.muted);
                     mixer.setStemSolo (i, s.solo);
                     mixer.setStemVolume (i, s.volume);
+
+                    if (s.startOffsetSeconds > 0.0)
+                        mixer.setStemStartOffset (i, s.startOffsetSeconds);
 
                     if (s.name.isNotEmpty())
                         mixer.setStemName (i, s.name);
@@ -1042,6 +1126,9 @@ void MainComponent::recoverMissingProjectStems (const juce::File& projectFile)
                         mixer.setStemSolo (i, s.solo);
                         mixer.setStemVolume (i, s.volume);
 
+                        if (s.startOffsetSeconds > 0.0)
+                            mixer.setStemStartOffset (i, s.startOffsetSeconds);
+
                         if (s.name.isNotEmpty())
                             mixer.setStemName (i, s.name);
                     }
@@ -1096,9 +1183,7 @@ void MainComponent::importLyrics()
         lyricsView.setLyrics (currentLyrics);
         if (fullPageLyricsWindow.isLyricsWindowVisible())
             fullPageLyricsWindow.setLyrics (currentLyrics);
-        lyricsPanelVisible = true;
         applyPanelVisibility();
-        toolbarTabs.setActiveTab (jamstudio::ui::ToolbarTabs::Tab::lyrics);
         setStatus ("Lyrics loaded: " + file.getFileName() + " (" + juce::String (currentLyrics.getNumLines()) + " lines)");
     });
 }
@@ -1131,9 +1216,7 @@ void MainComponent::findOnlineLyrics()
             lyricsView.setLyrics (currentLyrics);
             if (fullPageLyricsWindow.isLyricsWindowVisible())
                 fullPageLyricsWindow.setLyrics (currentLyrics);
-            lyricsPanelVisible = true;
             applyPanelVisibility();
-            toolbarTabs.setActiveTab (jamstudio::ui::ToolbarTabs::Tab::lyrics);
 
             const auto wordInfo = currentLyrics.hasWordTimings() ? " (word-level if present)" : " (line-synced LRC)";
             setStatus ("Online lyrics applied: " + juce::String (currentLyrics.getNumLines())
@@ -1283,10 +1366,8 @@ void MainComponent::applyScore (const jamstudio::notation::Score& score, const b
         currentLyricsFile = juce::File();
         currentLyrics = jamstudio::notation::ScoreLyricsExtractor::fromScore (currentScore);
         lyricsView.setLyrics (currentLyrics);
-        lyricsPanelVisible = true;
     }
 
-    notationPanelVisible = true;
     updateNotationPanelVisibility();
     applyPanelVisibility();
 }
@@ -1295,16 +1376,13 @@ void MainComponent::setNotationDisplayMode (const jamstudio::notation::NotationM
 {
     if (currentScore.isEmpty())
     {
-        notationPanelVisible = true;
-        applyPanelVisibility();
-        setStatus ("Tabs panel open - import MusicXML or run AI Tab.");
+        setStatus ("No tabs loaded. Import MusicXML or run AI Tab.");
         return;
     }
 
     currentScore.setNotationMode (mode);
     notationView.setScore (currentScore);
     syncNotationUiState();
-    notationPanelVisible = true;
     updateNotationPanelVisibility();
     applyPanelVisibility();
 
@@ -1323,9 +1401,7 @@ void MainComponent::toggleTabView()
 {
     if (currentScore.isEmpty())
     {
-        notationPanelVisible = true;
-        applyPanelVisibility();
-        setStatus ("Tabs panel open - import MusicXML or run AI Tab.");
+        setStatus ("No tabs loaded. Import MusicXML or run AI Tab.");
         return;
     }
 
@@ -1340,9 +1416,7 @@ void MainComponent::toggleSheetView()
 {
     if (currentScore.isEmpty())
     {
-        notationPanelVisible = true;
-        applyPanelVisibility();
-        setStatus ("Tabs panel open - import MusicXML or run AI Tab.");
+        setStatus ("No tabs loaded. Import MusicXML or run AI Tab.");
         return;
     }
 
@@ -1491,6 +1565,116 @@ void MainComponent::showMidiControlSetup()
 void MainComponent::showAudioSettings()
 {
     jamstudio::ui::AudioSettingsDialog::show (this, audioInterfaceManager);
+}
+
+void MainComponent::layoutOutputSelectors (juce::Rectangle<int> area)
+{
+    area = area.reduced (8, 6);
+    outputStripLabel.setBounds (area.removeFromLeft (72));
+    refreshOutputsButton.setBounds (area.removeFromRight (88));
+    area.removeFromRight (6);
+    startTakeButton.setBounds (area.removeFromRight (78).reduced (0, 1));
+    area.removeFromRight (4);
+    instArmButton.setBounds (area.removeFromRight (64).reduced (0, 1));
+    area.removeFromRight (4);
+    micArmButton.setBounds (area.removeFromRight (64).reduced (0, 1));
+    area.removeFromRight (8);
+
+    const auto slot = area.getWidth() / 3;
+    auto place = [&area, slot] (juce::Label& label, juce::ComboBox& box)
+    {
+        auto row = area.removeFromLeft (slot);
+        label.setBounds (row.removeFromLeft (52));
+        row.removeFromLeft (4);
+        box.setBounds (row.reduced (0, 1));
+    };
+    place (fohOutLabel, fohOutBox);
+    place (monAOutLabel, monAOutBox);
+    place (monBOutLabel, monBOutBox);
+}
+
+void MainComponent::bringOutputSelectorsToFront()
+{
+    for (auto* widget : { static_cast<juce::Component*> (&outputStripLabel),
+                          static_cast<juce::Component*> (&fohOutLabel),
+                          static_cast<juce::Component*> (&fohOutBox),
+                          static_cast<juce::Component*> (&monAOutLabel),
+                          static_cast<juce::Component*> (&monAOutBox),
+                          static_cast<juce::Component*> (&monBOutLabel),
+                          static_cast<juce::Component*> (&monBOutBox),
+                          static_cast<juce::Component*> (&refreshOutputsButton),
+                          static_cast<juce::Component*> (&micArmButton),
+                          static_cast<juce::Component*> (&instArmButton),
+                          static_cast<juce::Component*> (&startTakeButton) })
+        widget->toFront (false);
+}
+
+void MainComponent::refreshOutputSelectors()
+{
+    if (updatingOutputSelectors)
+        return;
+
+    const auto sinks = audioInterfaceManager.listPlaybackSinks();
+    const auto settings = audioInterfaceManager.getSettings();
+
+    juce::ScopedValueSetter<bool> guard (updatingOutputSelectors, true);
+
+    const auto fill = [&sinks] (juce::ComboBox& box, juce::StringArray& names, const juce::String& selected)
+    {
+        box.clear (juce::dontSendNotification);
+        names.clear();
+        box.addItem ("(Off)", 1);
+
+        auto saw = selected.isEmpty();
+        auto id = 2;
+        for (const auto& sink : sinks)
+        {
+            names.add (sink.name);
+            box.addItem (sink.description.isNotEmpty() ? sink.description : sink.name, id);
+            if (sink.name == selected)
+                saw = true;
+            ++id;
+        }
+
+        if (! saw)
+        {
+            names.add (selected);
+            box.addItem ("Unavailable: " + selected, id);
+        }
+
+        auto selectedId = 1;
+        if (selected.isNotEmpty())
+        {
+            const auto index = names.indexOf (selected);
+            if (index >= 0)
+                selectedId = index + 2;
+        }
+        box.setSelectedId (selectedId, juce::dontSendNotification);
+    };
+
+    fill (fohOutBox, fohOutNames, settings.fohSink);
+    fill (monAOutBox, monAOutNames, settings.monitorASink);
+    fill (monBOutBox, monBOutNames, settings.monitorBSink);
+}
+
+void MainComponent::commitOutputSelectors()
+{
+    if (updatingOutputSelectors)
+        return;
+
+    const auto chosen = [] (const juce::ComboBox& box, const juce::StringArray& names)
+    {
+        const auto id = box.getSelectedId();
+        if (id <= 1)
+            return juce::String();
+        const auto index = id - 2;
+        return juce::isPositiveAndBelow (index, names.size()) ? names[index] : juce::String();
+    };
+
+    juce::ScopedValueSetter<bool> guard (updatingOutputSelectors, true);
+    audioInterfaceManager.setBusDestinations (chosen (fohOutBox, fohOutNames),
+                                              chosen (monAOutBox, monAOutNames),
+                                              chosen (monBOutBox, monBOutNames));
 }
 
 void MainComponent::refreshAudioRoutingStatus()
@@ -1808,7 +1992,8 @@ void MainComponent::refreshRecordingTakesPanel()
 }
 
 void MainComponent::loadRecordingAsStem (const juce::File& recordingFile,
-                                           const juce::String& displayName)
+                                           const juce::String& displayName,
+                                           const double startOffsetSeconds)
 {
     if (! recordingFile.existsAsFile())
         return;
@@ -1822,8 +2007,11 @@ void MainComponent::loadRecordingAsStem (const juce::File& recordingFile,
     {
         stem->setType (jamstudio::audio::StemType::recording);
         stem->setName (displayName);
+        stem->setRecordArmed (false);
+        stem->setStartOffsetSeconds (startOffsetSeconds);
     }
 
+    mixer.recomputeLength();
     rebuildStemLanes();
     rebuildMixerWindow();
 }
@@ -1863,10 +2051,10 @@ void MainComponent::rebuildStemLanes()
 
     for (int i = 0; i < mixer.getNumStems(); ++i)
     {
-        if (const auto* stem = mixer.getStem (i))
+        if (mixer.getStem (i) != nullptr)
         {
             auto lane = std::make_unique<jamstudio::ui::StemLane> (
-                i, *stem,
+                i, mixer,
                 transportController.getFormatManager(),
                 thumbnailCache,
                 transportController);
@@ -2010,14 +2198,263 @@ void MainComponent::enterRecordingWorkspace()
     recordingTakesPanel.setPreferredRecorderName (preferred.name);
 
     if (preferred.name.isNotEmpty())
-        setStatus ("Recording mode — REC / Open " + preferred.name
-                   + " bounces your mix and opens it for plugins & amp sims. Import Take when done.");
+        setStatus ("Recording mode — arm Mic, Inst, or a stem's R, then Start. EXT still bounces the mix into "
+                   + preferred.name + " for plugins and amp sims.");
     else
-        setStatus ("Recording mode — install Audacity (or Reaper/Ardour), then Open External Recorder. Import Take when finished.");
+        setStatus ("Recording mode — arm Mic, Inst, or a stem's R, then Start. Install Audacity, Reaper, or Ardour if you want EXT for plugins.");
+}
+
+void MainComponent::setStartButtonRecording (const bool recording)
+{
+    transportBar.setSyncedTakeActive (recording);
+    startTakeButton.setButtonText (recording ? "Stop" : "Start");
+    startTakeButton.setIndicatorActive (recording, false);
+}
+
+void MainComponent::publishLyricFollow()
+{
+    lyricPageClosed = false;
+    juce::File ("/tmp/jamstudio-karaoke.closed").deleteFile();
+    juce::File ("/tmp/jamstudio-karaoke.open").replaceWithText ("1\n");
+    publishLyricPage();
+    ensureLyricsServer();
+}
+
+bool MainComponent::anyTakeSourceArmed()
+{
+    if (micArmButton.getToggleState() || instArmButton.getToggleState())
+        return true;
+
+    auto& mixer = transportController.getStemMixer();
+
+    for (int i = 0; i < mixer.getNumStems(); ++i)
+        if (const auto* stem = mixer.getStem (i); stem != nullptr && stem->isRecordArmed())
+            return true;
+
+    return false;
+}
+
+std::vector<jamstudio::audio::TakeTrackRequest> MainComponent::currentTakeRequests()
+{
+    std::vector<jamstudio::audio::TakeTrackRequest> tracks;
+
+    if (micArmButton.getToggleState())
+        tracks.push_back ({ jamstudio::audio::TakeTrackRequest::Kind::mic, nullptr, "Mic" });
+
+    if (instArmButton.getToggleState())
+        tracks.push_back ({ jamstudio::audio::TakeTrackRequest::Kind::instrument, nullptr, "Inst" });
+
+    auto& mixer = transportController.getStemMixer();
+
+    for (int i = 0; i < mixer.getNumStems(); ++i)
+    {
+        auto* stem = mixer.getStem (i);
+
+        if (stem == nullptr || ! stem->isRecordArmed())
+            continue;
+
+        auto name = stem->getName();
+
+        if (name.isEmpty())
+            name = jamstudio::audio::stemTypeToString (stem->getType());
+
+        tracks.push_back ({ jamstudio::audio::TakeTrackRequest::Kind::stem, stem, name });
+    }
+
+    return tracks;
+}
+
+juce::File MainComponent::createTakeFolder() const
+{
+    const auto timestamp = juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+    auto folder = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                      .getChildFile ("JamStudio")
+                      .getChildFile ("Recordings")
+                      .getChildFile ("take-" + timestamp);
+
+    if (folder.exists())
+        folder = folder.getSiblingFile (folder.getFileName() + "-"
+                                         + juce::String (juce::Time::currentTimeMillis() % 1000));
+
+    return folder;
+}
+
+void MainComponent::loadSyncedTake (const jamstudio::audio::TakeResult& result)
+{
+    auto& mixer = transportController.getStemMixer();
+    juce::StringArray added;
+    juce::StringArray printed;
+    auto loaded = false;
+
+    for (const auto& track : result.tracks)
+    {
+        if (track.samplesWritten <= 0 || ! track.file.existsAsFile())
+        {
+            if (track.file.existsAsFile())
+                track.file.deleteFile();
+
+            continue;
+        }
+
+        if (track.kind == jamstudio::audio::TakeTrackRequest::Kind::stem)
+        {
+            printed.add (track.name);
+            continue;
+        }
+
+        if (! mixer.loadStem (track.file))
+            continue;
+
+        if (auto* stem = mixer.getStem (mixer.getNumStems() - 1))
+        {
+            stem->setType (jamstudio::audio::StemType::recording);
+            stem->setName (track.name);
+            stem->setRecordArmed (false);
+            stem->setStartOffsetSeconds (track.startOffsetSeconds);
+        }
+
+        added.add (track.name);
+        loaded = true;
+    }
+
+    mixer.recomputeLength();
+
+    if (loaded)
+    {
+        rebuildStemLanes();
+        rebuildMixerWindow();
+    }
+
+    if (added.isEmpty() && printed.isEmpty())
+    {
+        if (result.folder.getFileName().startsWith ("take-")
+            && result.folder.findChildFiles (juce::File::findFiles, false).isEmpty())
+            result.folder.deleteRecursively();
+
+        setStatus ("Take stopped. Nothing was captured.");
+        return;
+    }
+
+    auto message = "Take saved in " + result.folder.getFullPathName();
+
+    if (added.size() > 0)
+        message += " — " + added.joinIntoString (", ") + " added to the song.";
+
+    if (printed.size() > 0)
+        message += " Printed: " + printed.joinIntoString (", ") + ".";
+
+    setStatus (message);
+}
+
+void MainComponent::stopSyncedTake()
+{
+    ++syncedTakeGeneration;
+    transportController.setBeforePlayback (nullptr);
+
+    const auto wasRecording = syncedTake;
+    const auto wasArmed = syncedTakeArmed;
+    syncedTake = false;
+    syncedTakeArmed = false;
+    setStartButtonRecording (false);
+
+    if (transportController.isPlaying() || transportController.isCountingIn())
+        transportController.stop();
+
+    if (wasRecording)
+        loadSyncedTake (transportController.getTakeRecorder().stop());
+    else if (wasArmed)
+        setStatus ("Start cancelled.");
+}
+
+void MainComponent::startSyncedTake()
+{
+    if (syncedTake || syncedTakeArmed)
+    {
+        stopSyncedTake();
+        return;
+    }
+
+    if (transportController.getStemMixer().getNumStems() <= 0)
+    {
+        setStatus ("Load a song with stems, then press Start.");
+        return;
+    }
+
+    if (transportController.isPlaying() || transportController.isCountingIn())
+        transportController.stop();
+
+    transportController.setPosition (0.0);
+    publishLyricFollow();
+
+    if (! anyTakeSourceArmed())
+    {
+        transportController.play();
+        setStatus ("Nothing is armed. Playing from the top. Arm Mic, Inst, or a stem's R, then press Start.");
+        return;
+    }
+
+    const auto generation = ++syncedTakeGeneration;
+    const auto folder = createTakeFolder();
+    syncedTakeArmed = true;
+    setStartButtonRecording (true);
+
+    transportController.setBeforePlayback ([this, generation, folder]
+    {
+        if (generation != syncedTakeGeneration)
+            return false;
+
+        transportController.setBeforePlayback (nullptr);
+        const auto requests = currentTakeRequests();
+
+        if (requests.empty())
+        {
+            syncedTakeArmed = false;
+            setStartButtonRecording (false);
+            setStatus ("Nothing is armed. Playing from the top.");
+            return true;
+        }
+
+        auto& recorder = transportController.getTakeRecorder();
+
+        if (! recorder.start (folder, requests))
+        {
+            syncedTakeArmed = false;
+            setStartButtonRecording (false);
+            setStatus (recorder.getLastError().isNotEmpty() ? recorder.getLastError()
+                                                            : "Could not start recording.");
+            return false;
+        }
+
+        syncedTake = true;
+        syncedTakeArmed = false;
+        setStartButtonRecording (true);
+
+        juce::StringArray names;
+
+        for (const auto& request : requests)
+            names.add (request.name);
+
+        setStatus ("Recording " + names.joinIntoString (", ")
+                   + " from the top. The click is not on the take.");
+        return true;
+    });
+
+    transportController.play();
+
+    if (! transportController.isPlaying() && ! transportController.isCountingIn() && syncedTakeArmed)
+    {
+        transportController.setBeforePlayback (nullptr);
+        syncedTakeArmed = false;
+        setStartButtonRecording (false);
+        setStatus ("Playback did not start. Press Start again.");
+    }
 }
 
 void MainComponent::openExternalRecorder()
 {
+    if (syncedTake || syncedTakeArmed)
+        stopSyncedTake();
+
     auto app = jamstudio::audio::ExternalRecorder::getPreferred();
     if (app.name.isEmpty())
     {
@@ -2391,6 +2828,144 @@ void MainComponent::stopPerformanceMode()
     resized();
 }
 
+void MainComponent::timerCallback()
+{
+    const bool playing = transportController.isPlaying();
+    const auto body = juce::String (playing ? "1 " : "0 ")
+                    + juce::String (transportController.getPosition(), 3) + " "
+                    + juce::String (juce::Time::currentTimeMillis() / 1000.0, 3)
+                    + "\n";
+    const auto temp = juce::File ("/tmp/jamstudio-playhead.tmp");
+    if (temp.replaceWithText (body))
+        temp.moveFileTo (juce::File ("/tmp/jamstudio-playhead"));
+
+    if (transportController.getStemMixer().consumePlaybackEnded())
+        transportController.getStemMixer().sendChangeMessage();
+
+    const auto mixLine = juce::String (transportController.getMultiBusMaster().getRenderedBlocks())
+                       + " " + juce::String (transportController.getMultiBusMaster().getRenderedPeak(), 4)
+                       + " " + juce::String (transportController.getPosition(), 3) + "\n";
+    juce::File ("/tmp/jamstudio-mix.log").replaceWithText (mixLine);
+
+    if (! lyricPageClosed)
+        publishLyricPage();
+}
+
+juce::String MainComponent::outputSongTitle() const
+{
+    juce::String title = currentSongFile.existsAsFile()
+                             ? currentSongFile.getFileNameWithoutExtension()
+                             : currentLyrics.getTitle();
+
+    if (juce::isPositiveAndBelow (performanceSongIndex, performanceSetList.songs.size()))
+        title = performanceSetList.songs.getReference (performanceSongIndex).displayName;
+
+    return title;
+}
+
+juce::String MainComponent::studioEthernetAddress()
+{
+    juce::ChildProcess ip;
+
+    if (ip.start (juce::StringArray { "ip", "-4", "-o", "addr", "show", "enp1s0" },
+                  juce::ChildProcess::wantStdOut))
+    {
+        if (! ip.waitForProcessToFinish (500))
+            ip.kill();
+
+        const auto inet = ip.readAllProcessOutput().fromFirstOccurrenceOf ("inet ", false, false);
+        const auto addr = inet.upToFirstOccurrenceOf ("/", false, false).trim();
+
+        if (addr.isNotEmpty() && addr.containsOnly ("0123456789."))
+            return addr;
+    }
+
+    return "10.42.0.1";
+}
+
+void MainComponent::publishLyricPage()
+{
+    // No song loaded yet: leave the server's built-in lyric file in place.
+    if (currentLyrics.getNumLines() <= 0 && outputSongTitle().isEmpty())
+    {
+        juce::File ("/tmp/jamstudio-lyrics.json").deleteFile();
+        lastLyricJson.clear();
+        return;
+    }
+
+    auto payload = currentLyrics.toVar();
+
+    if (auto* obj = payload.getDynamicObject())
+        obj->setProperty ("title", outputSongTitle());
+
+    const auto json = juce::JSON::toString (payload);
+
+    if (json == lastLyricJson)
+        return;
+
+    const auto temp = juce::File ("/tmp/jamstudio-lyrics.json.tmp");
+
+    if (temp.replaceWithText (json) && temp.moveFileTo (juce::File ("/tmp/jamstudio-lyrics.json")))
+        lastLyricJson = json;
+}
+
+bool MainComponent::ensureLyricsServer()
+{
+    const auto listening = []
+    {
+        juce::StreamingSocket probe;
+        return probe.connect ("127.0.0.1", 8765, 200);
+    };
+
+    if (listening())
+        return true;
+
+    if (! lyricServer.isRunning())
+    {
+        const auto script = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                                .getChildFile (".local/share/jamstudio-lyrics/serve.py");
+
+        if (! script.existsAsFile())
+            return false;
+
+        if (! lyricServer.start (juce::StringArray { "python3", script.getFullPathName() }))
+            return false;
+    }
+
+    for (int i = 0; i < 20; ++i)
+    {
+        if (listening())
+            return true;
+
+        juce::Thread::sleep (50);
+    }
+
+    return false;
+}
+
+void MainComponent::openLyricServer()
+{
+    lyricPageClosed = false;
+    juce::File ("/tmp/jamstudio-karaoke.closed").deleteFile();
+    juce::File ("/tmp/jamstudio-karaoke.open").replaceWithText ("1\n");
+    publishLyricPage();
+
+    const auto address = studioEthernetAddress();
+
+    if (ensureLyricsServer())
+        setStatus ("Lyric server on. Open http://" + address + ":8765 on the Dell.");
+    else
+        setStatus ("Lyric page did not start. Open http://" + address + ":8765 once the page is up.");
+}
+
+void MainComponent::closeLyricServer()
+{
+    lyricPageClosed = true;
+    juce::File ("/tmp/jamstudio-karaoke.open").deleteFile();
+    juce::File ("/tmp/jamstudio-karaoke.closed").replaceWithText ("1\n");
+    setStatus ("Lyric page closed. The server stays up on port 8765.");
+}
+
 void MainComponent::openKaraokeOutput()
 {
     karaokeOutput.showOnDisplay (karaokeDisplayIndex);
@@ -2552,13 +3127,9 @@ void MainComponent::loadPerformanceSong (const int index, const bool autoPlay)
 
     if (song.showTabs)
     {
-        notationPanelVisible = true;
         preferLeadTabPart (song.preferredPartHint);
         setNotationDisplayMode (jamstudio::notation::NotationMode::tab);
     }
-
-    if (song.showLyrics)
-        lyricsPanelVisible = true;
 
     applyPanelVisibility();
     updatePerformanceBar();
@@ -2769,6 +3340,9 @@ void MainComponent::autoSavePracticeProject (const juce::String& projectTitle)
                 mixer.setStemMuted (i, s.muted);
                 mixer.setStemSolo (i, s.solo);
                 mixer.setStemVolume (i, s.volume);
+
+                if (s.startOffsetSeconds > 0.0)
+                    mixer.setStemStartOffset (i, s.startOffsetSeconds);
 
                 if (s.name.isNotEmpty())
                     mixer.setStemName (i, s.name);

@@ -1,9 +1,11 @@
 #pragma once
 
+#include "LiveInputs.h"
 #include "Metronome.h"
 #include "MultiBusMaster.h"
 #include "StageMediaPlayer.h"
 #include "StemMixer.h"
+#include "TakeRecorder.h"
 
 #include <atomic>
 #include <memory>
@@ -25,6 +27,8 @@ public:
     TransportController& operator= (const TransportController&) = delete;
 
     StemMixer& getStemMixer() noexcept { return stemMixer; }
+    LiveInputs& getLiveInputs() noexcept { return liveInputs; }
+    TakeRecorder& getTakeRecorder() noexcept { return takeRecorder; }
     Metronome& getMetronome() noexcept { return metronome; }
     StageMediaPlayer& getStageMedia() noexcept { return stageMedia; }
     MultiBusMaster& getMultiBusMaster() noexcept { return multiBusMaster; }
@@ -35,6 +39,10 @@ public:
     void stop();
     void togglePlayPause();
     [[nodiscard]] bool isPlaying() const noexcept;
+
+    /** Message-thread hook run once playback is actually about to start (after a count-in).
+        Return false to cancel. Cleared by the caller when it should only fire once. */
+    void setBeforePlayback (std::function<bool()> callback);
 
     void skipForward (double seconds = 5.0);
     void skipBack (double seconds = 5.0);
@@ -70,6 +78,8 @@ private:
     StemMixer stemMixer;
     Metronome metronome;
     StageMediaPlayer stageMedia;
+    TakeRecorder takeRecorder;
+    LiveInputs liveInputs;
     MultiBusMaster multiBusMaster;
 
     std::atomic<bool> linkStageMedia { true };
@@ -78,6 +88,7 @@ private:
     std::atomic<bool> pendingPlaybackAfterCountIn { false };
     std::atomic<int> countInBeats { 4 };
     std::atomic<uint32_t> countInEpoch { 0 };
+    std::function<bool()> beforePlayback;
 };
 
 } // namespace jamstudio::audio

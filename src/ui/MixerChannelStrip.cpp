@@ -23,6 +23,7 @@ MixerChannelStrip::MixerChannelStrip (const int stemIndex,
                            juce::dontSendNotification);
         muteButton.setToggleState (track->isMuted(), juce::dontSendNotification);
         soloButton.setToggleState (track->isSolo(), juce::dontSendNotification);
+        recordButton.setToggleState (track->isRecordArmed(), juce::dontSendNotification);
         fohSlider.setValue (track->getBusSend (jamstudio::audio::MixBus::foh), juce::dontSendNotification);
         monASlider.setValue (track->getBusSend (jamstudio::audio::MixBus::monitorA), juce::dontSendNotification);
         monBSlider.setValue (track->getBusSend (jamstudio::audio::MixBus::monitorB), juce::dontSendNotification);
@@ -43,6 +44,16 @@ MixerChannelStrip::MixerChannelStrip (const int stemIndex,
     soloButton.setIndicatorColour (JamStudioTheme::getColours().indicatorSolo);
     soloButton.onClick = [this] { applyControlsToMixer(); updateIndicators(); };
     addAndMakeVisible (soloButton);
+
+    recordButton.setClickingTogglesState (true);
+    recordButton.setIndicatorColour (juce::Colour (0xffff3344));
+    recordButton.setTooltip ("Print this stem into the take");
+    recordButton.onClick = [this]
+    {
+        stemMixer.setStemRecordArmed (index, recordButton.getToggleState());
+        updateIndicators();
+    };
+    addAndMakeVisible (recordButton);
 
     auto setupFader = [this] (juce::Slider& s, juce::Label& lab, juce::Colour accent)
     {
@@ -92,6 +103,7 @@ void MixerChannelStrip::syncFromTrack (const jamstudio::audio::StemTrack& track)
                        juce::dontSendNotification);
     muteButton.setToggleState (track.isMuted(), juce::dontSendNotification);
     soloButton.setToggleState (track.isSolo(), juce::dontSendNotification);
+    recordButton.setToggleState (track.isRecordArmed(), juce::dontSendNotification);
     fohSlider.setValue (track.getBusSend (jamstudio::audio::MixBus::foh), juce::dontSendNotification);
     monASlider.setValue (track.getBusSend (jamstudio::audio::MixBus::monitorA), juce::dontSendNotification);
     monBSlider.setValue (track.getBusSend (jamstudio::audio::MixBus::monitorB), juce::dontSendNotification);
@@ -124,6 +136,7 @@ void MixerChannelStrip::updateIndicators()
 {
     muteButton.setIndicatorActive (muteButton.getToggleState());
     soloButton.setIndicatorActive (soloButton.getToggleState());
+    recordButton.setIndicatorActive (recordButton.getToggleState());
 }
 
 void MixerChannelStrip::timerCallback()
@@ -219,8 +232,10 @@ void MixerChannelStrip::resized()
     bounds.removeFromTop (2);
 
     auto buttonRow = bounds.removeFromTop (btnH);
-    muteButton.setBounds (buttonRow.removeFromLeft (buttonRow.getWidth() / 2).reduced (1));
-    soloButton.setBounds (buttonRow.reduced (1));
+    const auto third = buttonRow.getWidth() / 3;
+    muteButton.setBounds (buttonRow.removeFromLeft (third).reduced (1));
+    soloButton.setBounds (buttonRow.removeFromLeft (third).reduced (1));
+    recordButton.setBounds (buttonRow.reduced (1));
     bounds.removeFromTop (3);
 
     levelLabel.setBounds (bounds.removeFromBottom (levelH));

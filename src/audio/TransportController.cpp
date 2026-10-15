@@ -70,7 +70,7 @@ TransportController::TransportController (juce::AudioDeviceManager& dm)
     : deviceManager (dm),
       stemMixer (formatManager),
       stageMedia (formatManager),
-      multiBusMaster (stemMixer, metronome, stageMedia)
+      multiBusMaster (stemMixer, metronome, stageMedia, takeRecorder, liveInputs)
 {
     formatManager.registerBasicFormats();
 
@@ -79,15 +79,20 @@ TransportController::TransportController (juce::AudioDeviceManager& dm)
 
     graphCallback = std::make_unique<GraphCallback> (multiBusMaster);
     metronome.setCountInFinishedCallback ([this] { onCountInFinished(); });
-    deviceManager.addAudioCallback (graphCallback.get());
+    // Latch Fast Track inputs before the mixer renders this block, so a take
+    // lines the mic up with the stem samples from the same callback.
+    stemMixer.setTakeRecorder (&takeRecorder);
+    deviceManager.addAudioCallback (&takeRecorder);
+    deviceManager.addAudioCallback (&audioSourcePlayer);
 }
 
 TransportController::~TransportController()
 {
-    if (graphCallback != nullptr)
-        deviceManager.removeAudioCallback (graphCallback.get());
-
-    graphCallback.reset();
+    deviceManager.removeAudioCallback (&audioSourcePlayer);
+    deviceManager.removeAudioCallback (&takeRecorder);
+    audioSourcePlayer.setSource (nullptr);
+    stemMixer.setTakeRecorder (nullptr);
+    takeRecorder.stop();
     metronome.setCountInFinishedCallback ({});
     cancelCountIn();
 }
@@ -172,8 +177,21 @@ void TransportController::play()
     beginPlayback();
 }
 
+void TransportController::setBeforePlayback (std::function<bool()> callback)
+{
+    beforePlayback = std::move (callback);
+}
+
 void TransportController::beginPlayback()
 {
+    const auto hook = beforePlayback;
+
+    if (hook != nullptr && ! hook())
+    {
+        sendChangeMessage();
+        return;
+    }
+
     stemMixer.play();
     syncStageMediaPlay();
     sendChangeMessage();
