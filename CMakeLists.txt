@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(JamStudio VERSION 0.9.8 LANGUAGES C CXX)
+project(JamStudio VERSION 0.10.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,6 +25,49 @@ if(APPLE)
                 message(FATAL_ERROR
                     "Failed to apply patches/juce-coreaudio-underrun-silence.patch:\n${_jamstudio_juce_patch_err}")
             endif()
+        endif()
+    endif()
+endif()
+
+# JUCE does not clear the scratch buffer it sums later callbacks from.
+# setSize leaves the previous mix in place, so each block was added on top
+# of the last one. The pinned submodule stays clean; configure applies this.
+set(JAMSTUDIO_ADM_CPP
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/JUCE/modules/juce_audio_devices/audio_io/juce_AudioDeviceManager.cpp")
+if(EXISTS "${JAMSTUDIO_ADM_CPP}")
+    file(STRINGS "${JAMSTUDIO_ADM_CPP}" _jamstudio_adm_clear REGEX "Callback 0 is expected to fill")
+    if(NOT _jamstudio_adm_clear)
+        find_package(Git REQUIRED)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply
+                "${CMAKE_CURRENT_SOURCE_DIR}/patches/juce-audiodevicemanager-clear-scratch.patch"
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/JUCE"
+            RESULT_VARIABLE _jamstudio_adm_patch
+            ERROR_VARIABLE _jamstudio_adm_patch_err)
+        if(NOT _jamstudio_adm_patch EQUAL 0)
+            message(FATAL_ERROR
+                "Failed to apply patches/juce-audiodevicemanager-clear-scratch.patch:\n${_jamstudio_adm_patch_err}")
+        endif()
+    endif()
+endif()
+
+# PipeWire's ALSA plugin does not implement snd_pcm_link. Without this, capture
+# blocks the mix thread and late periods stack into a buzz on the HP.
+set(JAMSTUDIO_ALSA_CPP
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/JUCE/modules/juce_audio_devices/native/juce_ALSA_linux.cpp")
+if(EXISTS "${JAMSTUDIO_ALSA_CPP}")
+    file(STRINGS "${JAMSTUDIO_ALSA_CPP}" _jamstudio_alsa_link REGEX "devicesLinked")
+    if(NOT _jamstudio_alsa_link)
+        find_package(Git REQUIRED)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply
+                "${CMAKE_CURRENT_SOURCE_DIR}/patches/juce-alsa-pipewire-clock.patch"
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/JUCE"
+            RESULT_VARIABLE _jamstudio_alsa_patch
+            ERROR_VARIABLE _jamstudio_alsa_patch_err)
+        if(NOT _jamstudio_alsa_patch EQUAL 0)
+            message(FATAL_ERROR
+                "Failed to apply patches/juce-alsa-pipewire-clock.patch:\n${_jamstudio_alsa_patch_err}")
         endif()
     endif()
 endif()

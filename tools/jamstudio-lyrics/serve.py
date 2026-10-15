@@ -1,23 +1,41 @@
 #!/usr/bin/env python3
 """Serve the karaoke lyric screen for the Dell on the studio ethernet link.
 
-Jam Studio's Display → Karaoke → Dell server (Ethernet) → Open writes
-/tmp/jamstudio-karaoke.open and /tmp/jamstudio-lyrics.json. The playhead
-file is /tmp/jamstudio-playhead. The Dell opens http://10.42.0.1:8765.
+Jam Studio writes the karaoke flags, the lyrics JSON, and the playhead into
+the runtime directory. Pass that directory as --runtime, or set
+JAMSTUDIO_RUNTIME. The default is /tmp, which is where the HP build publishes
+them. The Dell opens http://<studio-address>:8765.
 """
 
 import json
 import os
+import shutil
 import struct
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PROJECT = "/home/jaypee/Documents/JamStudio/Projects/London calling.jamstudio"
-LYRICS_JSON = "/tmp/jamstudio-lyrics.json"
-OPEN_FLAG = "/tmp/jamstudio-karaoke.open"
+
+def runtime_directory():
+    if "--runtime" in sys.argv:
+        index = sys.argv.index("--runtime")
+        if index + 1 < len(sys.argv):
+            return sys.argv[index + 1]
+    return os.environ.get("JAMSTUDIO_RUNTIME", "/tmp")
+
+
+RUNTIME = runtime_directory()
+PROJECT = os.environ.get(
+    "JAMSTUDIO_LYRICS_PROJECT",
+    "/home/jaypee/Documents/JamStudio/Projects/London calling.jamstudio",
+)
+LYRICS_JSON = os.path.join(RUNTIME, "jamstudio-lyrics.json")
+OPEN_FLAG = os.path.join(RUNTIME, "jamstudio-karaoke.open")
+CLOSED_FLAG = os.path.join(RUNTIME, "jamstudio-karaoke.closed")
+PLAYHEAD_PATH = os.path.join(RUNTIME, "jamstudio-playhead")
 HOST = "0.0.0.0"
 PORT = 8765
 AUDIO_RATE = 48000
@@ -48,8 +66,11 @@ def lines_from(data):
 
 
 def load_project_lyrics():
-    with open(PROJECT, encoding="utf-8") as handle:
-        lyrics = json.load(handle)["embeddedLyrics"]
+    try:
+        with open(PROJECT, encoding="utf-8") as handle:
+            lyrics = json.load(handle)["embeddedLyrics"]
+    except (OSError, ValueError, json.JSONDecodeError, KeyError, TypeError):
+        return "", []
     title = (lyrics.get("title") or "").strip() or "London Calling"
     return title, lines_from(lyrics)
 
@@ -629,7 +650,7 @@ def read_playhead():
     for attempt in range(4):
         try:
             playing_text, position_text, sampled_text = open(
-                "/tmp/jamstudio-playhead", encoding="utf-8"
+                PLAYHEAD_PATH, encoding="utf-8"
             ).read().split()
             sampled = float(sampled_text)
             age = time.time() - sampled
@@ -675,7 +696,14 @@ def ensure_capture():
 
 
 def capture_loop():
-    """Record Jam Studio's Mon A bus while a lyric screen is listening."""
+    """Record Jam Studio's Mon A bus while a lyric screen is listening.
+
+    pw-record exists on the HP. Other platforms keep the lyric page up and
+    skip this stream.
+    """
+    if shutil.which("pw-record") is None:
+        return
+
     env = os.environ.copy()
     env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     command = [
@@ -692,12 +720,15 @@ def capture_loop():
         with subscribers_lock:
             if not subscribers:
                 return
-        proc = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            env=env,
-        )
+        try:
+            proc = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=env,
+            )
+        except OSError:
+            return
         try:
             while True:
                 with subscribers_lock:
@@ -740,7 +771,7 @@ def current_state():
         "live": live,
         # The Dell is the lyric screen. Show lines whenever Jam Studio is
         # running. Display → Karaoke → Close can still blank it.
-        "open": os.path.isfile(OPEN_FLAG) or (live and not os.path.isfile("/tmp/jamstudio-karaoke.closed")),
+        "open": os.path.isfile(OPEN_FLAG) or (live and not os.path.isfile(CLOSED_FLAG)),
         "audacity": live,
         "lines": lines,
         **line_at(position, lines),

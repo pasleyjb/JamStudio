@@ -147,6 +147,118 @@ void writeBusAsoundrc()
 }
 } // namespace
 
+struct DeviceFanout
+{
+    struct Slot
+    {
+        struct Callback : juce::AudioIODeviceCallback
+        {
+            Slot* slot = nullptr;
+
+            void audioDeviceAboutToStart (juce::AudioIODevice*) override {}
+            void audioDeviceStopped() override {}
+
+            void audioDeviceIOCallbackWithContext (const float* const*,
+                                                   int,
+                                                   float* const* outputChannelData,
+                                                   int numOutputChannels,
+                                                   int numSamples,
+                                                   const juce::AudioIODeviceCallbackContext&) override
+            {
+                if (outputChannelData != nullptr)
+                    for (int ch = 0; ch < numOutputChannels; ++ch)
+                        if (outputChannelData[ch] != nullptr)
+                            juce::FloatVectorOperations::clear (outputChannelData[ch], numSamples);
+
+                if (slot == nullptr || ! slot->enabled.load (std::memory_order_acquire) || numSamples <= 0)
+                    return;
+
+                int start1 = 0, size1 = 0, start2 = 0, size2 = 0;
+                slot->fifo.prepareToRead (numSamples, start1, size1, start2, size2);
+
+                auto copyOut = [&] (int dest, int src, int count)
+                {
+                    if (count <= 0 || outputChannelData == nullptr || outputChannelData[0] == nullptr)
+                        return;
+
+                    juce::FloatVectorOperations::copy (outputChannelData[0] + dest,
+                                                       slot->left.data() + src,
+                                                       count);
+
+                    if (numOutputChannels > 1 && outputChannelData[1] != nullptr)
+                        juce::FloatVectorOperations::copy (outputChannelData[1] + dest,
+                                                           slot->right.data() + src,
+                                                           count);
+                };
+
+                copyOut (0, start1, size1);
+                copyOut (size1, start2, size2);
+                slot->fifo.finishedRead (size1 + size2);
+            }
+        };
+
+        std::atomic<bool> enabled { false };
+        int bus = 0;
+        juce::String deviceName;
+        juce::AbstractFifo fifo { 65536 };
+        std::vector<float> left = std::vector<float> (65536, 0.0f);
+        std::vector<float> right = std::vector<float> (65536, 0.0f);
+        Callback callback;
+        std::unique_ptr<juce::AudioIODevice> device;
+
+        Slot()
+        {
+            callback.slot = this;
+        }
+
+        void push (const float* leftIn, const float* rightIn, const int numSamples)
+        {
+            if (! enabled.load (std::memory_order_acquire) || numSamples <= 0)
+                return;
+
+            int start1 = 0, size1 = 0, start2 = 0, size2 = 0;
+            fifo.prepareToWrite (numSamples, start1, size1, start2, size2);
+
+            auto copyIn = [&] (int dest, int src, int count)
+            {
+                if (count <= 0)
+                    return;
+
+                if (leftIn != nullptr)
+                    juce::FloatVectorOperations::copy (left.data() + dest, leftIn + src, count);
+                else
+                    juce::FloatVectorOperations::clear (left.data() + dest, count);
+
+                if (rightIn != nullptr)
+                    juce::FloatVectorOperations::copy (right.data() + dest, rightIn + src, count);
+                else
+                    juce::FloatVectorOperations::clear (right.data() + dest, count);
+            };
+
+            copyIn (start1, 0, size1);
+            copyIn (start2, size1, size2);
+            fifo.finishedWrite (size1 + size2);
+        }
+
+        void close()
+        {
+            enabled.store (false, std::memory_order_release);
+
+            if (device != nullptr)
+            {
+                device->stop();
+                device->close();
+                device.reset();
+            }
+
+            deviceName.clear();
+            fifo.reset();
+        }
+    };
+
+    std::array<Slot, 3> slots;
+};
+
 //==============================================================================
 juce::File AudioInterfaceSettings::settingsFile()
 {
@@ -230,8 +342,10 @@ AudioInterfaceManager::~AudioInterfaceManager()
 
 void AudioInterfaceManager::installBusPlaybackDevice()
 {
+   #if JUCE_LINUX
     writeBusAsoundrc();
     ensureBusSink();
+   #endif
 }
 
 void AudioInterfaceManager::initialiseAtStartup()
@@ -257,7 +371,7 @@ void AudioInterfaceManager::scanHardware()
 
 void AudioInterfaceManager::timerCallback()
 {
-    if (outputsHeld || ! loopbacksOpen)
+    if (outputsHeld.load() || ! loopbacksOpen)
         return;
 
     // Drop headphone/speaker links about a second after transport stops.
@@ -378,6 +492,7 @@ juce::String AudioInterfaceManager::applySettings (const AudioInterfaceSettings&
 
     if (anyBusDestination())
     {
+       #if JUCE_LINUX
         // The mix is rendered as 6 channels on the virtual bus, then each
         // stereo pair is linked to the sink chosen for that bus.
         installBusPlaybackDevice();
@@ -395,6 +510,46 @@ juce::String AudioInterfaceManager::applySettings (const AudioInterfaceSettings&
                 break;
             }
         }
+       #else
+        // Mac and Windows have no PipeWire bus. Open the FOH device (or the
+        // first chosen sink) and fan the other buses out to their own devices.
+        auto pickOut = settings.fohSink;
+        if (pickOut.isEmpty())
+            pickOut = settings.monitorASink;
+        if (pickOut.isEmpty())
+            pickOut = settings.monitorBSink;
+
+        if (pickOut.isNotEmpty())
+        {
+            outName = pickOut;
+            auto sameDevice = true;
+            auto named = 0;
+
+            for (const auto* sink : { &settings.fohSink, &settings.monitorASink, &settings.monitorBSink })
+            {
+                if (sink->isEmpty())
+                    continue;
+
+                ++named;
+                if (*sink != pickOut)
+                    sameDevice = false;
+            }
+
+            for (const auto& d : inv.outputs)
+            {
+                if (d.name != pickOut)
+                    continue;
+
+                if (d.typeName.isNotEmpty())
+                    typeName = d.typeName;
+
+                const auto spread = sameDevice && named > 1 && d.maxOutputChannels >= kMaxMixChannels;
+                wantOut = spread ? juce::jmin (kMaxMixChannels, d.maxOutputChannels)
+                                 : juce::jmin (2, juce::jmax (1, d.maxOutputChannels));
+                break;
+            }
+        }
+       #endif
     }
 
     if (typeName.isEmpty() && deviceManager.getAvailableDeviceTypes().size() > 0)
@@ -623,7 +778,9 @@ juce::String AudioInterfaceManager::applyChoice (const juce::String& typeName,
 
     if (auto* dev = deviceManager.getCurrentAudioDevice())
     {
-        juce::File ("/tmp/jamstudio-route.log").replaceWithText (
+        juce::File::getSpecialLocation (juce::File::tempDirectory)
+            .getChildFile ("jamstudio-route.log")
+            .replaceWithText (
             "out=" + outputName
             + " opened=" + dev->getName()
             + " ch=" + juce::String (dev->getActiveOutputChannels().countNumberOfSetBits())
@@ -853,10 +1010,10 @@ void AudioInterfaceManager::setBusDestinations (const juce::String& foh,
 
 void AudioInterfaceManager::setMixOutputsHeld (const bool held)
 {
-    if (held == outputsHeld)
+    if (held == outputsHeld.load())
         return;
 
-    outputsHeld = held;
+    outputsHeld.store (held);
     silenceTicks = 0;
     if (held)
         syncBusLoopbacks();
@@ -864,6 +1021,22 @@ void AudioInterfaceManager::setMixOutputsHeld (const bool held)
 
 juce::Array<PlaybackSink> AudioInterfaceManager::listPlaybackSinks() const
 {
+   #if ! JUCE_LINUX
+    juce::Array<PlaybackSink> sinks;
+
+    for (const auto& device : listOutputDevices())
+    {
+        if (device.name.isEmpty())
+            continue;
+
+        PlaybackSink sink;
+        sink.name = device.name;
+        sink.description = device.name;
+        sinks.add (sink);
+    }
+
+    return sinks;
+   #else
     juce::Array<PlaybackSink> sinks;
     const auto text = runPactl ({ kPactl, "list", "sinks" });
     PlaybackSink current;
@@ -887,12 +1060,54 @@ juce::Array<PlaybackSink> AudioInterfaceManager::listPlaybackSinks() const
     }
 
     return sinks;
+   #endif
 }
 
 void AudioInterfaceManager::assignDefaultBusOutputsIfNeeded()
 {
     if (settings.busOutputsSpecified)
         return;
+
+   #if ! JUCE_LINUX
+    const auto outs = listOutputDevices();
+    AudioDeviceChoice best;
+    auto bestScore = std::numeric_limits<int>::min();
+
+    for (const auto& device : outs)
+    {
+        if (device.score > bestScore && device.name.isNotEmpty())
+        {
+            bestScore = device.score;
+            best = device;
+        }
+    }
+
+    settings.fohSink = best.name;
+
+    for (const auto& device : outs)
+    {
+        if (device.name.isEmpty() || device.name == best.name)
+            continue;
+
+        if (device.name.containsIgnoreCase ("head")
+            || device.name.containsIgnoreCase ("display")
+            || device.name.containsIgnoreCase ("dock"))
+        {
+            settings.monitorASink = device.name;
+            break;
+        }
+    }
+
+    // One pair of speakers has to carry the monitor mix too, or the click
+    // and the player's cue stay on a bus that is not connected.
+    if (settings.monitorASink.isEmpty())
+        settings.monitorASink = settings.fohSink;
+
+    settings.monitorBSink.clear();
+    settings.busOutputsSpecified = true;
+    settings.save();
+    return;
+   #endif
 
     const auto sinks = listPlaybackSinks();
     const auto pick = [&sinks] (const auto pred)
@@ -943,15 +1158,23 @@ void AudioInterfaceManager::rememberBusStatus()
 
 void AudioInterfaceManager::ensureBusGraph()
 {
+   #if ! JUCE_LINUX
+    return;
+   #else
     ensureBusSink();
     const auto modules = runPactl ({ kPactl, "list", "short", "modules" });
     ensureBusRemap (modules, "jamstudio_bus_foh", "front-left,front-right", "JamStudio-FOH");
     ensureBusRemap (modules, "jamstudio_bus_mona", "rear-left,rear-right", "JamStudio-MonA");
     ensureBusRemap (modules, "jamstudio_bus_monb", "front-center,lfe", "JamStudio-MonB");
+   #endif
 }
 
 void AudioInterfaceManager::stopBusCopy (const int index)
 {
+   #if ! JUCE_LINUX
+    juce::ignoreUnused (index);
+    return;
+   #else
     auto& copy = busCopies[static_cast<size_t> (index)];
 
     if (copy.pid > 0)
@@ -969,19 +1192,36 @@ void AudioInterfaceManager::stopBusCopy (const int index)
     copy.pid = 0;
     copy.source.clear();
     copy.sink.clear();
+   #endif
 }
 
 void AudioInterfaceManager::startBusCopy (const int index,
                                           const juce::String& source,
                                           const juce::String& sink)
 {
+   #if ! JUCE_LINUX
+    juce::ignoreUnused (index, source, sink);
+    return;
+   #else
     stopBusCopy (index);
 
-    const auto script = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
-                            .getChildFile (".local/share/jamstudio/bus-bridge.py");
+    const auto exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
+    const juce::File candidates[] = {
+        exe.getParentDirectory().getChildFile ("bus-bridge.py"),
+        exe.getParentDirectory().getParentDirectory().getChildFile ("share").getChildFile ("jamstudio").getChildFile ("bus-bridge.py"),
+        juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+            .getChildFile (".local/share/jamstudio/bus-bridge.py")
+    };
+    juce::File script;
+    for (const auto& candidate : candidates)
+        if (candidate.existsAsFile())
+        {
+            script = candidate;
+            break;
+        }
     if (! script.existsAsFile())
     {
-        busStatusText = "Missing " + script.getFullPathName();
+        busStatusText = "Missing bus-bridge.py";
         return;
     }
 
@@ -1011,10 +1251,15 @@ void AudioInterfaceManager::startBusCopy (const int index,
     copy.sink = sink;
     copy.pid = pidFile.existsAsFile() ? pidFile.loadFileAsString().trim().getIntValue() : 0;
     copy.process = std::move (process);
+   #endif
 }
 
 void AudioInterfaceManager::syncBusLoopbacks()
 {
+   #if ! JUCE_LINUX
+    syncDeviceFanout();
+    return;
+   #endif
     const struct Link
     {
         const char* source;
@@ -1053,7 +1298,7 @@ void AudioInterfaceManager::syncBusLoopbacks()
     {
         const auto& link = links[i];
         // A second pw-cat into one Bluetooth sink mutes that sink.
-        auto want = outputsHeld && link.sink->isNotEmpty() && ! claimedSinks.contains (*link.sink);
+        auto want = outputsHeld.load() && link.sink->isNotEmpty() && ! claimedSinks.contains (*link.sink);
 
         if (want)
             claimedSinks.add (*link.sink);
@@ -1085,6 +1330,202 @@ void AudioInterfaceManager::syncBusLoopbacks()
     loopbacksOpen = anyOpen;
     if (! loopbacksOpen)
         silenceTicks = 0;
+}
+
+void AudioInterfaceManager::syncDeviceFanout()
+{
+    if (deviceFanout == nullptr)
+        deviceFanout = std::make_unique<DeviceFanout>();
+
+    const auto setup = deviceManager.getAudioDeviceSetup();
+    const auto mainName = setup.outputDeviceName;
+    auto mainOuts = 0;
+
+    if (auto* dev = deviceManager.getCurrentAudioDevice())
+        mainOuts = dev->getActiveOutputChannels().countNumberOfSetBits();
+
+    const juce::String sinks[] = { settings.fohSink, settings.monitorASink, settings.monitorBSink };
+    auto allOnMain = mainOuts >= kMaxMixChannels && mainName.isNotEmpty();
+    auto anyNamed = false;
+
+    for (const auto& sink : sinks)
+    {
+        if (sink.isEmpty())
+            continue;
+
+        anyNamed = true;
+
+        if (sink != mainName)
+            allOnMain = false;
+    }
+
+    mainGetsAllBuses.store (allOnMain && anyNamed, std::memory_order_release);
+
+    std::uint8_t mask = 0;
+
+    if (! (allOnMain && anyNamed))
+    {
+        for (int bus = 0; bus < 3; ++bus)
+            if (sinks[bus].isNotEmpty() && sinks[bus] == mainName)
+                mask = static_cast<std::uint8_t> (mask | (1u << bus));
+
+        if (mask == 0 && mainName.isNotEmpty())
+            mask = 1;
+    }
+
+    mainBusMask.store (mask, std::memory_order_release);
+
+    juce::StringArray claimed;
+    claimed.add (mainName);
+    loopbacksOpen = false;
+
+    for (int bus = 0; bus < 3; ++bus)
+    {
+        auto& slot = deviceFanout->slots[static_cast<size_t> (bus)];
+        const auto& sink = sinks[bus];
+        const auto want = outputsHeld.load() && sink.isNotEmpty() && sink != mainName && ! claimed.contains (sink);
+
+        if (want)
+            claimed.add (sink);
+
+        if (! want)
+        {
+            slot.close();
+            continue;
+        }
+
+        if (slot.device != nullptr && slot.deviceName == sink && slot.device->isOpen())
+        {
+            slot.bus = bus;
+            slot.enabled.store (true, std::memory_order_release);
+            loopbacksOpen = true;
+            continue;
+        }
+
+        slot.close();
+
+        juce::AudioIODeviceType* type = nullptr;
+
+        for (auto* candidate : deviceManager.getAvailableDeviceTypes())
+        {
+            if (candidate != nullptr && candidate->getDeviceNames (false).contains (sink))
+            {
+                type = candidate;
+                break;
+            }
+        }
+
+        if (type == nullptr)
+            continue;
+
+        std::unique_ptr<juce::AudioIODevice> opened (type->createDevice (sink, {}));
+
+        if (opened == nullptr)
+            continue;
+
+        juce::BigInteger outs;
+        outs.setBit (0);
+
+        if (opened->getOutputChannelNames().size() > 1)
+            outs.setBit (1);
+
+        const auto rate = setup.sampleRate > 0.0 ? setup.sampleRate : 48000.0;
+        const auto buffer = setup.bufferSize > 0 ? setup.bufferSize : 512;
+
+        if (opened->open ({}, outs, rate, buffer).isNotEmpty())
+            continue;
+
+        slot.deviceName = sink;
+        slot.bus = bus;
+        opened->start (&slot.callback);
+        slot.device = std::move (opened);
+        slot.enabled.store (true, std::memory_order_release);
+        loopbacksOpen = true;
+    }
+
+    if (! loopbacksOpen)
+        silenceTicks = 0;
+}
+
+void AudioInterfaceManager::sendMix (const float* const* mixChannels,
+                                     const int numMixChannels,
+                                     const int numSamples,
+                                     float* const* deviceOut,
+                                     const int numDeviceOut) noexcept
+{
+    auto silenceDevice = [&]
+    {
+        if (deviceOut == nullptr)
+            return;
+
+        for (int ch = 0; ch < numDeviceOut; ++ch)
+            if (deviceOut[ch] != nullptr)
+                juce::FloatVectorOperations::clear (deviceOut[ch], numSamples);
+    };
+
+    if (! outputsHeld.load (std::memory_order_acquire) || numSamples <= 0)
+    {
+        silenceDevice();
+        return;
+    }
+
+    const auto copyStraight = [&]
+    {
+        const auto count = juce::jmin (numMixChannels, numDeviceOut);
+
+        for (int ch = 0; ch < numDeviceOut; ++ch)
+        {
+            if (deviceOut == nullptr || deviceOut[ch] == nullptr)
+                continue;
+
+            if (ch < count && mixChannels != nullptr && mixChannels[ch] != nullptr)
+                juce::FloatVectorOperations::copy (deviceOut[ch], mixChannels[ch], numSamples);
+            else
+                juce::FloatVectorOperations::clear (deviceOut[ch], numSamples);
+        }
+    };
+
+   #if JUCE_LINUX
+    copyStraight();
+   #else
+    if (mainGetsAllBuses.load (std::memory_order_acquire))
+    {
+        copyStraight();
+    }
+    else
+    {
+        silenceDevice();
+        const auto mask = mainBusMask.load (std::memory_order_acquire);
+
+        for (int bus = 0; bus < 3; ++bus)
+        {
+            if ((mask & static_cast<std::uint8_t> (1u << bus)) == 0 || mixChannels == nullptr || deviceOut == nullptr)
+                continue;
+
+            const auto base = bus * 2;
+
+            if (numDeviceOut > 0 && deviceOut[0] != nullptr && base < numMixChannels && mixChannels[base] != nullptr)
+                juce::FloatVectorOperations::add (deviceOut[0], mixChannels[base], numSamples);
+
+            if (numDeviceOut > 1 && deviceOut[1] != nullptr && base + 1 < numMixChannels && mixChannels[base + 1] != nullptr)
+                juce::FloatVectorOperations::add (deviceOut[1], mixChannels[base + 1], numSamples);
+        }
+    }
+
+    if (deviceFanout != nullptr)
+    {
+        for (auto& slot : deviceFanout->slots)
+        {
+            if (! slot.enabled.load (std::memory_order_acquire))
+                continue;
+
+            const auto base = slot.bus * 2;
+            const float* left = base < numMixChannels && mixChannels != nullptr ? mixChannels[base] : nullptr;
+            const float* right = base + 1 < numMixChannels && mixChannels != nullptr ? mixChannels[base + 1] : nullptr;
+            slot.push (left, right, numSamples);
+        }
+    }
+   #endif
 }
 
 } // namespace jamstudio::audio

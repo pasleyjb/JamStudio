@@ -207,6 +207,11 @@ if (-not (Test-Path (Join-Path $DemucsRuntime "jamstudio_demucs.py"))) {
 }
 Copy-Item $DemucsRuntime (Join-Path $StageDir "demucs") -Recurse -Force
 
+Write-Host "==> Bundling the lyric page"
+$LyricDir = Join-Path $StageDir "jamstudio-lyrics"
+New-Item -ItemType Directory -Force -Path $LyricDir | Out-Null
+Copy-Item (Join-Path $Root "tools/jamstudio-lyrics/serve.py") (Join-Path $LyricDir "serve.py")
+
 # Licenses / readme
 @"
 JamStudio $Version (Windows x64 portable)
@@ -217,8 +222,9 @@ JamStudio $Version (Windows x64 portable)
 4. MSVC runtime DLLs (vcruntime140 / msvcp140) are included so a separate
    Visual C++ Redistributable install is usually not required
 5. Demucs is included in the demucs folder. Stem separation does not need a separate install.
-6. Optional: install Audacity for external recording with plugins
-7. Multi-out audio interfaces: first 6 channels = FOH / Mon A / Mon B
+6. The lyric page is in jamstudio-lyrics. It needs Python on PATH (py or python).
+7. Optional: install Audacity for external recording with plugins
+8. FOH, Mon A, and Mon B each pick a playback device. One device can carry more than one mix.
 
 See Help -> Instructions inside the app.
 "@ | Set-Content (Join-Path $StageDir "README.txt")

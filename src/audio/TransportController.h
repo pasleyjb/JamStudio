@@ -2,12 +2,14 @@
 
 #include "LiveInputs.h"
 #include "Metronome.h"
+#include "MixOutputTap.h"
 #include "MultiBusMaster.h"
 #include "StageMediaPlayer.h"
 #include "StemMixer.h"
 #include "TakeRecorder.h"
 
 #include <atomic>
+#include <functional>
 #include <memory>
 
 namespace jamstudio::audio
@@ -60,6 +62,10 @@ public:
     [[nodiscard]] double getPosition() const noexcept;
     [[nodiscard]] double getLengthInSeconds() const noexcept;
 
+    /** Receives every rendered mix block. The device callback still plays the
+        buses selected for the open output. */
+    void setMixOutputTap (MixOutputTap* tap) noexcept;
+
 private:
     void beginPlayback();
     void cancelCountIn();
@@ -89,6 +95,7 @@ private:
     std::atomic<int> countInBeats { 4 };
     std::atomic<uint32_t> countInEpoch { 0 };
     std::function<bool()> beforePlayback;
+    std::atomic<MixOutputTap*> mixTap { nullptr };
 };
 
 } // namespace jamstudio::audio

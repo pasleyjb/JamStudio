@@ -1,0 +1,122 @@
+diff --git a/modules/juce_audio_devices/native/juce_ALSA_linux.cpp b/modules/juce_audio_devices/native/juce_ALSA_linux.cpp
+index 84e06961f1..f21d2a2af4 100644
+--- a/modules/juce_audio_devices/native/juce_ALSA_linux.cpp
++++ b/modules/juce_audio_devices/native/juce_ALSA_linux.cpp
+@@ -268,7 +268,9 @@ public:
+         }
+ 
+         int dir = 0;
+-        unsigned int periods = 4;
++        // Two periods keeps the live mic near one buffer. Four was about 32 ms
++        // before the monitor copy even started.
++        unsigned int periods = 2;
+         snd_pcm_uframes_t samplesPerPeriod = (snd_pcm_uframes_t) bufferSize;
+ 
+         if (JUCE_ALSA_FAILED (snd_pcm_hw_params_set_rate_near (handle, hwParams, &sampleRate, nullptr))
+@@ -621,8 +623,10 @@ public:
+             return;
+         }
+ 
++        devicesLinked = false;
++
+         if (outputDevice != nullptr && inputDevice != nullptr)
+-            snd_pcm_link (outputDevice->handle, inputDevice->handle);
++            devicesLinked = (snd_pcm_link (outputDevice->handle, inputDevice->handle) == 0);
+ 
+         if (inputDevice != nullptr && JUCE_ALSA_FAILED (snd_pcm_prepare (inputDevice->handle)))
+             return;
+@@ -630,6 +634,12 @@ public:
+         if (outputDevice != nullptr && JUCE_ALSA_FAILED (snd_pcm_prepare (outputDevice->handle)))
+             return;
+ 
++        // The PipeWire plugin does not implement snd_pcm_link. Leaving the
++        // capture read blocking would clock the mix from the Fast Track, and
++        // the playback plugin then adds each late period into one loop.
++        if (inputDevice != nullptr && inputDevice->handle != nullptr && ! devicesLinked)
++            snd_pcm_start (inputDevice->handle);
++
+         startThread (Priority::high);
+ 
+         int count = 1000;
+@@ -690,28 +700,61 @@ public:
+         {
+             if (inputDevice != nullptr && inputDevice->handle != nullptr)
+             {
+-                if (outputDevice == nullptr || outputDevice->handle == nullptr)
++                const bool playbackDrives = outputDevice != nullptr
++                                         && outputDevice->handle != nullptr
++                                         && ! devicesLinked;
++
++                if (! playbackDrives)
+                 {
+-                    JUCE_ALSA_FAILED (snd_pcm_wait (inputDevice->handle, 2000));
++                    if (outputDevice == nullptr || outputDevice->handle == nullptr)
++                    {
++                        JUCE_ALSA_FAILED (snd_pcm_wait (inputDevice->handle, 2000));
+ 
+-                    if (threadShouldExit())
++                        if (threadShouldExit())
++                            break;
++
++                        auto avail = snd_pcm_avail_update (inputDevice->handle);
++
++                        if (avail < 0)
++                            JUCE_ALSA_FAILED (snd_pcm_recover (inputDevice->handle, (int) avail, 0));
++                    }
++
++                    audioIoInProgress = true;
++
++                    if (! inputDevice->readFromInputDevice (inputChannelBuffer, bufferSize))
++                    {
++                        JUCE_ALSA_LOG ("Read failure");
+                         break;
++                    }
+ 
++                    audioIoInProgress = false;
++                }
++                else
++                {
+                     auto avail = snd_pcm_avail_update (inputDevice->handle);
+ 
+                     if (avail < 0)
+-                        JUCE_ALSA_FAILED (snd_pcm_recover (inputDevice->handle, (int) avail, 0));
+-                }
++                        JUCE_ALSA_FAILED (snd_pcm_recover (inputDevice->handle, (int) avail, 1));
+ 
+-                audioIoInProgress = true;
++                    if (avail >= bufferSize)
++                    {
++                        audioIoInProgress = true;
+ 
+-                if (! inputDevice->readFromInputDevice (inputChannelBuffer, bufferSize))
+-                {
+-                    JUCE_ALSA_LOG ("Read failure");
+-                    break;
+-                }
++                        if (! inputDevice->readFromInputDevice (inputChannelBuffer, bufferSize))
++                        {
++                            JUCE_ALSA_LOG ("Read failure");
++                            break;
++                        }
+ 
+-                audioIoInProgress = false;
++                        audioIoInProgress = false;
++                    }
++                    else
++                    {
++                        for (int i = 0; i < inputChannelBuffer.getNumChannels(); ++i)
++                            zeromem (inputChannelBuffer.getWritePointer (i),
++                                     (size_t) bufferSize * sizeof (float));
++                    }
++                }
+             }
+ 
+             if (threadShouldExit())
+@@ -804,6 +847,7 @@ private:
+     std::unique_ptr<ALSADevice> outputDevice, inputDevice;
+     std::atomic<int> numCallbacks { 0 };
+     std::atomic<bool> audioIoInProgress { false };
++    bool devicesLinked = false;
+ 
+     CriticalSection callbackLock;
+ 

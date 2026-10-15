@@ -251,6 +251,12 @@ ditto "$DIST_DIR/demucs-runtime" "$APP/Contents/Resources/demucs"
 chmod +x "$APP/Contents/Resources/demucs/python/bin/python3" || true
 xattr -cr "$APP/Contents/Resources/demucs" || true
 
+echo "==> Bundling the lyric page"
+LYRIC_DIR="$APP/Contents/Resources/jamstudio-lyrics"
+rm -rf "$LYRIC_DIR"
+mkdir -p "$LYRIC_DIR"
+cp "$ROOT/tools/jamstudio-lyrics/serve.py" "$LYRIC_DIR/serve.py"
+
 echo "==> Signing (ad-hoc, so Apple Silicon will launch the bundle)"
 if [[ -d "$APP/Contents/Resources/demucs" ]]; then
   macho_list="$(mktemp)"

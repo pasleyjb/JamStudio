@@ -15,6 +15,60 @@
 #include "../notation/SongMetadata.h"
 #include "../project/ProjectManager.h"
 
+namespace
+{
+juce::File lyricRuntimeFile (const juce::String& name)
+{
+    return juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile (name);
+}
+
+juce::File findLyricsScript()
+{
+    const auto exeDir = juce::File::getSpecialLocation (juce::File::currentExecutableFile)
+                            .getParentDirectory();
+    const juce::File candidates[] = {
+        exeDir.getChildFile ("jamstudio-lyrics").getChildFile ("serve.py"),
+        exeDir.getChildFile ("serve.py"),
+        exeDir.getParentDirectory().getChildFile ("Resources").getChildFile ("jamstudio-lyrics").getChildFile ("serve.py"),
+        exeDir.getParentDirectory().getChildFile ("share").getChildFile ("jamstudio-lyrics").getChildFile ("serve.py"),
+        juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+            .getChildFile (".local/share/jamstudio-lyrics/serve.py")
+    };
+
+    for (const auto& candidate : candidates)
+        if (candidate.existsAsFile())
+            return candidate;
+
+    return {};
+}
+
+bool startLyricsProcess (juce::ChildProcess& server, const juce::File& script)
+{
+    const auto runtime = juce::File::getSpecialLocation (juce::File::tempDirectory).getFullPathName();
+
+    auto launch = [&] (juce::StringArray args)
+    {
+        args.add (script.getFullPathName());
+        args.add ("--runtime");
+        args.add (runtime);
+        return server.start (args);
+    };
+
+   #if JUCE_WINDOWS
+    if (launch ({ "py", "-3" }))
+        return true;
+
+    if (launch ({ "python" }))
+        return true;
+   #endif
+
+    if (launch ({ "python3" }))
+        return true;
+
+    return launch ({ "python" });
+}
+} // namespace
+
 namespace jamstudio::app
 {
 
@@ -118,6 +172,10 @@ MainComponent::MainComponent (juce::AudioDeviceManager& deviceManager)
     addAndMakeVisible (stemViewport);
 
     audioDeviceManager.addAudioCallback (&audioRecorder);
+
+    // The mix callback has to know where to send FOH / Mon A / Mon B before
+    // the device opens and the first block is rendered.
+    transportController.setMixOutputTap (&audioInterfaceManager);
 
     // Plug-and-play: detect multi-IO interfaces, match channel counts, hot-plug USB.
     audioInterfaceManager.initialiseAtStartup();
@@ -767,7 +825,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
-                                                    "JamStudio v0.9.8\n"
+                                                    "JamStudio v0.10.1\n"
                                                     "Guitar practice workstation with stems, tabs, lyrics,\n"
                                                     "multi-bus mixer, and stage video.\n\n"
                                                     "Help → Instructions… for a searchable guide.\n\n"
@@ -2214,8 +2272,8 @@ void MainComponent::setStartButtonRecording (const bool recording)
 void MainComponent::publishLyricFollow()
 {
     lyricPageClosed = false;
-    juce::File ("/tmp/jamstudio-karaoke.closed").deleteFile();
-    juce::File ("/tmp/jamstudio-karaoke.open").replaceWithText ("1\n");
+    lyricRuntimeFile ("jamstudio-karaoke.closed").deleteFile();
+    lyricRuntimeFile ("jamstudio-karaoke.open").replaceWithText ("1\n");
     publishLyricPage();
     ensureLyricsServer();
 }
@@ -2835,9 +2893,9 @@ void MainComponent::timerCallback()
                     + juce::String (transportController.getPosition(), 3) + " "
                     + juce::String (juce::Time::currentTimeMillis() / 1000.0, 3)
                     + "\n";
-    const auto temp = juce::File ("/tmp/jamstudio-playhead.tmp");
+    const auto temp = lyricRuntimeFile ("jamstudio-playhead.tmp");
     if (temp.replaceWithText (body))
-        temp.moveFileTo (juce::File ("/tmp/jamstudio-playhead"));
+        temp.moveFileTo (lyricRuntimeFile ("jamstudio-playhead"));
 
     if (transportController.getStemMixer().consumePlaybackEnded())
         transportController.getStemMixer().sendChangeMessage();
@@ -2845,7 +2903,7 @@ void MainComponent::timerCallback()
     const auto mixLine = juce::String (transportController.getMultiBusMaster().getRenderedBlocks())
                        + " " + juce::String (transportController.getMultiBusMaster().getRenderedPeak(), 4)
                        + " " + juce::String (transportController.getPosition(), 3) + "\n";
-    juce::File ("/tmp/jamstudio-mix.log").replaceWithText (mixLine);
+    lyricRuntimeFile ("jamstudio-mix.log").replaceWithText (mixLine);
 
     if (! lyricPageClosed)
         publishLyricPage();
@@ -2865,6 +2923,7 @@ juce::String MainComponent::outputSongTitle() const
 
 juce::String MainComponent::studioEthernetAddress()
 {
+   #if JUCE_LINUX
     juce::ChildProcess ip;
 
     if (ip.start (juce::StringArray { "ip", "-4", "-o", "addr", "show", "enp1s0" },
@@ -2879,8 +2938,27 @@ juce::String MainComponent::studioEthernetAddress()
         if (addr.isNotEmpty() && addr.containsOnly ("0123456789."))
             return addr;
     }
+   #endif
 
-    return "10.42.0.1";
+    const auto addresses = juce::IPAddress::getAllAddresses (false);
+    juce::String fallback;
+
+    for (const auto& address : addresses)
+    {
+        const auto text = address.toString();
+
+        if (text.isEmpty() || text == "127.0.0.1" || text.startsWith ("169.254."))
+            continue;
+
+        // The studio link between the HP and the Dell is 10.42.0.0/24.
+        if (text.startsWith ("10.42."))
+            return text;
+
+        if (fallback.isEmpty())
+            fallback = text;
+    }
+
+    return fallback.isNotEmpty() ? fallback : juce::String ("127.0.0.1");
 }
 
 void MainComponent::publishLyricPage()
@@ -2888,7 +2966,7 @@ void MainComponent::publishLyricPage()
     // No song loaded yet: leave the server's built-in lyric file in place.
     if (currentLyrics.getNumLines() <= 0 && outputSongTitle().isEmpty())
     {
-        juce::File ("/tmp/jamstudio-lyrics.json").deleteFile();
+        lyricRuntimeFile ("jamstudio-lyrics.json").deleteFile();
         lastLyricJson.clear();
         return;
     }
@@ -2903,9 +2981,9 @@ void MainComponent::publishLyricPage()
     if (json == lastLyricJson)
         return;
 
-    const auto temp = juce::File ("/tmp/jamstudio-lyrics.json.tmp");
+    const auto temp = lyricRuntimeFile ("jamstudio-lyrics.json.tmp");
 
-    if (temp.replaceWithText (json) && temp.moveFileTo (juce::File ("/tmp/jamstudio-lyrics.json")))
+    if (temp.replaceWithText (json) && temp.moveFileTo (lyricRuntimeFile ("jamstudio-lyrics.json")))
         lastLyricJson = json;
 }
 
@@ -2922,13 +3000,12 @@ bool MainComponent::ensureLyricsServer()
 
     if (! lyricServer.isRunning())
     {
-        const auto script = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
-                                .getChildFile (".local/share/jamstudio-lyrics/serve.py");
+        const auto script = findLyricsScript();
 
         if (! script.existsAsFile())
             return false;
 
-        if (! lyricServer.start (juce::StringArray { "python3", script.getFullPathName() }))
+        if (! startLyricsProcess (lyricServer, script))
             return false;
     }
 
@@ -2946,8 +3023,8 @@ bool MainComponent::ensureLyricsServer()
 void MainComponent::openLyricServer()
 {
     lyricPageClosed = false;
-    juce::File ("/tmp/jamstudio-karaoke.closed").deleteFile();
-    juce::File ("/tmp/jamstudio-karaoke.open").replaceWithText ("1\n");
+    lyricRuntimeFile ("jamstudio-karaoke.closed").deleteFile();
+    lyricRuntimeFile ("jamstudio-karaoke.open").replaceWithText ("1\n");
     publishLyricPage();
 
     const auto address = studioEthernetAddress();
@@ -2961,8 +3038,8 @@ void MainComponent::openLyricServer()
 void MainComponent::closeLyricServer()
 {
     lyricPageClosed = true;
-    juce::File ("/tmp/jamstudio-karaoke.open").deleteFile();
-    juce::File ("/tmp/jamstudio-karaoke.closed").replaceWithText ("1\n");
+    lyricRuntimeFile ("jamstudio-karaoke.open").deleteFile();
+    lyricRuntimeFile ("jamstudio-karaoke.closed").replaceWithText ("1\n");
     setStatus ("Lyric page closed. The server stays up on port 8765.");
 }
 

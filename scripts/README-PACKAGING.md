@@ -113,7 +113,7 @@ xcode-select --install
 Workflow: `.github/workflows/package.yml`
 
 - **Manual:** Actions → Package → Run workflow  
-- **Tag:** push `v0.9.8` (or any `v*`) to build and create a GitHub Release
+- **Tag:** push `v0.10.1` (or any `v*`) to build and create a GitHub Release
 
 CI builds the Linux AppImage, the Windows portable zip and Inno Setup installer, and the macOS disk image. The Windows job verifies CRT DLLs are present.
 
@@ -122,5 +122,6 @@ CI builds the Linux AppImage, the Windows portable zip and Inno Setup installer,
 - AppImage bundles FFmpeg shared libraries for stage video.
 - Windows packages ship FFmpeg DLLs **and** MSVC CRT DLLs next to `JamStudio.exe`.
 - The macOS disk image ships a `JamStudio.app` with FFmpeg libraries inside `Contents/Frameworks`, ad-hoc signed.
-- AI tools (Demucs/Whisper) remain optional external installs.
-- Multi-out mixer buses need a multi-channel interface (FOH 1–2, Mon A 3–4, Mon B 5–6).
+- Demucs and the htdemucs_6s model are included in the downloads. Whisper and basic-pitch stay optional external installs.
+- Linux sends FOH, Mon A, and Mon B through a PipeWire bus. macOS and Windows list real playback devices for those three mixes.
+- The lyric page script is inside each download. On Windows it needs Python on PATH.

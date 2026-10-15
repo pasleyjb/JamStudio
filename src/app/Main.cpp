@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "../audio/AudioInterfaceManager.h"
+#include "../platform/HostEnvironment.h"
 #include "../ui/BrandAssets.h"
 #include "../ui/JamStudioLookAndFeel.h"
 
@@ -11,7 +12,7 @@ class JamStudioApplication : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override       { return "JamStudio"; }
-    const juce::String getApplicationVersion() override    { return "0.9.8"; }
+    const juce::String getApplicationVersion() override    { return "0.10.1"; }
     bool moreThanOneInstanceAllowed() override             { return false; }
 
     void initialise (const juce::String&) override
@@ -60,7 +61,14 @@ public:
 
         // Open a modest default first; MainComponent's AudioInterfaceManager
         // immediately applies plug-and-play routing (Scarlett in + PC out, etc.).
+        // On Mac, leave the microphone closed until that routing is in place.
+        // Opening the mic and the speakers together howls if a callback copies
+        // the live input onto the outputs during the gap.
+       #if JUCE_MAC
+        audioDeviceManager.initialiseWithDefaultDevices (0, 2);
+       #else
         audioDeviceManager.initialiseWithDefaultDevices (2, 2);
+       #endif
 
         mainWindow = std::make_unique<MainWindow> (audioDeviceManager);
 

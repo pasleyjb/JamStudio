@@ -1,5 +1,6 @@
 #include "TransportController.h"
 #include "FFmpegAudioFormat.h"
+#include "MixBus.h"
 
 namespace jamstudio::audio
 {
@@ -9,8 +10,8 @@ namespace
 class GraphCallback : public juce::AudioIODeviceCallback
 {
 public:
-    explicit GraphCallback (juce::AudioSource& sourceIn)
-        : source (sourceIn)
+    GraphCallback (juce::AudioSource& sourceIn, std::atomic<MixOutputTap*>& tapIn)
+        : source (sourceIn), tap (tapIn)
     {
     }
 
@@ -20,7 +21,10 @@ public:
         const auto block = device != nullptr ? device->getCurrentBufferSizeSamples() : 0;
 
         if (rate > 0.0 && block > 0)
+        {
             source.prepareToPlay (block, rate);
+            mix.setSize (kMaxMixChannels, block, false, true, true);
+        }
     }
 
     void audioDeviceStopped() override
@@ -37,32 +41,50 @@ public:
     {
         juce::ignoreUnused (inputChannelData, numInputChannels);
 
-        if (outputChannelData == nullptr || numOutputChannels <= 0 || numSamples <= 0)
+        if (numSamples <= 0)
             return;
 
-        constexpr int kMaxChannels = 32;
-        float* channels[kMaxChannels];
-        int numOut = 0;
+        if (mix.getNumChannels() < kMaxMixChannels || mix.getNumSamples() < numSamples)
+            mix.setSize (kMaxMixChannels, numSamples, false, false, true);
 
-        for (int i = 0; i < numOutputChannels && numOut < kMaxChannels; ++i)
-        {
-            if (outputChannelData[i] == nullptr)
-                continue;
+        mix.clear();
+        float* channels[kMaxMixChannels];
 
-            juce::FloatVectorOperations::clear (outputChannelData[i], numSamples);
-            channels[numOut++] = outputChannelData[i];
-        }
+        for (int i = 0; i < kMaxMixChannels; ++i)
+            channels[i] = mix.getWritePointer (i);
 
-        if (numOut == 0)
-            return;
-
-        juce::AudioBuffer<float> buffer (channels, numOut, numSamples);
+        juce::AudioBuffer<float> buffer (channels, kMaxMixChannels, numSamples);
         juce::AudioSourceChannelInfo info (&buffer, 0, numSamples);
         source.getNextAudioBlock (info);
+
+        if (auto* sink = tap.load (std::memory_order_acquire))
+        {
+            sink->sendMix (mix.getArrayOfReadPointers(), kMaxMixChannels, numSamples,
+                           outputChannelData, numOutputChannels);
+            return;
+        }
+
+        if (outputChannelData == nullptr)
+            return;
+
+        const auto n = juce::jmin (numOutputChannels, kMaxMixChannels);
+
+        for (int ch = 0; ch < numOutputChannels; ++ch)
+        {
+            if (outputChannelData[ch] == nullptr)
+                continue;
+
+            if (ch < n)
+                juce::FloatVectorOperations::copy (outputChannelData[ch], mix.getReadPointer (ch), numSamples);
+            else
+                juce::FloatVectorOperations::clear (outputChannelData[ch], numSamples);
+        }
     }
 
 private:
     juce::AudioSource& source;
+    std::atomic<MixOutputTap*>& tap;
+    juce::AudioBuffer<float> mix;
 };
 } // namespace
 
@@ -77,24 +99,31 @@ TransportController::TransportController (juce::AudioDeviceManager& dm)
     if (isFFmpegMediaAvailable())
         formatManager.registerFormat (new FFmpegAudioFormat(), false);
 
-    graphCallback = std::make_unique<GraphCallback> (multiBusMaster);
+    graphCallback = std::make_unique<GraphCallback> (multiBusMaster, mixTap);
     metronome.setCountInFinishedCallback ([this] { onCountInFinished(); });
     // Latch Fast Track inputs before the mixer renders this block, so a take
     // lines the mic up with the stem samples from the same callback.
     stemMixer.setTakeRecorder (&takeRecorder);
     deviceManager.addAudioCallback (&takeRecorder);
-    deviceManager.addAudioCallback (&audioSourcePlayer);
+    deviceManager.addAudioCallback (graphCallback.get());
 }
 
 TransportController::~TransportController()
 {
-    deviceManager.removeAudioCallback (&audioSourcePlayer);
+    if (graphCallback != nullptr)
+        deviceManager.removeAudioCallback (graphCallback.get());
+
     deviceManager.removeAudioCallback (&takeRecorder);
-    audioSourcePlayer.setSource (nullptr);
+    graphCallback.reset();
     stemMixer.setTakeRecorder (nullptr);
     takeRecorder.stop();
     metronome.setCountInFinishedCallback ({});
     cancelCountIn();
+}
+
+void TransportController::setMixOutputTap (MixOutputTap* tap) noexcept
+{
+    mixTap.store (tap, std::memory_order_release);
 }
 
 void TransportController::setLinkStageMedia (const bool shouldLink) noexcept

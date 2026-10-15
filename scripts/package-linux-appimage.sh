@@ -159,6 +159,12 @@ rm -rf "$APPDIR/usr/bin/demucs"
 mkdir -p "$APPDIR/usr/bin"
 cp -a "$DIST_DIR/demucs-runtime" "$APPDIR/usr/bin/demucs"
 
+echo "==> Bundling the lyric page and the mix-bus bridge"
+mkdir -p "$APPDIR/usr/share/jamstudio" "$APPDIR/usr/share/jamstudio-lyrics"
+cp "$ROOT/tools/jamstudio-bus-bridge.py" "$APPDIR/usr/share/jamstudio/bus-bridge.py"
+cp "$ROOT/tools/jamstudio-lyrics/serve.py" "$APPDIR/usr/share/jamstudio-lyrics/serve.py"
+chmod +x "$APPDIR/usr/share/jamstudio/bus-bridge.py" "$APPDIR/usr/share/jamstudio-lyrics/serve.py"
+
 echo "==> Creating $OUTPUT"
 export ARCH
 run_appimage "$APPIMAGETOOL" "$APPDIR" "$OUTPUT"

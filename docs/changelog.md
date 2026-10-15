@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.10.1] — 2026-10-15
+
+### Added
+
+- Studio mix outputs on macOS and Windows. FOH, Mon A, and Mon B each choose a playback device. Linux still uses the PipeWire mix bus and the bus bridge.
+- Internal takes. Start rewinds and records the mic, the instrument, and armed stems on the same clock as playback. The click is not recorded. EXT still bounces the mix into Audacity, REAPER, or Ardour.
+- Live Mic and Inst strips, and the lyric page on port 8765. The lyric script is included in the Mac, Windows, and Linux downloads.
+- Demucs stays inside all three downloads, so stem separation works without a separate install.
+
+### Fixed
+
+- macOS no longer opens the microphone before the mix graph is attached, which was the startup howl.
+- Recorder and mix callbacks clear their output buffers, including the JUCE scratch buffer that was stacking each block on the last one.
+- The startup splash is released once, so quit no longer frees it twice.
+
 ## [0.9.8] — 2026-10-15
 
 ### Added

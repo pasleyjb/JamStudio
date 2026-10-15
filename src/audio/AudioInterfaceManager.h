@@ -1,8 +1,12 @@
 #pragma once
 
+#include "MixOutputTap.h"
+
 #include <JuceHeader.h>
 
 #include <array>
+#include <atomic>
+#include <cstdint>
 #include <memory>
 
 namespace jamstudio::audio
@@ -102,7 +106,10 @@ struct AudioRoutingSnapshot
  * physically plugged into line outs. "No cables on the Scarlett" is handled by
  * routing monitor to the computer speakers (preferComputerSpeakersForMonitor).
  */
+struct DeviceFanout;
+
 class AudioInterfaceManager : public juce::ChangeBroadcaster,
+                              public MixOutputTap,
                               private juce::Timer
 {
 public:
@@ -141,6 +148,12 @@ public:
     /** Refresh ALSA/WASAPI device lists (USB plug events). */
     void scanHardware();
 
+    void sendMix (const float* const* mixChannels,
+                  int numMixChannels,
+                  int numSamples,
+                  float* const* deviceOut,
+                  int numDeviceOut) noexcept override;
+
 private:
     void timerCallback() override;
 
@@ -170,6 +183,7 @@ private:
     void assignDefaultBusOutputsIfNeeded();
     void ensureBusGraph();
     void syncBusLoopbacks();
+    void syncDeviceFanout();
     void rememberBusStatus();
     void stopBusCopy (int index);
     void startBusCopy (int index, const juce::String& source, const juce::String& sink);
@@ -190,9 +204,13 @@ private:
     juce::String lastError;
     juce::String busStatusText;
     bool suppressRescan = false;
-    bool outputsHeld = false;
+    std::atomic<bool> outputsHeld { false };
+    // Bit 0..2: that mix bus is summed into the open output device.
+    std::atomic<std::uint8_t> mainBusMask { 1 };
+    std::atomic<bool> mainGetsAllBuses { false };
     bool loopbacksOpen = false;
     int silenceTicks = 0;
+    std::unique_ptr<DeviceFanout> deviceFanout;
 };
 
 } // namespace jamstudio::audio

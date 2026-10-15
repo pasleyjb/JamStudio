@@ -1,5 +1,48 @@
 #include "AudacityRemote.h"
 
+#if JUCE_WINDOWS
+
+namespace jamstudio::audio
+{
+
+namespace
+{
+AudacityRemote::Result unavailable()
+{
+    AudacityRemote::Result result;
+    result.error = "Audacity remote control is not available on Windows.";
+    return result;
+}
+} // namespace
+
+AudacityRemote::~AudacityRemote() = default;
+
+AudacityRemote::Result AudacityRemote::connect()
+{
+    return unavailable();
+}
+
+AudacityRemote::Result AudacityRemote::prepareTake()
+{
+    return unavailable();
+}
+
+AudacityRemote::Result AudacityRemote::startRecording()
+{
+    return unavailable();
+}
+
+AudacityRemote::Result AudacityRemote::stop()
+{
+    AudacityRemote::Result idle;
+    idle.ok = true;
+    return idle;
+}
+
+} // namespace jamstudio::audio
+
+#else
+
 #include <cerrno>
 #include <cstdlib>
 #include <fcntl.h>
@@ -264,3 +307,5 @@ AudacityRemote::Result AudacityRemote::stop()
 }
 
 } // namespace jamstudio::audio
+
+#endif

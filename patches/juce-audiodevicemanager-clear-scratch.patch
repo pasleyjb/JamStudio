@@ -1,0 +1,35 @@
+diff --git a/modules/juce_audio_devices/audio_io/juce_AudioDeviceManager.cpp b/modules/juce_audio_devices/audio_io/juce_AudioDeviceManager.cpp
+index 13e09bfa5b..9d33d966f4 100644
+--- a/modules/juce_audio_devices/audio_io/juce_AudioDeviceManager.cpp
++++ b/modules/juce_audio_devices/audio_io/juce_AudioDeviceManager.cpp
+@@ -1096,8 +1096,19 @@ void AudioDeviceManager::audioDeviceIOCallbackInt (const float* const* inputChan
+     {
+         AudioProcessLoadMeasurer::ScopedTimer timer (loadMeasurer, numSamples);
+ 
++        // Callback 0 is expected to fill the device buffer. Later callbacks
++        // are summed from a scratch buffer. The scratch is not cleared by
++        // setSize, and a callback that ignores its outputs leaves the previous
++        // mix in place, so each block was added on top of the last one.
++        for (int i = 0; i < numOutputChannels; ++i)
++            if (outputChannelData[i] != nullptr)
++                zeromem (outputChannelData[i], (size_t) numSamples * sizeof (float));
++
+         tempBuffer.setSize (jmax (1, numOutputChannels), jmax (1, numSamples), false, false, true);
+ 
++        for (int chan = 0; chan < tempBuffer.getNumChannels(); ++chan)
++            zeromem (tempBuffer.getWritePointer (chan), (size_t) numSamples * sizeof (float));
++
+         callbacks.getUnchecked (0)->audioDeviceIOCallbackWithContext (inputChannelData,
+                                                                       numInputChannels,
+                                                                       outputChannelData,
+@@ -1109,6 +1120,10 @@ void AudioDeviceManager::audioDeviceIOCallbackInt (const float* const* inputChan
+ 
+         for (int i = callbacks.size(); --i > 0;)
+         {
++            for (int chan = 0; chan < numOutputChannels; ++chan)
++                if (tempChans[chan] != nullptr)
++                    zeromem (tempChans[chan], (size_t) numSamples * sizeof (float));
++
+             callbacks.getUnchecked (i)->audioDeviceIOCallbackWithContext (inputChannelData,
+                                                                           numInputChannels,
+                                                                           tempChans,

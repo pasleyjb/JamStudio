@@ -440,8 +440,15 @@ void TakeRecorder::audioDeviceIOCallbackWithContext (const float* const* inputCh
                                                      const int numSamples,
                                                      const juce::AudioIODeviceCallbackContext& context)
 {
-    juce::ignoreUnused (outputChannelData, numOutputChannels, context);
+    juce::ignoreUnused (context);
     takeRecorderOnAudioThread = true;
+
+    // This callback is registered first, so its buffer is the live output.
+    // Leave it silent. The mix callback adds the buses afterwards.
+    if (outputChannelData != nullptr)
+        for (int ch = 0; ch < numOutputChannels; ++ch)
+            if (outputChannelData[ch] != nullptr)
+                juce::FloatVectorOperations::clear (outputChannelData[ch], numSamples);
 
     const auto cap = latchCapacity.load (std::memory_order_relaxed);
     const auto frames = juce::jlimit (0, cap, numSamples);
