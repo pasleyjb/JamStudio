@@ -120,30 +120,43 @@ if [[ -z "$PY" ]]; then
 fi
 
 echo "==> Using $PY"
-if ! "$PY" -c "import demucs, torch, torchcodec" >/dev/null 2>&1; then
-  echo "==> Installing Demucs, PyTorch, and torchcodec"
+# Separation loads audio through sphn. The PyPI Linux torchcodec wheel is built
+# against CUDA and does not import with the CPU torch build.
+if ! "$PY" -c "import demucs, torch, sphn" >/dev/null 2>&1; then
+  echo "==> Installing Demucs and PyTorch"
   "$PY" -m pip install --upgrade pip
   if [[ "$(uname -s)" == "Linux" ]]; then
     # PyPI's default Linux torch wheel is the CUDA build. That makes the
     # AppImage about 3 GB, and GitHub rejects release files of 2 GB or more.
     "$PY" -m pip install torch --index-url https://download.pytorch.org/whl/cpu
   fi
-  "$PY" -m pip install "demucs" "torchcodec" "soundfile"
+  "$PY" -m pip install "demucs" "soundfile"
   if [[ "$(uname -s)" == "Linux" ]]; then
-    "$PY" -m pip install --force-reinstall --no-deps torch \
-      --index-url https://download.pytorch.org/whl/cpu
-    mapfile -t nvidia_pkgs < <("$PY" -m pip freeze | awk -F= '/^nvidia-/{print $1}')
-    if (( ${#nvidia_pkgs[@]} > 0 )); then
-      "$PY" -m pip uninstall -y "${nvidia_pkgs[@]}"
+    torch_ver="$("$PY" -c 'import torch; print(torch.__version__)')"
+    if [[ "$torch_ver" == *+cu* ]]; then
+      "$PY" -m pip install --force-reinstall --no-deps torch \
+        --index-url https://download.pytorch.org/whl/cpu
+      mapfile -t nvidia_pkgs < <("$PY" -m pip freeze | awk -F= '/^nvidia-/{print $1}')
+      if (( ${#nvidia_pkgs[@]} > 0 )); then
+        "$PY" -m pip uninstall -y "${nvidia_pkgs[@]}"
+      fi
+      site="$("$PY" -c 'import site; print(site.getsitepackages()[0])')"
+      rm -rf "$site"/nvidia "$site"/nvidia-* "$site"/triton
     fi
-    site="$("$PY" -c 'import site; print(site.getsitepackages()[0])')"
-    rm -rf "$site"/nvidia "$site"/nvidia-* "$site"/triton
   fi
 fi
 
-if ! "$PY" -c "import demucs, torch, torchcodec" >/dev/null 2>&1; then
+if ! "$PY" -c "import demucs, torch, sphn"; then
   echo "Demucs failed to import from the bundled Python." >&2
   exit 1
+fi
+if [[ "$(uname -s)" == "Linux" ]]; then
+  torch_ver="$("$PY" -c 'import torch; print(torch.__version__)')"
+  echo "==> torch ${torch_ver}"
+  if [[ "$torch_ver" == *+cu* ]]; then
+    echo "The CUDA torch wheel is too large for a GitHub release." >&2
+    exit 1
+  fi
 fi
 
 if [[ ! -d "$DEST/cache/huggingface/hub" ]]; then
