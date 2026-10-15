@@ -121,9 +121,40 @@ jobs:
             dist/JamStudio-Setup-*.exe.sha256
           if-no-files-found: error
 
+  macos-dmg:
+    name: macOS disk image
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: brew install cmake ffmpeg ninja pkg-config
+
+      - name: Ensure JUCE present
+        run: |
+          if [ ! -f third_party/JUCE/CMakeLists.txt ]; then
+            git clone --depth 1 https://github.com/juce-framework/JUCE.git third_party/JUCE
+          fi
+
+      - name: Build disk image
+        run: |
+          chmod +x scripts/package-macos.sh
+          ./scripts/package-macos.sh
+
+      - name: Upload disk image
+        uses: actions/upload-artifact@v4
+        with:
+          name: jamstudio-macos-dmg
+          path: |
+            dist/*.dmg
+            dist/*.dmg.sha256
+          if-no-files-found: error
+
   release:
     name: GitHub Release
-    needs: [linux-appimage, windows-portable]
+    needs: [linux-appimage, windows-portable, macos-dmg]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
@@ -134,7 +165,7 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p release-assets
-          find artifacts -type f \( -name '*.AppImage' -o -name '*.zip' -o -name '*.exe' -o -name '*.sha256' \) -exec cp -v {} release-assets/ \;
+          find artifacts -type f \( -name '*.AppImage' -o -name '*.zip' -o -name '*.exe' -o -name '*.dmg' -o -name '*.sha256' \) -exec cp -v {} release-assets/ \;
           ls -lah release-assets
 
       - name: Create GitHub Release

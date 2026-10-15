@@ -4,6 +4,68 @@
 namespace jamstudio::audio
 {
 
+namespace
+{
+class GraphCallback : public juce::AudioIODeviceCallback
+{
+public:
+    explicit GraphCallback (juce::AudioSource& sourceIn)
+        : source (sourceIn)
+    {
+    }
+
+    void audioDeviceAboutToStart (juce::AudioIODevice* device) override
+    {
+        const auto rate = device != nullptr ? device->getCurrentSampleRate() : 0.0;
+        const auto block = device != nullptr ? device->getCurrentBufferSizeSamples() : 0;
+
+        if (rate > 0.0 && block > 0)
+            source.prepareToPlay (block, rate);
+    }
+
+    void audioDeviceStopped() override
+    {
+        source.releaseResources();
+    }
+
+    void audioDeviceIOCallbackWithContext (const float* const* inputChannelData,
+                                           int numInputChannels,
+                                           float* const* outputChannelData,
+                                           int numOutputChannels,
+                                           int numSamples,
+                                           const juce::AudioIODeviceCallbackContext&) override
+    {
+        juce::ignoreUnused (inputChannelData, numInputChannels);
+
+        if (outputChannelData == nullptr || numOutputChannels <= 0 || numSamples <= 0)
+            return;
+
+        constexpr int kMaxChannels = 32;
+        float* channels[kMaxChannels];
+        int numOut = 0;
+
+        for (int i = 0; i < numOutputChannels && numOut < kMaxChannels; ++i)
+        {
+            if (outputChannelData[i] == nullptr)
+                continue;
+
+            juce::FloatVectorOperations::clear (outputChannelData[i], numSamples);
+            channels[numOut++] = outputChannelData[i];
+        }
+
+        if (numOut == 0)
+            return;
+
+        juce::AudioBuffer<float> buffer (channels, numOut, numSamples);
+        juce::AudioSourceChannelInfo info (&buffer, 0, numSamples);
+        source.getNextAudioBlock (info);
+    }
+
+private:
+    juce::AudioSource& source;
+};
+} // namespace
+
 TransportController::TransportController (juce::AudioDeviceManager& dm)
     : deviceManager (dm),
       stemMixer (formatManager),
@@ -15,15 +77,17 @@ TransportController::TransportController (juce::AudioDeviceManager& dm)
     if (isFFmpegMediaAvailable())
         formatManager.registerFormat (new FFmpegAudioFormat(), false);
 
-    audioSourcePlayer.setSource (&multiBusMaster);
+    graphCallback = std::make_unique<GraphCallback> (multiBusMaster);
     metronome.setCountInFinishedCallback ([this] { onCountInFinished(); });
-    deviceManager.addAudioCallback (&audioSourcePlayer);
+    deviceManager.addAudioCallback (graphCallback.get());
 }
 
 TransportController::~TransportController()
 {
-    deviceManager.removeAudioCallback (&audioSourcePlayer);
-    audioSourcePlayer.setSource (nullptr);
+    if (graphCallback != nullptr)
+        deviceManager.removeAudioCallback (graphCallback.get());
+
+    graphCallback.reset();
     metronome.setCountInFinishedCallback ({});
     cancelCountIn();
 }

@@ -237,8 +237,8 @@ juce::String AudioInterfaceManager::applySettings (const AudioInterfaceSettings&
                 wantOut = juce::jmin (wantOut, juce::jmax (1, bestOut.maxOutputChannels));
             }
 
-            // If input and output are different physical devices, keep type of the output
-            // when backends require it — ALSA supports mixed IDs under one type.
+            // If input and output are different physical devices, keep one device type.
+            // ALSA and Core Audio both accept mixed input/output names under one type.
             if (bestIn.typeName.isNotEmpty() && bestOut.typeName.isNotEmpty()
                 && bestIn.typeName == bestOut.typeName)
                 typeName = bestIn.typeName;
@@ -362,7 +362,7 @@ AudioDeviceChoice AudioInterfaceManager::pickBestMonitorOutput (const DeviceInve
         if (haveInterface && looksLikeMultiIoInterface (d.name, d.maxInputChannels, d.maxOutputChannels))
             score -= 120;
 
-        // Prefer same type as input (ALSA in + ALSA out) for split routing reliability.
+        // Prefer the same backend as the input (Core Audio, ALSA, or WASAPI).
         if (chosenInput.typeName.isNotEmpty() && d.typeName == chosenInput.typeName)
             score += 25;
 
@@ -533,24 +533,55 @@ juce::String AudioInterfaceManager::getStatusSummary() const
     return getSnapshot().summary;
 }
 
+static bool isHardwareInterfaceName (const juce::String& n)
+{
+    const char* brands[] = {
+        "scarlett", "focusrite", "motu", "rme", "presonus", "behringer", "audient",
+        "universal audio", "apollo", "komplete audio", "m-audio", "steinberg", "ur22",
+        "ur44", "babyface", "fireface", "zoom uac", "ssl 2", "volta", "claw"
+    };
+
+    for (auto* b : brands)
+        if (n.contains (b))
+            return true;
+
+    return false;
+}
+
+static bool isVirtualLoopbackName (const juce::String& n)
+{
+    const char* markers[] = {
+        "zoom", "audiojingle", "mmaudio", "blackhole", "soundflower", "loopback",
+        "virtual", "aggregate", "teams", "discord", "chrome", "skype", "ui sounds",
+        "background music", "vb-audio", "cable output", "cable input"
+    };
+
+    for (auto* marker : markers)
+        if (n.contains (marker))
+            return true;
+
+    return false;
+}
+
 int AudioInterfaceManager::scoreAsCaptureInterface (const juce::String& name,
                                                     const int maxIn,
                                                     const int maxOut)
 {
     auto n = name.toLowerCase();
     int score = maxIn * 12;
+    const auto hardware = isHardwareInterfaceName (n);
 
-    const char* brands[] = {
-        "scarlett", "focusrite", "motu", "rme", "presonus", "behringer", "audient",
-        "universal audio", "apollo", "komplete audio", "m-audio", "steinberg", "ur22",
-        "ur44", "babyface", "fireface", "zoom uac", "ssl 2", "volta", "claw"
-    };
-    for (auto* b : brands)
-        if (n.contains (b))
-            score += 140;
+    if (hardware)
+        score += 140;
 
     if (n.contains ("usb") || n.contains ("interface") || n.contains ("audio box"))
         score += 40;
+
+    // Built-in mic is the right default on a laptop. Virtual meeting/loopback
+    // drivers (Zoom, Audiojingle, MMAudio, …) outscore it on channel count and
+    // then feed the speakers back into the input.
+    if (n.contains ("microphone") || n.contains ("built-in") || n.contains ("built in"))
+        score += 80;
     if (maxIn >= 4)
         score += 60;
     if (maxIn >= 8)
@@ -559,9 +590,13 @@ int AudioInterfaceManager::scoreAsCaptureInterface (const juce::String& name,
         score += 25;
 
     // Deprioritise monitors / HDMI / loopback as capture sources.
-    if (n.contains ("hdmi") || n.contains ("display") || n.contains ("loopback")
-        || n.contains ("monitor of") || n.contains ("null"))
+    if (n.contains ("hdmi") || n.contains ("display")
+        || n.contains ("monitor of") || n.contains ("null")
+        || n.contains ("speaker"))
         score -= 250;
+
+    if (! hardware && isVirtualLoopbackName (n))
+        score -= 500;
 
     if (n.contains ("default") || n.contains ("pulse"))
         score -= 15; // fine fallback, not preferred over real interfaces
@@ -576,15 +611,21 @@ int AudioInterfaceManager::scoreAsComputerMonitor (const juce::String& name, con
 
     if (n.contains ("pch") || n.contains ("hda") || n.contains ("realtek")
         || n.contains ("built-in") || n.contains ("built in") || n.contains ("internal")
-        || n.contains ("speakers") || n.contains ("macbook") || n.contains ("notebook")
+        || n.contains ("speakers") || n.contains ("headphones")
+        || n.contains ("macbook") || n.contains ("imac") || n.contains ("mac mini")
+        || n.contains ("mac studio") || n.contains ("notebook")
         || n.contains ("analog"))
         score += 90;
 
     if (n.contains ("pulse") || n.contains ("default"))
         score += 45;
 
-    if (n.contains ("hdmi") || n.contains ("displayport") || n.contains ("display"))
+    if (n.contains ("hdmi") || n.contains ("displayport") || n.contains ("display")
+        || n.contains (" tv"))
         score -= 40;
+
+    if (! isHardwareInterfaceName (n) && isVirtualLoopbackName (n))
+        score -= 500;
 
     // Multi-IO boxes are poor default *monitors* when the user has no speakers on them.
     if (looksLikeMultiIoInterface (name, 0, maxOut) || maxOut >= 8)

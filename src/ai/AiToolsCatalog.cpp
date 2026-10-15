@@ -43,7 +43,9 @@ juce::String AiToolsCatalog::buildSetupMessage (const juce::Array<AiToolInfo>& t
 {
     juce::StringArray lines;
     lines.add ("JamStudio uses optional Python tools for AI features.");
-    lines.add ("On Linux, install with pipx (recommended):");
+    lines.add ("On macOS and Linux, install with pipx (recommended).");
+    lines.add ("macOS: brew install pipx ffmpeg, run pipx ensurepath, then restart JamStudio.");
+    lines.add ("JamStudio looks on PATH plus Homebrew (/opt/homebrew/bin, /usr/local/bin) and ~/.local/bin.");
     lines.add ("");
 
     for (const auto& tool : tools)
@@ -61,7 +63,6 @@ juce::String AiToolsCatalog::buildSetupMessage (const juce::Array<AiToolInfo>& t
     }
 
     lines.add ("After installing, restart JamStudio.");
-    lines.add ("Tools are detected from PATH and ~/.local/bin.");
     return lines.joinIntoString ("\n");
 }
 

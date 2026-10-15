@@ -9,7 +9,7 @@ namespace jamstudio::notation
 
 namespace
 {
-constexpr auto kUserAgent = "JamStudio/0.9.6 (https://github.com/pasleyjb/JamStudio)";
+constexpr auto kUserAgent = "JamStudio/0.9.7 (https://github.com/pasleyjb/JamStudio)";
 constexpr auto kSearchUrl = "https://lrclib.net/api/search";
 constexpr auto kGetUrl = "https://lrclib.net/api/get/";
 

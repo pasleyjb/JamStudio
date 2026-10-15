@@ -697,7 +697,7 @@ void MainComponent::handleMenuCommand (const int menuItemID, const int /*topLeve
         case aboutCmd:
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
                                                     "JamStudio",
-                                                    "JamStudio v0.9.6\n"
+                                                    "JamStudio v0.9.7\n"
                                                     "Guitar practice workstation with stems, tabs, lyrics,\n"
                                                     "multi-bus mixer, and stage video.\n\n"
                                                     "Help → Instructions… for a searchable guide.\n\n"

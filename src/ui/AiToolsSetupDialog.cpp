@@ -92,7 +92,7 @@ AiToolsSetupDialog::AiToolsSetupDialog (const juce::Array<jamstudio::ai::AiToolI
     addAndMakeVisible (titleLabel);
 
     introLabel.setText ("Optional Python tools power stem separation, AI lyrics, and AI tab transcription.\n"
-                        "Install with pipx, then restart JamStudio.",
+                        "On macOS, install pipx with Homebrew (brew install pipx), then restart JamStudio.",
                         juce::dontSendNotification);
     introLabel.setJustificationType (juce::Justification::topLeft);
     addAndMakeVisible (introLabel);

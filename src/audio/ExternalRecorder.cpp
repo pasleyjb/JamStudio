@@ -58,12 +58,21 @@ juce::File resolveOnPath (const juce::String& command)
     return juce::File (path);
 }
 
+bool isLaunchableApp (const juce::File& exe)
+{
+    // macOS .app bundles are directories. Everything else is a real executable.
+    if (exe.getFileName().endsWithIgnoreCase (".app"))
+        return exe.isDirectory();
+
+    return exe.existsAsFile();
+}
+
 void addIfExists (juce::Array<ExternalRecorderApp>& list,
                   const juce::String& name,
                   const juce::File& exe,
                   const bool acceptsFile = true)
 {
-    if (! exe.existsAsFile())
+    if (! isLaunchableApp (exe))
         return;
 
     for (const auto& existing : list)
@@ -112,10 +121,34 @@ juce::Array<ExternalRecorderApp> ExternalRecorder::detectInstalled()
     addIfOnPath (list, "LMMS", "lmms", false);
     addIfOnPath (list, "Ocenaudio", "ocenaudio");
    #elif JUCE_MAC
-    addIfExists (list, "Audacity", juce::File ("/Applications/Audacity.app"));
-    addIfExists (list, "Reaper", juce::File ("/Applications/REAPER.app"));
-    addIfExists (list, "Logic Pro", juce::File ("/Applications/Logic Pro.app"), false);
-    addIfExists (list, "GarageBand", juce::File ("/Applications/GarageBand.app"), false);
+    auto considerMacApp = [&list] (const juce::File& app)
+    {
+        const auto title = app.getFileNameWithoutExtension();
+
+        if (title.containsIgnoreCase ("Audacity"))
+            addIfExists (list, "Audacity", app, true);
+        else if (title.containsIgnoreCase ("REAPER") || title.containsIgnoreCase ("Reaper"))
+            addIfExists (list, "Reaper", app, true);
+        else if (title.containsIgnoreCase ("Logic"))
+            addIfExists (list, "Logic Pro", app, false);
+        else if (title.containsIgnoreCase ("GarageBand"))
+            addIfExists (list, "GarageBand", app, false);
+        else if (title.containsIgnoreCase ("Ocenaudio"))
+            addIfExists (list, "Ocenaudio", app, true);
+    };
+
+    const auto homeApps = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                              .getChildFile ("Applications");
+
+    for (const auto& dir : { juce::File ("/Applications"), homeApps })
+    {
+        if (! dir.isDirectory())
+            continue;
+
+        for (const auto& app : dir.findChildFiles (juce::File::findDirectories, false, "*.app"))
+            considerMacApp (app);
+    }
+
     addIfOnPath (list, "Audacity", "audacity");
    #elif JUCE_WINDOWS
     addIfOnPath (list, "Audacity", "audacity.exe");

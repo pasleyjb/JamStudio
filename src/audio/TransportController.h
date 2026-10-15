@@ -6,6 +6,7 @@
 #include "StemMixer.h"
 
 #include <atomic>
+#include <memory>
 
 namespace jamstudio::audio
 {
@@ -61,7 +62,10 @@ private:
     void syncStageMediaPosition (double seconds);
 
     juce::AudioDeviceManager& deviceManager;
-    juce::AudioSourcePlayer audioSourcePlayer;
+    // Renders the mix without copying the live input onto the outputs.
+    // JUCE's AudioSourcePlayer does that copy, which howls when the Mac mic
+    // and speakers (or a loopback driver) are both open.
+    std::unique_ptr<juce::AudioIODeviceCallback> graphCallback;
     juce::AudioFormatManager formatManager;
     StemMixer stemMixer;
     Metronome metronome;

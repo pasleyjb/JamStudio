@@ -66,19 +66,25 @@ juce::Array<HelpTopic> buildTopics()
         "Save and load projects",
         "Projects",
         "save load project jamstudio media stems",
-        "Project → Save Project stores the song, stems, mix state, tabs, and lyrics.\n"
-        "Media is kept under the project's .media folder when possible.\n\n"
-        "Project → Load Project / Recent Projects restores a session.\n"
-        "If stems are missing, JamStudio may offer to re-separate and recover them."));
+        "Project → Save Project stores the song, stem files, each stem’s mute, solo, "
+        "and FOH level, the FOH master, metronome, tabs, and lyrics.\n"
+        "Stem audio is copied into a folder named {Project}.media/stems next to the "
+        ".jamstudio file.\n"
+        "Monitor sends (Mon A / Mon B) are not stored in the project. In Performance, "
+        "the mixer button Save Mix -> Set Track keeps those on the set list.\n\n"
+        "Project → Load Project opens a project. Recent Projects pops up the recent list.\n"
+        "If stem files are missing and Demucs is installed, JamStudio re-separates "
+        "the original song and packs the stems back into the project."));
 
     t.add (topic (
         "file-open-song",
         "Open a song file",
         "Projects",
         "open song wav mp3 flac audio import",
-        "File → Open Song loads an audio file into the workspace.\n"
-        "Supported formats include WAV, FLAC, OGG, AIFF, and compressed formats when codecs are available.\n\n"
-        "After opening, separate stems or use the file as a single mix track."));
+        "File → Open Song (or the Project tab → Open Song) loads one audio file "
+        "as a single mix stem. It does not separate stems by itself.\n"
+        "The file picker offers WAV, MP3, FLAC, OGG, and AIFF.\n\n"
+        "Use Stems → Separate Stems afterward if you want guitar, drums, bass, and vocals."));
 
     // ---------- Transport ----------
     t.add (topic (
@@ -99,27 +105,38 @@ juce::Array<HelpTopic> buildTopics()
         "Transport",
         "count in count-in intro 4-in metronome click",
         "Transport → 4-Count Intro (or 4-IN on the transport bar / mixer):\n\n"
-        "When enabled, Play clicks 1–2–3–4 at the current BPM, then starts the song.\n"
-        "Works in every mode. Stop/Pause cancels an in-progress count-in.\n"
-        "Count-in clicks always sound; normal Metro on/off applies after playback starts."));
+        "When enabled, Play clicks four beats at the current BPM, then starts the song.\n"
+        "Works in every mode. Stop, Pause, or moving the scrubber cancels a count-in.\n"
+        "The Metro on/off switch does not mute the count-in, but the click still "
+        "follows the mixer bus routing below.\n"
+        "By default the click is on Mon A / Mon B only, not FOH. On a stereo output "
+        "(computer speakers) only FOH is heard, so turn on Clk FOH or you will not "
+        "hear the count-in."));
 
     t.add (topic (
         "transport-metronome",
         "Metronome (click track)",
         "Transport",
         "metronome click bpm tempo detect",
-        "Metro button enables a click aligned to BPM.\n"
-        "BPM slider sets tempo; Detect estimates tempo from the loaded song.\n\n"
-        "In the multi-bus mixer, click defaults to Monitor mixes (not FOH).\n"
-        "Use Clk FOH / Clk Mon on the BUSES strip to route click."));
+        "The Metro button on the transport bar turns the click on or off.\n"
+        "The BPM slider sets tempo (40–240). Detect estimates tempo from the loaded song.\n"
+        "Transport → Detect Tempo does the same thing.\n\n"
+        "Click routing defaults to monitors: Mon A at 0.85, Mon B at 0.55, FOH off.\n"
+        "Clk FOH and Clk Mon on the mixer BUSES strip change that.\n"
+        "A stereo device plays outs 1–2 (FOH) only, so enable Clk FOH to hear the "
+        "click on computer speakers."));
 
     t.add (topic (
         "transport-record",
         "Record",
         "Transport",
         "record recording take stem",
-        "Transport → Record / Stop arms recording through the audio device.\n"
-        "Takes can be loaded as stems for practice and mixing."));
+        "Two different record controls:\n\n"
+        "• Transport bar EXT opens an external recorder. It does not record inside JamStudio.\n"
+        "• Transport → Internal Record / Stop, or the Record tab → Record button, "
+        "records the audio-device input inside JamStudio. Press it again to stop. "
+        "The take is saved under Documents/JamStudio/Recordings/ and loaded as a stem.\n\n"
+        "See Recording mode for the external DAW steps."));
 
     t.add (topic (
         "audio-interface",
@@ -134,12 +151,15 @@ juce::Array<HelpTopic> buildTopics()
         "• Same device — interface for both in and out (stage multi-bus: outs 1–2 FOH, "
         "3–4 Mon A, 5–6 Mon B).\n"
         "• Manual — pick exact input and output devices.\n\n"
-        "Channel counts are matched to what the hardware actually exposes (not fixed "
-        "to 6 outs). USB hot-plug is detected every couple of seconds.\n\n"
+        "Channel counts follow what the hardware exposes. USB hot-plug is checked "
+        "every 2 seconds.\n\n"
+        "The built-in microphone is preferred over virtual meeting and loopback "
+        "drivers (Zoom, Audiojingle, MMAudio, BlackHole, and similar). A real USB "
+        "interface still wins when one is connected.\n\n"
         "Jack sense: class-compliant USB audio does not report whether cables are "
         "plugged into line outs. JamStudio cannot know empty Scarlett jacks; use "
-        "plug-and-play + computer monitor for that case.\n\n"
-        "Settings are saved in the JamStudio app data folder (audio-interface.json)."));
+        "plug-and-play with computer-speaker monitoring for that case.\n\n"
+        "Settings are saved as audio-interface.json in the JamStudio app data folder."));
 
     // ---------- Mixer & Buses ----------
     t.add (topic (
@@ -243,8 +263,9 @@ juce::Array<HelpTopic> buildTopics()
         "• Add / remove / reorder songs\n"
         "• Stem mix prefs per song (or lead-guitar+singer defaults)\n"
         "• Save set list under Documents/JamStudio/SetLists/\n"
-        "• Start Performance — wait for Next / foot pedal between songs\n\n"
-        "MIDI Next Song / sustain pedal can trigger the next song."));
+        "• Start waits for Next / foot pedal before song 1, and again between songs\n\n"
+        "The default MIDI profile maps sustain (CC 64) to Next Song. "
+        "MIDI input is on until you turn it off in Help → MIDI Control Surface…."));
 
     t.add (topic (
         "stage-show-builder",
@@ -286,9 +307,9 @@ juce::Array<HelpTopic> buildTopics()
         "Floating Windows",
         "dock side gap auto stick maximise menu view",
         "View → Floating Window Dock:\n\n"
-        "• Stick / Unstick\n"
-        "• Dock side: Right, Left, Top, Bottom\n"
-        "• Gap: Tight (0), Normal (4), Wide (12)\n"
+        "• Stick Windows Together  <>  /  Unstick Windows  ><\n"
+        "• Dock Stage FX on Right, Left, Top, or Bottom\n"
+        "• Gap: Tight (0 px), Normal (4 px), Wide (12 px)\n"
         "• Auto-Stick When Edges Touch\n"
         "• Unstick When Mixer Maximised\n\n"
         "Settings save to JamStudio app data (floating-dock.json)."));
@@ -300,7 +321,7 @@ juce::Array<HelpTopic> buildTopics()
         "Notation",
         "tabs tab sheet musicxml score notation",
         "Notation menu:\n\n"
-        "• Browse Tab Library / Import MusicXML\n"
+        "• Browse Tab Library… / Import Local MusicXML…\n"
         "• AI Tab Transcription (Basic Pitch) when tools are set up\n"
         "• Tab View / Sheet View\n"
         "• Full Page Tabs for printing\n"
@@ -327,8 +348,9 @@ juce::Array<HelpTopic> buildTopics()
         "Separate stems (Demucs)",
         "Stems",
         "stems demucs separate guitar drums bass vocals",
-        "Stems → Separate Stems runs Demucs (when installed via AI Tools Setup).\n"
-        "Produces guitar/drums/bass/vocals (and more) for independent mixer levels.\n"
+        "Stems → Separate Stems runs Demucs (Help → AI Tools Setup…, model htdemucs_6s).\n"
+        "That model writes drums, bass, other, vocals, guitar, and piano.\n"
+        "The menu item is disabled until Demucs is installed.\n"
         "Stem lanes under the transport show mini waveforms."));
 
     // ---------- Recording ----------
@@ -341,14 +363,20 @@ juce::Array<HelpTopic> buildTopics()
         "Wizard → Recording:\n"
         "• Open Project / Open Backing / Empty Session\n\n"
         "Then:\n"
-        "1. Press REC (or Open Audacity in the Recording panel)\n"
-        "2. JamStudio bounces the current mix to a WAV and launches Audacity/Reaper/Ardour\n"
-        "3. Record with effects/amp sims in that app\n"
-        "4. Export Audio as WAV from the external DAW\n"
-        "5. Import Take… (panel or Transport menu) to bring it back into the mixer\n\n"
-        "Detected apps: Audacity (preferred), Reaper, Ardour, Qtractor, Ocenaudio, etc.\n\n"
-        "Fallback: Transport → Internal Record / Stop still records inside JamStudio.\n"
-        "Takes live under Documents/JamStudio/Recordings/."));
+        "1. Press EXT on the transport bar, or the Recording panel button "
+        "(Open Audacity, or Open plus the name of the preferred app)\n"
+        "2. If stems are loaded, JamStudio bounces the FOH mix to a WAV under "
+        "Documents/JamStudio/Recordings/ and opens the recorder\n"
+        "3. Audacity, Reaper, Ardour, Qtractor, and Ocenaudio receive that WAV. "
+        "Logic Pro and GarageBand open without the file; import the WAV yourself\n"
+        "4. Record with effects or amp sims in that app\n"
+        "5. Export audio from the DAW\n"
+        "6. Import Take... on the panel, or Transport → Import Take from File…, "
+        "loads it into the mixer. Load to Mixer reloads a take already in the list\n\n"
+        "Audacity is preferred when it is installed. Also detected: Reaper, Ardour, "
+        "Qtractor, Ocenaudio, and on macOS Logic Pro and GarageBand.\n\n"
+        "Transport → Internal Record / Stop records inside JamStudio instead. "
+        "Those takes are also stored under Documents/JamStudio/Recordings/."));
 
     // ---------- MIDI ----------
     t.add (topic (

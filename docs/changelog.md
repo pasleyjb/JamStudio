@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.7] — 2026-10-15
+
+### Fixed
+
+- Startup squeal on macOS. The app was opening the microphone and the speakers as two devices and copying the live input to the outputs. Virtual drivers such as Zoom, Audiojingle, and MMAudio are no longer chosen as the default input. Split-device underruns play silence instead of leftover buffer noise.
+- Interactive help now matches the menus and routing: internal record versus the EXT button, count-in and click on stereo speakers, what Save Project stores, and which recorders receive the bounced WAV.
+
+### Added
+
+- Native macOS app (`JamStudio.app`) and disk image via `scripts/package-macos.sh`
+- GitHub Actions job that builds the macOS disk image next to the Linux and Windows packages
+- Core Audio device routing, including built-in Mac speakers, headphones, and virtual devices such as BlackHole
+- Microphone usage description so recording can prompt for access
+- Finder launches now see Homebrew and `~/.local/bin`, so pipx AI tools are found without a terminal
+- macOS recorder detection for Audacity (including "Audacity 4"), REAPER, Logic Pro, and GarageBand in `/Applications` and `~/Applications`
+
 ## [0.9.6] — 2026-07-08
 
 ### Fixed

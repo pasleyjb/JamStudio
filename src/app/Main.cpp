@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "../platform/HostEnvironment.h"
 #include "../ui/BrandAssets.h"
 #include "../ui/JamStudioLookAndFeel.h"
 
@@ -10,11 +11,13 @@ class JamStudioApplication : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override       { return "JamStudio"; }
-    const juce::String getApplicationVersion() override    { return "0.9.6"; }
+    const juce::String getApplicationVersion() override    { return "0.9.7"; }
     bool moreThanOneInstanceAllowed() override             { return false; }
 
     void initialise (const juce::String&) override
     {
+        jamstudio::platform::prepareHostEnvironment();
+
         lookAndFeel = std::make_unique<jamstudio::ui::JamStudioLookAndFeel>();
         juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel.get());
 
@@ -52,9 +55,9 @@ public:
             splash = std::make_unique<juce::SplashScreen> ("JamStudio", displayImg, true);
         }
 
-        // Open a modest default first; MainComponent's AudioInterfaceManager
-        // immediately applies plug-and-play routing (Scarlett in + PC out, etc.).
-        audioDeviceManager.initialiseWithDefaultDevices (2, 2);
+        // Output only until AudioInterfaceManager picks a real input.
+        // Opening the default mic and speakers together on macOS howls.
+        audioDeviceManager.initialiseWithDefaultDevices (0, 2);
 
         mainWindow = std::make_unique<MainWindow> (audioDeviceManager);
 
@@ -65,8 +68,9 @@ public:
     void shutdown() override
     {
         splash = nullptr;
-        mainWindow = nullptr;
+        // Stop the device before tearing down the windows that own the callbacks.
         audioDeviceManager.closeAudioDevice();
+        mainWindow = nullptr;
         juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
         lookAndFeel = nullptr;
     }

@@ -1,9 +1,33 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(JamStudio VERSION 0.9.6 LANGUAGES C CXX)
+project(JamStudio VERSION 0.9.7 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# JUCE leaves Core Audio combiner output buffers untouched on underrun, which
+# squeals on Mac when the mic and speakers are separate devices. The pinned
+# submodule stays clean; CI applies this patch before configuring JUCE.
+if(APPLE)
+    set(JAMSTUDIO_COREAUDIO_CPP
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/JUCE/modules/juce_audio_devices/native/juce_CoreAudio_mac.cpp")
+    if(EXISTS "${JAMSTUDIO_COREAUDIO_CPP}")
+        file(STRINGS "${JAMSTUDIO_COREAUDIO_CPP}" _jamstudio_coreaudio_silence REGEX "writeSilence")
+        if(NOT _jamstudio_coreaudio_silence)
+            find_package(Git REQUIRED)
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" apply
+                    "${CMAKE_CURRENT_SOURCE_DIR}/patches/juce-coreaudio-underrun-silence.patch"
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/JUCE"
+                RESULT_VARIABLE _jamstudio_juce_patch
+                ERROR_VARIABLE _jamstudio_juce_patch_err)
+            if(NOT _jamstudio_juce_patch EQUAL 0)
+                message(FATAL_ERROR
+                    "Failed to apply patches/juce-coreaudio-underrun-silence.patch:\n${_jamstudio_juce_patch_err}")
+            endif()
+        endif()
+    endif()
+endif()
 
 add_subdirectory(third_party/JUCE EXCLUDE_FROM_ALL)
 
@@ -13,6 +37,8 @@ juce_add_gui_app(JamStudio
     BUNDLE_ID "com.jamstudio.app"
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/JamStudioIcon256.png"
     ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/resources/JamStudioIcon48.png"
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "JamStudio records your instrument and microphone while you practice."
     NEEDS_CURL TRUE
     NEEDS_WEB_BROWSER FALSE)
 
@@ -30,6 +56,7 @@ juce_add_binary_data(JamStudioAssets
 
 target_sources(JamStudio PRIVATE
     src/app/AppMenuBar.cpp
+    src/platform/HostEnvironment.cpp
     src/app/Main.cpp
     src/app/MainWindow.cpp
     src/app/MainComponent.cpp
@@ -105,9 +132,22 @@ target_sources(JamStudio PRIVATE
     src/ui/StageFxControllerWindow.cpp)
 
 # FFmpeg / libav for MPEG codecs (stage FX video + compressed audio)
-# Prefer pkg-config (Linux); fall back to find_path/find_library (Windows/vcpkg).
+# Prefer pkg-config (Linux, Homebrew on macOS); fall back to find_path/find_library (Windows/vcpkg).
 set(JAMSTUDIO_FFMPEG_LIBS "")
 set(JAMSTUDIO_FFMPEG_INCLUDES "")
+
+if(APPLE)
+    set(_jamstudio_pkg_config_path "$ENV{PKG_CONFIG_PATH}")
+    foreach(_prefix IN ITEMS /opt/homebrew /usr/local)
+        if(EXISTS "${_prefix}/opt/ffmpeg/lib/pkgconfig")
+            set(_jamstudio_pkg_config_path "${_prefix}/opt/ffmpeg/lib/pkgconfig:${_jamstudio_pkg_config_path}")
+        endif()
+        if(EXISTS "${_prefix}/lib/pkgconfig")
+            set(_jamstudio_pkg_config_path "${_prefix}/lib/pkgconfig:${_jamstudio_pkg_config_path}")
+        endif()
+    endforeach()
+    set(ENV{PKG_CONFIG_PATH} "${_jamstudio_pkg_config_path}")
+endif()
 
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -135,8 +175,9 @@ else()
     if(NOT AVFORMAT_INCLUDE_DIR OR NOT AVFORMAT_LIBRARY OR NOT AVCODEC_LIBRARY
        OR NOT AVUTIL_LIBRARY OR NOT SWRESAMPLE_LIBRARY)
         message(FATAL_ERROR
-            "FFmpeg not found. On Linux: install libavformat-dev libavcodec-dev "
-            "libavutil-dev libswresample-dev. On Windows: vcpkg install ffmpeg:x64-windows")
+            "FFmpeg not found. On macOS: brew install ffmpeg. "
+            "On Linux: install libavformat-dev libavcodec-dev libavutil-dev libswresample-dev. "
+            "On Windows: vcpkg install ffmpeg:x64-windows")
     endif()
     list(APPEND JAMSTUDIO_FFMPEG_INCLUDES
         ${AVFORMAT_INCLUDE_DIR} ${AVCODEC_INCLUDE_DIR}
@@ -154,8 +195,6 @@ target_include_directories(JamStudio PRIVATE
 target_compile_definitions(JamStudio PRIVATE
     JUCE_USE_FLAC=1
     JUCE_USE_OGGVORBIS=1
-    JUCE_WASAPI=1
-    JUCE_DIRECTSOUND=1
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_REPORT_APP_USAGE=0
     JUCE_WEB_BROWSER=0
@@ -167,6 +206,14 @@ if(UNIX AND NOT APPLE)
         JUCE_ALSA=1
         JUCE_JACK=1)
 elseif(WIN32)
+    target_compile_definitions(JamStudio PRIVATE
+        JUCE_WASAPI=1
+        JUCE_DIRECTSOUND=1
+        JUCE_ALSA=0
+        JUCE_JACK=0)
+elseif(APPLE)
+    # Core Audio is JUCE's macOS backend. Keep ALSA/JACK off so the link
+    # step does not look for Linux audio libraries.
     target_compile_definitions(JamStudio PRIVATE
         JUCE_ALSA=0
         JUCE_JACK=0)

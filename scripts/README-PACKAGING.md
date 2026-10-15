@@ -63,18 +63,64 @@ Output:
 
 > Note: older `v0.9.6.1` portable zips did **not** bundle the MSVC runtime. Rebuild with this script (or a newer release) for out-of-the-box installs.
 
+## macOS disk image
+
+On a Mac with current Xcode Command Line Tools:
+
+```bash
+# Apple Silicon Homebrew is /opt/homebrew. Intel Homebrew is /usr/local.
+brew install cmake ffmpeg ninja pkg-config
+chmod +x scripts/package-macos.sh
+./scripts/package-macos.sh
+```
+
+Output:
+
+- `dist/JamStudio-<version>-mac-<arch>.dmg`
+- `dist/JamStudio-<version>-mac-<arch>.dmg.sha256`
+- `build-macos/JamStudio_artefacts/Release/JamStudio.app` (the app inside the image)
+
+Install:
+
+1. Open the disk image.
+2. Drag **JamStudio** onto **Applications**.
+3. Launch it from Applications. The first launch asks for microphone access so recording and input monitoring work.
+4. Core Audio is the audio backend. Plug-and-play routing prefers a USB interface (Scarlett and similar) for input and the Mac speakers or headphones for monitoring.
+
+The image bundles the FFmpeg libraries the app was linked against, then ad-hoc signs the bundle so Apple Silicon will launch it. It is not notarized. The first time you open it, if Gatekeeper blocks the app, right-click JamStudio in Applications and choose Open.
+
+AI tools stay optional. On a Mac:
+
+```bash
+brew install pipx ffmpeg
+pipx ensurepath
+pipx install demucs
+pipx inject demucs torchcodec
+pipx install openai-whisper
+```
+
+JamStudio, when launched from Finder, adds Homebrew and `~/.local/bin` to `PATH` so those tools are found.
+
+If `xcrun` fails or the Command Line Tools are an old Intel install on an Apple Silicon Mac, remove them and install the current tools before packaging:
+
+```bash
+sudo rm -rf /Library/Developer/CommandLineTools
+xcode-select --install
+```
+
 ## GitHub Actions
 
 Workflow: `.github/workflows/package.yml`
 
 - **Manual:** Actions → Package → Run workflow  
-- **Tag:** push `v0.9.6` (or any `v*`) to build and create a GitHub Release
+- **Tag:** push `v0.9.7` (or any `v*`) to build and create a GitHub Release
 
-CI builds both the portable zip and the Inno Setup installer, and verifies CRT DLLs are present.
+CI builds the Linux AppImage, the Windows portable zip and Inno Setup installer, and the macOS disk image. The Windows job verifies CRT DLLs are present.
 
 ## Notes
 
 - AppImage bundles FFmpeg shared libraries for stage video.
 - Windows packages ship FFmpeg DLLs **and** MSVC CRT DLLs next to `JamStudio.exe`.
+- The macOS disk image ships a `JamStudio.app` with FFmpeg libraries inside `Contents/Frameworks`, ad-hoc signed.
 - AI tools (Demucs/Whisper) remain optional external installs.
 - Multi-out mixer buses need a multi-channel interface (FOH 1–2, Mon A 3–4, Mon B 5–6).

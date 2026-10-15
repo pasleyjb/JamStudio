@@ -1,0 +1,38 @@
+diff --git a/modules/juce_audio_devices/native/juce_CoreAudio_mac.cpp b/modules/juce_audio_devices/native/juce_CoreAudio_mac.cpp
+index 7210e15c9d..37223be126 100644
+--- a/modules/juce_audio_devices/native/juce_CoreAudio_mac.cpp
++++ b/modules/juce_audio_devices/native/juce_CoreAudio_mac.cpp
+@@ -1959,11 +1959,25 @@ private:
+ 
+     void outputAudioCallback (float* const* channels, int numChannels, int n) noexcept
+     {
++        // Silence is required on every early return. Core Audio does not clear
++        // the output buffer, so leaving it untouched plays leftover samples as
++        // a loud squeal. That happens on Mac when the mic and speakers are
++        // separate devices and this combiner has not locked their clocks yet.
++        auto writeSilence = [&]
++        {
++            for (int i = 0; i < numChannels; ++i)
++                if (channels[i] != nullptr)
++                    std::fill (channels[i], channels[i] + n, 0.0f);
++        };
++
+         auto& readPos = outputWrapper.sampleTime;
+         auto currentReadPos = readPos.load();
+ 
+         if (currentReadPos == invalidSampleTime)
++        {
++            writeSilence();
+             return;
++        }
+ 
+         const auto writePos = inputWrapper.sampleTime.load();
+ 
+@@ -1973,6 +1987,7 @@ private:
+             if ((currentReadPos + static_cast<std::uint64_t> (n)) > writePos)
+             {
+                 xrun();
++                writeSilence();
+                 return;
+             }
+         }

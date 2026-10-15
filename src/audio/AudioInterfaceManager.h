@@ -77,7 +77,7 @@ struct AudioRoutingSnapshot
 
 /**
  * Plug-and-play audio routing for practice / stage:
- * - Scans available devices (ALSA/JACK/WASAPI/…)
+ * - Scans available devices (Core Audio, ALSA/JACK, WASAPI, …)
  * - Matches channel counts to hardware
  * - Hot-plugs USB interfaces (e.g. Scarlett) without a full restart
  *
@@ -106,7 +106,7 @@ public:
     [[nodiscard]] juce::Array<AudioDeviceChoice> listOutputDevices() const;
     [[nodiscard]] juce::StringArray listDeviceTypeNames() const;
 
-    /** Refresh ALSA/WASAPI device lists (USB plug events). */
+    /** Refresh device lists (USB plug events). */
     void scanHardware();
 
 private:
