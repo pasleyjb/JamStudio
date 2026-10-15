@@ -14,6 +14,7 @@
 - macOS no longer opens the microphone before the mix graph is attached, which was the startup howl.
 - Recorder and mix callbacks clear their output buffers, including the JUCE scratch buffer that was stacking each block on the last one.
 - The startup splash is released once, so quit no longer frees it twice.
+- The Linux download uses the CPU build of PyTorch, so the AppImage stays under GitHub's 2 GB release limit.
 
 ## [0.9.8] — 2026-10-15
 

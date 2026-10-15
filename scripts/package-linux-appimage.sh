@@ -170,6 +170,14 @@ export ARCH
 run_appimage "$APPIMAGETOOL" "$APPDIR" "$OUTPUT"
 chmod +x "$OUTPUT"
 
+# GitHub refuses a release asset that is 2 GiB or larger. Fail here so the
+# release job does not upload the other platforms and then die on this file.
+appimage_bytes="$(stat -c%s "$OUTPUT")"
+if (( appimage_bytes >= 2147483648 )); then
+  echo "AppImage is ${appimage_bytes} bytes. GitHub's limit is under 2 GiB." >&2
+  exit 1
+fi
+
 # Checksums
 ( cd "$DIST_DIR" && sha256sum "$(basename "$OUTPUT")" > "$(basename "$OUTPUT").sha256" )
 
