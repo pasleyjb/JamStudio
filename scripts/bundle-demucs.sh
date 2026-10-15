@@ -48,27 +48,61 @@ target_triple() {
   esac
 }
 
+# First URL in the text for this Python version and target, or empty.
+python_asset_url() {
+  local text="$1" version="$2" triple="$3" raw
+  raw="$(printf '%s\n' "$text" | grep -o "https://github.com/astral-sh/python-build-standalone/releases/download/[^\"]*cpython-${version}[^\"]*${triple}-install_only.tar.gz" | grep -v freethreaded | head -1 || true)"
+  if [[ -z "$raw" ]]; then
+    raw="$(printf '%s\n' "$text" | grep -o "/astral-sh/python-build-standalone/releases/download/[^\" ]*cpython-${version}[^\" ]*${triple}-install_only.tar.gz" | grep -v freethreaded | head -1 || true)"
+    if [[ -n "$raw" ]]; then
+      raw="https://github.com${raw}"
+    fi
+  fi
+  printf '%s' "$raw"
+}
+
 download_python() {
-  local triple url
+  local triple url body api version tag_url tag token
   triple="$(target_triple)"
   echo "==> Downloading standalone Python 3.12 for $triple"
-  local api="https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
-  local body
-  body="$(curl -fsSL "$api")"
-  local version
+  api="https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
+  local -a api_headers=(-H "User-Agent: JamStudio-packaging" -H "Accept: application/vnd.github+json")
+  token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  if [[ -n "$token" ]]; then
+    api_headers+=(-H "Authorization: Bearer ${token}")
+  fi
+  # Unauthenticated api.github.com calls from Actions often get 403. Keep going
+  # and read the public release page if that happens.
+  body="$(curl -fsSL --http1.1 --retry 3 --retry-delay 2 "${api_headers[@]}" "$api" || true)"
+  url=""
   for version in "3.12" "3.11" "3.13"; do
-    url="$(printf '%s\n' "$body" | grep -o "https://[^\"]*cpython-${version}[^\"]*${triple}-install_only\\.tar\\.gz" | grep -v freethreaded | head -1 || true)"
+    url="$(python_asset_url "$body" "$version" "$triple")"
     if [[ -n "$url" ]]; then
       break
     fi
   done
-  if [[ -z "${url:-}" ]]; then
+  if [[ -z "$url" ]]; then
+    echo "==> Release API did not list a Python build. Reading the release page."
+    tag_url="$(curl -fsSL --http1.1 --retry 3 --retry-delay 2 -A JamStudio-packaging -o /dev/null -w '%{url_effective}' -L \
+      "https://github.com/astral-sh/python-build-standalone/releases/latest" || true)"
+    tag="${tag_url##*/}"
+    body="$(curl -fsSL --http1.1 --retry 3 --retry-delay 2 -A JamStudio-packaging -L \
+      "https://github.com/astral-sh/python-build-standalone/releases/expanded_assets/${tag}" || true)"
+    body="${body//%2B/+}"
+    for version in "3.12" "3.11" "3.13"; do
+      url="$(python_asset_url "$body" "$version" "$triple")"
+      if [[ -n "$url" ]]; then
+        break
+      fi
+    done
+  fi
+  if [[ -z "$url" ]]; then
     echo "No python-build-standalone asset for $triple" >&2
     exit 1
   fi
   echo "    $url"
   local tarball="$DEST/python.tar.gz"
-  curl -fL --retry 3 -o "$tarball" "$url"
+  curl -fL --http1.1 --retry 5 --retry-delay 2 -A JamStudio-packaging -o "$tarball" "$url"
   rm -rf "$DEST/python"
   tar -xzf "$tarball" -C "$DEST"
   rm -f "$tarball"
