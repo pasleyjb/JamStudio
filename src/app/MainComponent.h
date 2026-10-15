@@ -4,7 +4,6 @@
 #include "../ai/BasicPitchTranscriber.h"
 #include "../ai/DemucsSeparator.h"
 #include "../ai/WhisperTranscriber.h"
-#include "../audio/AudacityRemote.h"
 #include "../audio/AudioInterfaceManager.h"
 #include "../audio/AudioRecorder.h"
 #include "../audio/RecordingExporter.h"
@@ -148,10 +147,17 @@ private:
     void startSyncedTake();
     void stopSyncedTake();
     void setStartButtonRecording (bool recording);
+    void publishLyricFollow();
+    [[nodiscard]] bool anyTakeSourceArmed();
+    [[nodiscard]] std::vector<jamstudio::audio::TakeTrackRequest> currentTakeRequests();
+    [[nodiscard]] juce::File createTakeFolder() const;
+    void loadSyncedTake (const jamstudio::audio::TakeResult& result);
     void importTakeFromFile();
     [[nodiscard]] juce::File findStemFileForType (jamstudio::audio::StemType preferredType);
     [[nodiscard]] juce::File findMelodicStemFile();
-    void loadRecordingAsStem (const juce::File& recordingFile, const juce::String& displayName);
+    void loadRecordingAsStem (const juce::File& recordingFile,
+                              const juce::String& displayName,
+                              double startOffsetSeconds = 0.0);
     void loadStemsIntoMixer (const juce::Array<juce::File>& stemFiles);
     void rebuildStemLanes();
     void rebuildMixerWindow();
@@ -253,6 +259,8 @@ private:
     juce::Label monBOutLabel { {}, "Mon B" };
     juce::ComboBox monBOutBox;
     juce::TextButton refreshOutputsButton { "Refresh" };
+    jamstudio::ui::IndicatorButton micArmButton { "micArm", "Mic" };
+    jamstudio::ui::IndicatorButton instArmButton { "instArm", "Inst" };
     jamstudio::ui::IndicatorButton startTakeButton { "startTake", "Start" };
     juce::StringArray fohOutNames;
     juce::StringArray monAOutNames;
@@ -287,7 +295,6 @@ private:
     bool performanceWasPlaying = false;
     int karaokeDisplayIndex = 0;
     int stageFxDisplayIndex = 1;
-    jamstudio::audio::AudacityRemote audacityRemote;
     bool syncedTake = false;
     bool syncedTakeArmed = false;
     uint32_t syncedTakeGeneration = 0;
@@ -301,8 +308,8 @@ private:
     juce::File currentProjectFile;
     std::unique_ptr<juce::FileChooser> fileChooser;
 
-    bool lyricsPanelVisible = true;
-    bool notationPanelVisible = true;
+    bool lyricsPanelVisible = false;
+    bool notationPanelVisible = false;
     /** Stem lanes with mini-waveforms under the transport (mixer still available). */
     bool stemsPanelVisible = true;
     bool workspaceReady = false;

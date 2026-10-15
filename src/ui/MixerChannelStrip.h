@@ -38,6 +38,7 @@ private:
     juce::Label nameLabel;
     IndicatorButton muteButton { "mute", "M" };
     IndicatorButton soloButton { "solo", "S" };
+    IndicatorButton recordButton { "recordArm", "R" };
     juce::Label fohLabel { {}, "FOH" };
     juce::Slider fohSlider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
     juce::Label monALabel { {}, "A" };

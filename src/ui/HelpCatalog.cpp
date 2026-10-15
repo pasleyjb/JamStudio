@@ -340,14 +340,18 @@ juce::Array<HelpTopic> buildTopics()
         "Recording mode (external DAW)",
         "Recording",
         "recording mode audacity reaper external plugin amp sim import take",
-        "Start (transport) rewinds to the top, starts Audacity recording, and plays the stems and lyrics together.\n"
-        "Press Start again, or Stop, to end the take. The recording stays in Audacity.\n"
-        "Audacity overdub is turned off for that take so the backing comes from Jam Studio.\n\n"
-        "JamStudio prefers an external recorder for takes so you can use amp sims and plugins.\n\n"
+        "Start rewinds to the top and records inside Jam Studio on the same clock as the stems and lyrics.\n"
+        "Mic (Fast Track input 1) is armed by default. Inst is input 2. R on a stem prints that stem.\n"
+        "The click is not recorded. A 4-count, when it is on, happens before recording starts.\n"
+        "Press Start again, or Stop, to end the take. Mic and Inst load back onto the song at the position they were recorded.\n"
+        "The mixer has Mic and Inst strips. Mon A is up so the player hears themselves on the monitor. FOH stays down until you want that input in the house.\n"
+        "Printed stems stay in the take folder and are not loaded again, so the mix does not double.\n"
+        "Takes are folders under Documents/JamStudio/Recordings/take-YYYYMMDD-HHMMSS/.\n\n"
+        "EXT still bounces the mix into an external recorder when you want amp sims and plugins.\n\n"
         "Wizard → Recording:\n"
         "• Open Project / Open Backing / Empty Session\n\n"
         "Then:\n"
-        "1. Press REC (or Open Audacity in the Recording panel)\n"
+        "1. Press EXT (or Open Audacity in the Recording panel)\n"
         "2. JamStudio bounces the current mix to a WAV and launches Audacity/Reaper/Ardour\n"
         "3. Record with effects/amp sims in that app\n"
         "4. Export Audio as WAV from the external DAW\n"

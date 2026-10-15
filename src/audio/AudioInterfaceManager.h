@@ -2,6 +2,9 @@
 
 #include <JuceHeader.h>
 
+#include <array>
+#include <memory>
+
 namespace jamstudio::audio
 {
 
@@ -168,6 +171,18 @@ private:
     void ensureBusGraph();
     void syncBusLoopbacks();
     void rememberBusStatus();
+    void stopBusCopy (int index);
+    void startBusCopy (int index, const juce::String& source, const juce::String& sink);
+
+    struct BusCopy
+    {
+        juce::String source;
+        juce::String sink;
+        int pid = 0;
+        std::unique_ptr<juce::ChildProcess> process;
+    };
+
+    std::array<BusCopy, 3> busCopies;
 
     juce::AudioDeviceManager& deviceManager;
     AudioInterfaceSettings settings;

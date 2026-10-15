@@ -2,6 +2,7 @@
 #include "MixBus.h"
 
 #include <limits>
+#include <signal.h>
 
 namespace jamstudio::audio
 {
@@ -87,14 +88,29 @@ void ensureBusRemap (const juce::String& modules,
                      const char* masterMap,
                      const char* description)
 {
-    if (modules.contains ("source_name=" + juce::String (sourceName)))
-        return;
+    const auto sourceArg = "source_name=" + juce::String (sourceName);
+
+    for (const auto& line : juce::StringArray::fromLines (modules))
+    {
+        if (! line.contains ("module-remap-source") || ! line.contains (sourceArg))
+            continue;
+
+        // remix defaults to yes, which folds every bus into this pair and
+        // the speakers get a stacked, clipped copy of the whole mix.
+        if (line.contains ("remix=no"))
+            return;
+
+        const auto id = line.upToFirstOccurrenceOf ("\t", false, false).trim();
+        if (id.isNotEmpty())
+            runPactl ({ kPactl, "unload-module", id });
+    }
 
     runPactl ({ kPactl, "load-module", "module-remap-source",
                 "source_name=" + juce::String (sourceName),
                 "master=" + juce::String (kBusSink) + ".monitor",
                 "master_channel_map=" + juce::String (masterMap),
                 "channel_map=front-left,front-right",
+                "remix=no",
                 "source_properties=device.description=" + juce::String (description) });
 }
 
@@ -106,8 +122,8 @@ void writeBusAsoundrc()
     const juce::String block =
         juce::String (kAsoundBegin) + "\n"
         "pcm.jamstudio_buses {\n"
-        "    type pulse\n"
-        "    device \"jamstudio_buses\"\n"
+        "    type pipewire\n"
+        "    playback_node \"jamstudio_buses\"\n"
         "    hint {\n"
         "        show on\n"
         "        description \"JamStudio Mix Buses\"\n"
@@ -590,14 +606,28 @@ juce::String AudioInterfaceManager::applyChoice (const juce::String& typeName,
     if (settings.preferredBufferSize > 0)
         setup.bufferSize = settings.preferredBufferSize;
 
-    const auto err = deviceManager.setAudioDeviceSetup (setup, true);
+    auto err = deviceManager.setAudioDeviceSetup (setup, true);
+
+    // A failed open of the mix bus used to fall through to the Pulse device.
+    // That plugin is what folds the Fast Track clock into a stuck hot loop.
+    if (err.isNotEmpty() && outputName.containsIgnoreCase (kBusDeviceName))
+        err = deviceManager.setAudioDeviceSetup (setup, true);
+
     lastError = err;
 
-    if (err.isNotEmpty())
+    if (err.isNotEmpty() && ! outputName.containsIgnoreCase (kBusDeviceName))
     {
-        // Fallback: try default devices with modest channel counts.
         deviceManager.initialiseWithDefaultDevices (juce::jmax (1, finalIn), juce::jmax (2, finalOut));
         lastError = err;
+    }
+
+    if (auto* dev = deviceManager.getCurrentAudioDevice())
+    {
+        juce::File ("/tmp/jamstudio-route.log").replaceWithText (
+            "out=" + outputName
+            + " opened=" + dev->getName()
+            + " ch=" + juce::String (dev->getActiveOutputChannels().countNumberOfSetBits())
+            + " err=" + lastError + "\n");
     }
 
     return lastError;
@@ -882,6 +912,69 @@ void AudioInterfaceManager::ensureBusGraph()
     ensureBusRemap (modules, "jamstudio_bus_monb", "front-center,lfe", "JamStudio-MonB");
 }
 
+void AudioInterfaceManager::stopBusCopy (const int index)
+{
+    auto& copy = busCopies[static_cast<size_t> (index)];
+
+    if (copy.pid > 0)
+        ::kill (copy.pid, SIGTERM);
+
+    if (copy.process != nullptr)
+    {
+        if (copy.process->isRunning())
+            copy.process->waitForProcessToFinish (300);
+        if (copy.process->isRunning())
+            copy.process->kill();
+        copy.process.reset();
+    }
+
+    copy.pid = 0;
+    copy.source.clear();
+    copy.sink.clear();
+}
+
+void AudioInterfaceManager::startBusCopy (const int index,
+                                          const juce::String& source,
+                                          const juce::String& sink)
+{
+    stopBusCopy (index);
+
+    const auto script = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                            .getChildFile (".local/share/jamstudio/bus-bridge.py");
+    if (! script.existsAsFile())
+    {
+        busStatusText = "Missing " + script.getFullPathName();
+        return;
+    }
+
+    auto process = std::make_unique<juce::ChildProcess>();
+    juce::StringArray args;
+    args.add ("/usr/bin/python3");
+    args.add (script.getFullPathName());
+    args.add ("--source");
+    args.add (source);
+    args.add ("--sink");
+    args.add (sink);
+    args.add ("--tag");
+    args.add (source);
+
+    if (! process->start (args))
+    {
+        busStatusText = "Could not start the copy to " + sink;
+        return;
+    }
+
+    const auto pidFile = juce::File ("/tmp/jamstudio-bridge-" + source + ".pid");
+    for (int i = 0; i < 20 && ! pidFile.existsAsFile(); ++i)
+        juce::Thread::sleep (20);
+
+    auto& copy = busCopies[static_cast<size_t> (index)];
+    copy.source = source;
+    copy.sink = sink;
+    copy.pid = pidFile.existsAsFile() ? pidFile.loadFileAsString().trim().getIntValue() : 0;
+    copy.process = std::move (process);
+}
+
 void AudioInterfaceManager::syncBusLoopbacks()
 {
     const struct Link
@@ -894,44 +987,61 @@ void AudioInterfaceManager::syncBusLoopbacks()
         { "jamstudio_bus_monb", &settings.monitorBSink }
     };
 
-    auto modules = runPactl ({ kPactl, "list", "short", "modules" });
-    bool anyOpen = false;
-
-    for (const auto& link : links)
+    // A Pulse loopback makes the dock or the headphones the mix clock, and
+    // every speaker then buzzes. Drop any that are still loaded.
+    const auto modules = runPactl ({ kPactl, "list", "short", "modules" });
+    for (const auto& line : juce::StringArray::fromLines (modules))
     {
-        const auto sourceArg = "source=" + juce::String (link.source);
-        const auto want = outputsHeld && link.sink->isNotEmpty();
-        const auto sinkArg = "sink=" + *link.sink;
-        auto kept = false;
+        if (! line.contains ("module-loopback"))
+            continue;
 
-        for (const auto& line : juce::StringArray::fromLines (modules))
+        auto ours = false;
+        for (const auto& link : links)
+            if (line.contains ("source=" + juce::String (link.source)))
+                ours = true;
+
+        if (! ours)
+            continue;
+
+        const auto id = line.upToFirstOccurrenceOf ("\t", false, false).trim();
+        if (id.isNotEmpty())
+            runPactl ({ kPactl, "unload-module", id });
+    }
+
+    bool anyOpen = false;
+    juce::StringArray claimedSinks;
+
+    for (int i = 0; i < 3; ++i)
+    {
+        const auto& link = links[i];
+        // A second pw-cat into one Bluetooth sink mutes that sink.
+        auto want = outputsHeld && link.sink->isNotEmpty() && ! claimedSinks.contains (*link.sink);
+
+        if (want)
+            claimedSinks.add (*link.sink);
+
+        auto& copy = busCopies[static_cast<size_t> (i)];
+        const auto same = copy.process != nullptr
+                          && copy.process->isRunning()
+                          && copy.source == link.source
+                          && copy.sink == *link.sink;
+
+        if (want && same)
         {
-            if (! line.contains ("module-loopback") || ! line.contains (sourceArg))
-                continue;
-
-            if (want && line.contains (sinkArg))
-            {
-                kept = true;
-                anyOpen = true;
-                continue;
-            }
-
-            const auto id = line.upToFirstOccurrenceOf ("\t", false, false).trim();
-            if (id.isNotEmpty())
-                runPactl ({ kPactl, "unload-module", id });
-        }
-
-        if (want && ! kept)
-        {
-            runPactl ({ kPactl, "load-module", "module-loopback",
-                        sourceArg,
-                        sinkArg,
-                        "channels=2",
-                        "source_dont_move=true",
-                        "sink_dont_move=true",
-                        "latency_msec=40" });
             anyOpen = true;
+            continue;
         }
+
+        if (! want)
+        {
+            if (copy.process != nullptr)
+                stopBusCopy (i);
+            continue;
+        }
+
+        startBusCopy (i, link.source, *link.sink);
+        if (busCopies[static_cast<size_t> (i)].process != nullptr)
+            anyOpen = true;
     }
 
     loopbacksOpen = anyOpen;

@@ -43,6 +43,8 @@ target_sources(JamStudio PRIVATE
     src/audio/FFmpegAudioFormat.cpp
     src/audio/TempoDetector.cpp
     src/audio/AudioRecorder.cpp
+    src/audio/TakeRecorder.cpp
+    src/audio/LiveInputs.cpp
     src/audio/AudioInterfaceManager.cpp
     src/audio/ExternalRecorder.cpp
     src/audio/AudacityRemote.cpp

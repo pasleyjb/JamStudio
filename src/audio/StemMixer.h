@@ -4,9 +4,14 @@
 #include "StemTrack.h"
 
 #include <array>
+#include <atomic>
 
 namespace jamstudio::audio
 {
+
+class TakeRecorder;
+
+
 
 /**
  * Mixes stems to multiple stereo buses (FOH + monitors).
@@ -30,10 +35,17 @@ public:
 
     void setStemMuted (int index, bool muted);
     void setStemSolo (int index, bool solo);
+    void setStemRecordArmed (int index, bool armed);
     void setStemVolume (int index, float volume); // FOH
     void setStemBusSend (int index, MixBus bus, float gain);
     void setStemName (int index, const juce::String& name);
+    void setStemStartOffset (int index, double seconds);
     bool removeStemByFile (const juce::File& file);
+
+    /** Non-owning. The mixer prints armed stems and commits latched inputs while playing. */
+    void setTakeRecorder (TakeRecorder* recorder) noexcept { takeRecorder = recorder; }
+
+    void recomputeLength();
 
     void setMasterVolume (float volume) noexcept; // FOH master alias
     [[nodiscard]] float getMasterVolume() const noexcept { return getBusMaster (MixBus::foh); }
@@ -46,6 +58,15 @@ public:
     void stop();
     [[nodiscard]] bool isPlaying() const noexcept { return playing; }
 
+    /** Audio thread latches this at the end of the song. The message thread
+        consumes it and notifies listeners. sendChangeMessage() from the audio
+        thread deadlocks the device callback and the last block keeps playing.
+    */
+    [[nodiscard]] bool consumePlaybackEnded() noexcept
+    {
+        return playbackEnded.exchange (false, std::memory_order_acq_rel);
+    }
+
     void setPosition (double seconds);
     [[nodiscard]] double getPosition() const noexcept;
     [[nodiscard]] double getLengthInSeconds() const noexcept;
@@ -57,15 +78,16 @@ public:
 private:
     [[nodiscard]] bool anyStemSoloed() const noexcept;
     void sortStemsForPractice();
-    void recomputeLength();
 
     juce::AudioFormatManager& formatManager;
+    TakeRecorder* takeRecorder = nullptr;
     std::vector<std::unique_ptr<StemTrack>> stems;
     std::array<float, kNumMixBuses> busMaster { 1.0f, 1.0f, 1.0f };
     double deviceSampleRate = 44100.0;
     double positionSeconds = 0.0;
     double lengthSeconds = 0.0;
     bool playing = false;
+    std::atomic<bool> playbackEnded { false };
     juce::AudioBuffer<float> dryScratch;
 };
 

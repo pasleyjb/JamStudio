@@ -65,7 +65,7 @@ TransportBar::TransportBar (jamstudio::audio::TransportController& transport)
     addAndMakeVisible (recordButton);
 
     startTakeButton.setIndicatorColour (juce::Colour (0xffff3344));
-    startTakeButton.setTooltip ("Start Audacity recording and play stems and lyrics together, from the top");
+    startTakeButton.setTooltip ("Record armed tracks and play from the top, on the same clock. The click is not recorded.");
     startTakeButton.onClick = [this]
     {
         if (startTakeCallback != nullptr)

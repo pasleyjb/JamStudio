@@ -26,6 +26,8 @@ bool StemTrack::loadFromFile (const juce::File& file, juce::AudioFormatManager& 
 
     muted = false;
     solo = false;
+    recordArmed.store (false, std::memory_order_relaxed);
+    startOffsetSeconds.store (0.0, std::memory_order_relaxed);
     busSends = { 0.8f, 0.7f, 0.0f };
     meterLevel.store (0.0f, std::memory_order_relaxed);
     meterPeakHold.store (0.0f, std::memory_order_relaxed);
@@ -38,6 +40,12 @@ void StemTrack::setBusSend (const MixBus bus, const float gain) noexcept
     const auto i = static_cast<int> (bus);
     if (juce::isPositiveAndBelow (i, kNumMixBuses))
         busSends[static_cast<size_t> (i)] = juce::jlimit (0.0f, 1.0f, gain);
+}
+
+void StemTrack::setStartOffsetSeconds (const double seconds) noexcept
+{
+    const auto safe = (std::isfinite (seconds) && seconds > 0.0) ? seconds : 0.0;
+    startOffsetSeconds.store (safe, std::memory_order_relaxed);
 }
 
 float StemTrack::getBusSend (const MixBus bus) const noexcept
@@ -110,28 +118,51 @@ bool StemTrack::readDryResampled (juce::AudioBuffer<float>& temp,
                                   const double startSeconds,
                                   const int numOutputSamples,
                                   const double deviceSampleRate,
-                                  const bool anySoloActive) const
+                                  const bool anySoloActive,
+                                  const bool ignoreAudibility) const
 {
     if (reader == nullptr || numOutputSamples <= 0 || deviceSampleRate <= 0.0)
         return false;
 
-    const bool isAudible = anySoloActive ? solo : ! muted;
-    if (! isAudible)
+    if (! ignoreAudibility)
+    {
+        const bool isAudible = anySoloActive ? solo : ! muted;
+        if (! isAudible)
+            return false;
+
+        bool anySend = false;
+        for (float s : busSends)
+            if (s > 0.0001f)
+                anySend = true;
+
+        if (! anySend)
+            return false;
+    }
+
+    const auto offset = startOffsetSeconds.load (std::memory_order_relaxed);
+    const double blockEnd = startSeconds + static_cast<double> (numOutputSamples) / deviceSampleRate;
+
+    if (blockEnd <= offset)
         return false;
 
-    // Any non-zero send?
-    bool anySend = false;
-    for (float s : busSends)
-        if (s > 0.0001f)
-            anySend = true;
+    int skipOut = 0;
+    auto fileSeconds = startSeconds - offset;
 
-    if (! anySend)
+    if (fileSeconds < 0.0)
+    {
+        skipOut = static_cast<int> (std::ceil ((-fileSeconds) * deviceSampleRate));
+        skipOut = juce::jlimit (0, numOutputSamples, skipOut);
+        fileSeconds = 0.0;
+    }
+
+    if (skipOut >= numOutputSamples)
         return false;
 
     const auto fileSR = getFileSampleRate();
-    const double startSampleF = juce::jmax (0.0, startSeconds) * fileSR;
+    const double startSampleF = juce::jmax (0.0, fileSeconds) * fileSR;
+    const auto played = numOutputSamples - skipOut;
     const double ratio = fileSR / deviceSampleRate;
-    const int sourceSamples = juce::jmax (2, static_cast<int> (std::ceil (numOutputSamples * ratio)) + 2);
+    const int sourceSamples = juce::jmax (2, static_cast<int> (std::ceil (static_cast<double> (played) * ratio)) + 2);
     const auto startSample = static_cast<juce::int64> (startSampleF);
 
     juce::AudioBuffer<float> sourceBuffer (static_cast<int> (reader->numChannels), sourceSamples);
@@ -141,7 +172,9 @@ bool StemTrack::readDryResampled (juce::AudioBuffer<float>& temp,
         return false;
 
     const int outCh = juce::jmin (2, temp.getNumChannels());
-    temp.clear();
+    temp.setNotClear();
+    for (int ch = 0; ch < temp.getNumChannels(); ++ch)
+        juce::FloatVectorOperations::clear (temp.getWritePointer (ch), temp.getNumSamples());
 
     const double phase0 = startSampleF - static_cast<double> (startSample);
     const int sourceChannels = sourceBuffer.getNumChannels();
@@ -152,9 +185,9 @@ bool StemTrack::readDryResampled (juce::AudioBuffer<float>& temp,
         const auto* src = sourceBuffer.getReadPointer (srcCh);
         auto* dst = temp.getWritePointer (ch);
 
-        for (int i = 0; i < numOutputSamples; ++i)
+        for (int i = skipOut; i < numOutputSamples; ++i)
         {
-            const double pos = phase0 + static_cast<double> (i) * ratio;
+            const double pos = phase0 + static_cast<double> (i - skipOut) * ratio;
             const auto i0 = juce::jlimit (0, sourceSamples - 1, static_cast<int> (pos));
             const auto i1 = juce::jmin (sourceSamples - 1, i0 + 1);
             const auto frac = static_cast<float> (pos - static_cast<double> (i0));

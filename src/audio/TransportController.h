@@ -1,9 +1,11 @@
 #pragma once
 
+#include "LiveInputs.h"
 #include "Metronome.h"
 #include "MultiBusMaster.h"
 #include "StageMediaPlayer.h"
 #include "StemMixer.h"
+#include "TakeRecorder.h"
 
 #include <atomic>
 
@@ -24,6 +26,8 @@ public:
     TransportController& operator= (const TransportController&) = delete;
 
     StemMixer& getStemMixer() noexcept { return stemMixer; }
+    LiveInputs& getLiveInputs() noexcept { return liveInputs; }
+    TakeRecorder& getTakeRecorder() noexcept { return takeRecorder; }
     Metronome& getMetronome() noexcept { return metronome; }
     StageMediaPlayer& getStageMedia() noexcept { return stageMedia; }
     MultiBusMaster& getMultiBusMaster() noexcept { return multiBusMaster; }
@@ -70,6 +74,8 @@ private:
     StemMixer stemMixer;
     Metronome metronome;
     StageMediaPlayer stageMedia;
+    TakeRecorder takeRecorder;
+    LiveInputs liveInputs;
     MultiBusMaster multiBusMaster;
 
     std::atomic<bool> linkStageMedia { true };

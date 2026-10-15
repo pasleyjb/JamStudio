@@ -16,6 +16,7 @@ juce::var stemToVar (const StemState& stem)
     obj->setProperty ("muted", stem.muted);
     obj->setProperty ("solo", stem.solo);
     obj->setProperty ("volume", stem.volume);
+    obj->setProperty ("startOffset", stem.startOffsetSeconds);
     return juce::var (obj);
 }
 
@@ -30,6 +31,7 @@ StemState varToStem (const juce::var& value)
         stem.muted = static_cast<bool> (obj->getProperty ("muted"));
         stem.solo = static_cast<bool> (obj->getProperty ("solo"));
         stem.volume = static_cast<float> (static_cast<double> (obj->getProperty ("volume")));
+        stem.startOffsetSeconds = static_cast<double> (obj->getProperty ("startOffset"));
     }
 
     return stem;
@@ -85,6 +87,7 @@ ProjectData ProjectManager::captureState (const juce::File& songFile,
             state.muted = stem->isMuted();
             state.solo = stem->isSolo();
             state.volume = stem->getVolume();
+            state.startOffsetSeconds = stem->getStartOffsetSeconds();
             data.stems.add (state);
         }
     }
@@ -451,6 +454,9 @@ bool ProjectManager::applyState (const ProjectData& data,
                 mixer.setStemMuted (mi, stemState.muted);
                 mixer.setStemSolo (mi, stemState.solo);
                 mixer.setStemVolume (mi, stemState.volume);
+
+                if (stemState.startOffsetSeconds > 0.0)
+                    mixer.setStemStartOffset (mi, stemState.startOffsetSeconds);
 
                 if (stemState.name.isNotEmpty())
                     mixer.setStemName (mi, stemState.name);

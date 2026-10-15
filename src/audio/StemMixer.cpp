@@ -1,4 +1,5 @@
 #include "StemMixer.h"
+#include "TakeRecorder.h"
 
 #include <algorithm>
 
@@ -29,7 +30,8 @@ void StemMixer::recomputeLength()
         {
             const auto sr = reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
             lengthSeconds = juce::jmax (lengthSeconds,
-                                        static_cast<double> (reader->lengthInSamples) / sr);
+                                        stem->getStartOffsetSeconds()
+                                            + static_cast<double> (reader->lengthInSamples) / sr);
         }
     }
 }
@@ -103,6 +105,28 @@ void StemMixer::setStemSolo (const int index, const bool solo)
     if (auto* stem = getStem (index))
     {
         stem->setSolo (solo);
+        sendChangeMessage();
+    }
+}
+
+void StemMixer::setStemRecordArmed (const int index, const bool armed)
+{
+    if (auto* stem = getStem (index))
+    {
+        if (stem->isRecordArmed() == armed)
+            return;
+
+        stem->setRecordArmed (armed);
+        sendChangeMessage();
+    }
+}
+
+void StemMixer::setStemStartOffset (const int index, const double seconds)
+{
+    if (auto* stem = getStem (index))
+    {
+        stem->setStartOffsetSeconds (seconds);
+        recomputeLength();
         sendChangeMessage();
     }
 }
@@ -224,7 +248,16 @@ void StemMixer::releaseResources()
 
 void StemMixer::getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToFill)
 {
-    bufferToFill.clearActiveBufferRegion();
+    // AudioBuffer::clear() does nothing once the buffer is marked clear, and
+    // that flag does not mean the device memory is zero. Zero the samples.
+    if (auto* out = bufferToFill.buffer)
+    {
+        out->setNotClear();
+        const auto start = bufferToFill.startSample;
+        const auto num = bufferToFill.numSamples;
+        for (int ch = 0; ch < out->getNumChannels(); ++ch)
+            juce::FloatVectorOperations::clear (out->getWritePointer (ch) + start, num);
+    }
 
     if (! playing || stems.empty() || deviceSampleRate <= 0.0)
         return;
@@ -239,17 +272,39 @@ void StemMixer::getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToF
     if (dryScratch.getNumSamples() < numSamples)
         dryScratch.setSize (2, numSamples, false, false, true);
 
+    if (takeRecorder != nullptr)
+        takeRecorder->beginBlock (startSeconds, numSamples);
+
     // How many stereo buses fit on the device?
     const int availableBuses = juce::jlimit (1, kNumMixBuses, outCh / kChannelsPerBus);
 
     for (const auto& stem : stems)
     {
-        if (! stem->readDryResampled (dryScratch, startSeconds, numSamples, deviceSampleRate, anySolo))
+        const bool printing = takeRecorder != nullptr && takeRecorder->isPrinting (stem.get());
+        const bool audible = stem->readDryResampled (dryScratch, startSeconds, numSamples,
+                                                     deviceSampleRate, anySolo, false);
+
+        if (! audible && printing)
         {
-            const auto prev = stem->getMeterLevel();
-            juce::ignoreUnused (prev);
+            if (stem->readDryResampled (dryScratch, startSeconds, numSamples,
+                                        deviceSampleRate, anySolo, true))
+                takeRecorder->writeStem (stem.get(), dryScratch, numSamples);
+            else
+                takeRecorder->writeStemSilence (stem.get(), numSamples);
+
             continue;
         }
+
+        if (printing)
+        {
+            if (audible)
+                takeRecorder->writeStem (stem.get(), dryScratch, numSamples);
+            else
+                takeRecorder->writeStemSilence (stem.get(), numSamples);
+        }
+
+        if (! audible)
+            continue;
 
         stem->updateMeterFromDry (dryScratch, stem->getBusSend (MixBus::foh) * getBusMaster (MixBus::foh));
 
@@ -274,13 +329,16 @@ void StemMixer::getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToF
         // If mon buses requested but device is stereo-only, optionally blend mon into FOH? Skip — user needs multi-out.
     }
 
+    if (takeRecorder != nullptr)
+        takeRecorder->commitBlock();
+
     positionSeconds += static_cast<double> (numSamples) / deviceSampleRate;
 
     if (positionSeconds >= lengthSeconds && lengthSeconds > 0.0)
     {
         positionSeconds = lengthSeconds;
         playing = false;
-        sendChangeMessage();
+        playbackEnded.store (true, std::memory_order_release);
     }
 }
 

@@ -12,6 +12,7 @@ struct StemState
     bool muted = false;
     bool solo = false;
     float volume = 0.8f;
+    double startOffsetSeconds = 0.0;
 };
 
 struct ProjectData
