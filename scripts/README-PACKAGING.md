@@ -89,13 +89,13 @@ Install:
 
 The image bundles the FFmpeg libraries the app was linked against, then ad-hoc signs the bundle so Apple Silicon will launch it. It is not notarized. The first time you open it, if Gatekeeper blocks the app, right-click JamStudio in Applications and choose Open.
 
-AI tools stay optional. On a Mac:
+The disk image, AppImage, and Windows zip include Demucs and the htdemucs_6s weights. Stem separation does not need a separate install.
+
+Whisper and basic-pitch stay optional. On a Mac:
 
 ```bash
 brew install pipx ffmpeg
 pipx ensurepath
-pipx install demucs
-pipx inject demucs torchcodec
 pipx install openai-whisper
 ```
 
@@ -113,7 +113,7 @@ xcode-select --install
 Workflow: `.github/workflows/package.yml`
 
 - **Manual:** Actions → Package → Run workflow  
-- **Tag:** push `v0.9.7` (or any `v*`) to build and create a GitHub Release
+- **Tag:** push `v0.9.8` (or any `v*`) to build and create a GitHub Release
 
 CI builds the Linux AppImage, the Windows portable zip and Inno Setup installer, and the macOS disk image. The Windows job verifies CRT DLLs are present.
 

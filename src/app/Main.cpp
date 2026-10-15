@@ -11,7 +11,7 @@ class JamStudioApplication : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override       { return "JamStudio"; }
-    const juce::String getApplicationVersion() override    { return "0.9.7"; }
+    const juce::String getApplicationVersion() override    { return "0.9.8"; }
     bool moreThanOneInstanceAllowed() override             { return false; }
 
     void initialise (const juce::String&) override
@@ -61,8 +61,13 @@ public:
 
         mainWindow = std::make_unique<MainWindow> (audioDeviceManager);
 
+        // SplashScreen deletes itself. Keeping the unique_ptr and also calling
+        // deleteAfterDelay frees it twice and crashes on quit.
         if (splash != nullptr)
+        {
             splash->deleteAfterDelay (juce::RelativeTime::seconds (1.8), false);
+            splash.release();
+        }
     }
 
     void shutdown() override

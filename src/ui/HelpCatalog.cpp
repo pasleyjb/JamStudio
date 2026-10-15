@@ -348,9 +348,10 @@ juce::Array<HelpTopic> buildTopics()
         "Separate stems (Demucs)",
         "Stems",
         "stems demucs separate guitar drums bass vocals",
-        "Stems → Separate Stems runs Demucs (Help → AI Tools Setup…, model htdemucs_6s).\n"
+        "Stems → Separate Stems runs Demucs (model htdemucs_6s).\n"
         "That model writes drums, bass, other, vocals, guitar, and piano.\n"
-        "The menu item is disabled until Demucs is installed.\n"
+        "Demucs is included in the Mac, Windows, and Linux downloads.\n"
+        "The menu item is disabled only when that copy is missing.\n"
         "Stem lanes under the transport show mini waveforms."));
 
     // ---------- Recording ----------
@@ -395,11 +396,11 @@ juce::Array<HelpTopic> buildTopics()
         "AI Tools Setup",
         "AI Tools",
         "ai demucs whisper basic pitch python tools",
-        "Help → AI Tools Setup… checks optional Python tools:\n\n"
-        "• Demucs — stem separation\n"
+        "Help → AI Tools Setup… checks the Python tools:\n\n"
+        "• Demucs — stem separation. Included in the download.\n"
         "• Whisper — lyrics from vocals\n"
         "• Basic Pitch — tab/MIDI transcription\n\n"
-        "Install missing tools as guided; availability is shown in related menus."));
+        "Install any tool that is still missing; availability is shown in related menus."));
 
     // ---------- About ----------
     t.add (topic (

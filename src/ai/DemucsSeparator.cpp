@@ -41,9 +41,51 @@ float parseProgressFromOutput (const juce::String& output)
 }
 } // namespace
 
+namespace
+{
+juce::String quotePath (const juce::String& path)
+{
+    return "\"" + path + "\"";
+}
+
+// Packaged builds ship Python, Demucs, and the htdemucs_6s weights next to the app.
+juce::String bundledDemucsCommand()
+{
+    const auto exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
+    const juce::File roots[] = {
+        exe.getParentDirectory().getChildFile ("demucs"),
+        exe.getParentDirectory().getParentDirectory().getChildFile ("Resources").getChildFile ("demucs")
+    };
+
+    for (const auto& root : roots)
+    {
+        const auto script = root.getChildFile ("jamstudio_demucs.py");
+        if (! script.existsAsFile())
+            continue;
+
+        auto python = root.getChildFile ("python").getChildFile ("bin").getChildFile ("python3");
+        if (! python.existsAsFile())
+            python = root.getChildFile ("python").getChildFile ("python.exe");
+        if (! python.existsAsFile())
+            continue;
+
+        return quotePath (python.getFullPathName()) + " " + quotePath (script.getFullPathName());
+    }
+
+    return {};
+}
+} // namespace
+
 DemucsSeparator::DemucsSeparator()
 {
-    demucsExecutable = findWorkingExecutable ({ "demucs", "python3 -m demucs", "python -m demucs" });
+    juce::StringArray candidates;
+    if (const auto bundled = bundledDemucsCommand(); bundled.isNotEmpty())
+        candidates.add (bundled);
+
+    candidates.add ("demucs");
+    candidates.add ("python3 -m demucs");
+    candidates.add ("python -m demucs");
+    demucsExecutable = findWorkingExecutable (candidates);
 }
 
 DemucsSeparator::~DemucsSeparator()
@@ -276,7 +318,7 @@ juce::StringArray DemucsSeparator::buildCommand (const juce::File& inputFile,
 {
     juce::StringArray command;
 
-    if (demucsExecutable.contains (" -m "))
+    if (demucsExecutable.contains (" ") || demucsExecutable.containsChar ('"'))
         command.addTokens (demucsExecutable, " ", "\"'");
     else
         command.add (demucsExecutable);

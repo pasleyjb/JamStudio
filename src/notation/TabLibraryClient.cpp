@@ -7,7 +7,7 @@ namespace jamstudio::notation
 
 namespace
 {
-constexpr auto userAgent = "JamStudio/0.9.7";
+constexpr auto userAgent = "JamStudio/0.9.8";
 
 juce::String readEntryString (const juce::var& object, const char* key)
 {

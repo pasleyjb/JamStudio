@@ -15,7 +15,7 @@ juce::Array<AiToolInfo> AiToolsCatalog::getToolStatuses (const DemucsSeparator& 
         "Stem separation with dedicated guitar (htdemucs_6s)",
         demucs.isAvailable(),
         "pipx install demucs && pipx inject demucs torchcodec",
-        "Uses the 6-stem model so Guitar is its own track (not mixed into Other). First run downloads models."
+        "Included in the Mac, Windows, and Linux downloads (htdemucs_6s). Install the command above only if that copy is missing."
     });
 
     tools.add ({

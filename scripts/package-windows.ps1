@@ -198,6 +198,15 @@ Get-ChildItem $BinDir -Filter *.dll -ErrorAction SilentlyContinue | ForEach-Obje
     Copy-Item $_.FullName $StageDir -Force
 }
 
+Write-Host "==> Bundling Demucs so stem separation works without a separate install"
+bash (Join-Path $Root "scripts/bundle-demucs.sh") (Join-Path $DistDir "demucs-runtime")
+if ($LASTEXITCODE -ne 0) { Write-Error "Demucs bundle failed" }
+$DemucsRuntime = Join-Path $DistDir "demucs-runtime"
+if (-not (Test-Path (Join-Path $DemucsRuntime "jamstudio_demucs.py"))) {
+    Write-Error "Demucs runtime is missing jamstudio_demucs.py"
+}
+Copy-Item $DemucsRuntime (Join-Path $StageDir "demucs") -Recurse -Force
+
 # Licenses / readme
 @"
 JamStudio $Version (Windows x64 portable)
@@ -207,8 +216,9 @@ JamStudio $Version (Windows x64 portable)
 3. FFmpeg DLLs enable stage video (MP4 etc.)
 4. MSVC runtime DLLs (vcruntime140 / msvcp140) are included so a separate
    Visual C++ Redistributable install is usually not required
-5. Optional: install Audacity for external recording with plugins
-6. Multi-out audio interfaces: first 6 channels = FOH / Mon A / Mon B
+5. Demucs is included in the demucs folder. Stem separation does not need a separate install.
+6. Optional: install Audacity for external recording with plugins
+7. Multi-out audio interfaces: first 6 channels = FOH / Mon A / Mon B
 
 See Help -> Instructions inside the app.
 "@ | Set-Content (Join-Path $StageDir "README.txt")

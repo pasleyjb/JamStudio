@@ -11,16 +11,14 @@ juce::StringArray buildProbeCommand (const juce::String& executable, const juce:
 {
     juce::StringArray command;
 
-    if (executable.contains (" -m "))
-    {
+    // Quoted paths and "python -m tool" are several arguments. A single token
+    // is a program name on PATH or an absolute path with no spaces.
+    if (executable.contains (" ") || executable.containsChar ('"'))
         command.addTokens (executable, " ", "\"'");
-        command.add (probeArg);
-    }
     else
-    {
         command.add (executable);
-        command.add (probeArg);
-    }
+
+    command.add (probeArg);
 
     return command;
 }
@@ -58,7 +56,8 @@ bool commandResponds (const juce::String& executable, const juce::String& probeA
     if (! process.start (command, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
         return false;
 
-    process.waitForProcessToFinish (20000);
+    // Torch import on a cold bundled Demucs can take longer than a normal --help.
+    process.waitForProcessToFinish (60000);
     return process.getExitCode() == 0;
 }
 

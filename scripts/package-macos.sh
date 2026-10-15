@@ -241,7 +241,29 @@ while [[ $index -lt ${#pending[@]} ]]; do
   done < <(otool -L "$owner" | awk 'NR>1 { print $1 }')
 done
 
+echo "==> Bundling Demucs so stem separation works without a separate install"
+bash "$ROOT/scripts/bundle-demucs.sh" "$DIST_DIR/demucs-runtime"
+# Contents/MacOS may only hold Mach-O. Python scripts and the model cache
+# there fail codesign --verify as unsigned nested code. Resources is data.
+rm -rf "$APP/Contents/MacOS/demucs" "$APP/Contents/Resources/demucs"
+mkdir -p "$APP/Contents/Resources"
+ditto "$DIST_DIR/demucs-runtime" "$APP/Contents/Resources/demucs"
+chmod +x "$APP/Contents/Resources/demucs/python/bin/python3" || true
+xattr -cr "$APP/Contents/Resources/demucs" || true
+
 echo "==> Signing (ad-hoc, so Apple Silicon will launch the bundle)"
+if [[ -d "$APP/Contents/Resources/demucs" ]]; then
+  macho_list="$(mktemp)"
+  find "$APP/Contents/Resources/demucs" -type f -print0 \
+    | xargs -0 file \
+    | grep 'Mach-O' \
+    | sed 's/:.*//' > "$macho_list"
+  while IFS= read -r bin; do
+    [[ -n "$bin" ]] || continue
+    codesign --force --sign - "$bin"
+  done < "$macho_list"
+  rm -f "$macho_list"
+fi
 if [[ -d "$FRAMEWORKS" ]]; then
   while IFS= read -r lib; do
     codesign --force --sign - "$lib"

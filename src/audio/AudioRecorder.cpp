@@ -84,7 +84,15 @@ void AudioRecorder::audioDeviceIOCallbackWithContext (const float* const* inputC
                                                       const int numSamples,
                                                       const juce::AudioIODeviceCallbackContext& context)
 {
-    juce::ignoreUnused (outputChannelData, numOutputChannels, context);
+    juce::ignoreUnused (context);
+
+    // AudioDeviceManager adds every callback after the first into the live
+    // output. This callback only reads the input, so leave the output silent.
+    // An uncleared buffer here is a steady buzz.
+    if (outputChannelData != nullptr)
+        for (int ch = 0; ch < numOutputChannels; ++ch)
+            if (outputChannelData[ch] != nullptr)
+                juce::FloatVectorOperations::clear (outputChannelData[ch], numSamples);
 
     float peak = 0.0f;
 

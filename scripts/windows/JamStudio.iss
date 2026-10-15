@@ -7,7 +7,7 @@
 ; Override version from CLI:  ISCC /DMyAppVersion=0.9.6 scripts\windows\JamStudio.iss
 
 #ifndef MyAppVersion
-#define MyAppVersion "0.9.7"
+#define MyAppVersion "0.9.8"
 #endif
 #define MyAppName "JamStudio"
 #define MyAppPublisher "JamStudio"

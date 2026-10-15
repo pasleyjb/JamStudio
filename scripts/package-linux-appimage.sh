@@ -153,6 +153,12 @@ for lib in libavformat libavcodec libavutil libswresample; do
 done
 
 OUTPUT="$DIST_DIR/JamStudio-${VERSION}-${ARCH}.AppImage"
+echo "==> Bundling Demucs so stem separation works without a separate install"
+bash "$ROOT/scripts/bundle-demucs.sh" "$DIST_DIR/demucs-runtime"
+rm -rf "$APPDIR/usr/bin/demucs"
+mkdir -p "$APPDIR/usr/bin"
+cp -a "$DIST_DIR/demucs-runtime" "$APPDIR/usr/bin/demucs"
+
 echo "==> Creating $OUTPUT"
 export ARCH
 run_appimage "$APPIMAGETOOL" "$APPDIR" "$OUTPUT"

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.8] — 2026-10-15
+
+### Added
+
+- Mac, Windows, and Linux downloads include Demucs and the htdemucs_6s model, so stem separation works without a separate Python install
+
+### Fixed
+
+- Steady buzz on macOS caused by the recorder callback leaving an uninitialized buffer that was mixed into the speakers
+- Quit crash caused by deleting the startup splash screen twice
+
 ## [0.9.7] — 2026-10-15
 
 ### Fixed
